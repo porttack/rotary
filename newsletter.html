@@ -5,65 +5,173 @@ permalink: /newsletter/
 ---
 
 <style>
-  #bulletin { max-width: 720px; margin: 0 auto; font-family: inherit; }
-  #bulletin h2 { color: #17458F; border-bottom: 2px solid #17458F; padding-bottom: 0.25em; }
-  #bulletin h3 { color: #555; margin-top: 1.5em; }
-  .bulletin-meta { color: #888; font-size: 0.9em; }
-  .bulletin-section { margin-bottom: 1.5em; }
-  .bulletin-label { font-weight: bold; color: #17458F; min-width: 8em; display: inline-block; }
-  .bulletin-row { margin: 0.25em 0; }
-  .role-table { border-collapse: collapse; margin-top: 0.5em; }
-  .role-table td { padding: 0.2em 1em 0.2em 0; vertical-align: top; }
-  .role-table td:first-child { color: #17458F; font-weight: bold; white-space: nowrap; }
+  #bulletin {
+    max-width: 760px;
+    margin: 0 auto;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 11pt;
+    color: #222;
+    line-height: 1.55;
+  }
+  .masthead {
+    text-align: center;
+    margin-bottom: 1.5em;
+    padding-bottom: 1em;
+    border-bottom: 3px solid #17458F;
+  }
+  .masthead h1 { font-size: 2.2em; color: #17458F; margin: 0 0 0.15em; letter-spacing: 0.02em; }
+  .masthead-sub { color: #666; font-style: italic; font-size: 0.95em; margin: 0; }
+
+  .bulletin-section { margin-top: 1.8em; }
+  .bulletin-section > h2 {
+    color: #17458F;
+    font-size: 1.35em;
+    border-bottom: 2px solid #17458F;
+    padding-bottom: 0.2em;
+    margin-bottom: 0.8em;
+  }
+
+  .event-block { margin-bottom: 1.2em; }
+  .event-heading { color: #1a56db; font-size: 1.05em; margin: 0.8em 0 0.15em; }
+  .event-heading.past { color: #555; }
+  .event-meta { color: #555; font-style: italic; font-size: 0.9em; margin: 0 0 0.5em; }
+  .event-photo {
+    display: block; max-width: 300px; height: auto;
+    margin: 0.6em 0; border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  }
+  .event-opening { font-size: 0.95em; margin: 0.3em 0; }
+  .event-narrative { margin: 0.5em 0; }
+  .meet-link { font-size: 0.9em; margin: 0.4em 0; }
+
+  .duty-roster { margin-top: 0.8em; }
+  .duty-roster h4 {
+    font-size: 0.88em; color: #333; margin: 0 0 0.3em;
+    font-family: Arial, sans-serif; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .duty-table { border-collapse: collapse; font-size: 0.88em; font-family: Arial, sans-serif; }
+  .duty-table td { padding: 0.1em 1.2em 0.1em 0; vertical-align: top; }
+  .duty-table td:first-child { font-weight: bold; color: #17458F; white-space: nowrap; }
+  .tbd-roles { color: #bbb; font-size: 0.82em; margin: 0.2em 0 0; font-family: Arial, sans-serif; }
+
+  .section-rule { border: none; border-top: 1px solid #e0e0e0; margin: 1.2em 0; }
+
+  .skim-note { color: #888; font-style: italic; font-size: 0.85em; margin-bottom: 0.6em; }
+  .month-group h3 {
+    color: #17458F; font-size: 1em; margin: 1em 0 0.25em;
+    font-family: Arial, sans-serif; font-weight: bold;
+  }
+  .skim-list { list-style: none; padding: 0; margin: 0 0 0.5em; }
+  .skim-item {
+    font-size: 0.88em; padding: 0.22em 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-family: Arial, sans-serif;
+  }
+  .skim-item.cancelled { color: #bbb; }
+  .skim-venue { font-size: 0.85em; color: #666; }
+  .skim-venue a { color: #1a56db; text-decoration: none; }
+
+  .calendar-legend {
+    color: #666; font-size: 0.82em; font-style: italic;
+    margin-bottom: 0.5em; font-family: Arial, sans-serif;
+  }
+  .month-calendar { margin: 0.8em 0; overflow-x: auto; }
+  .month-calendar > h3 {
+    color: #17458F; font-size: 0.95em; font-weight: bold;
+    margin: 1em 0 0.2em; font-family: Arial, sans-serif;
+  }
+  .cal-table {
+    border-collapse: collapse; width: 100%;
+    font-size: 0.78em; font-family: Arial, sans-serif;
+  }
+  .cal-table th {
+    background: #1a3a6b; color: #fff; font-weight: bold;
+    padding: 3px 5px; text-align: center; border: 1px solid #fff;
+  }
+  .cal-table td {
+    border: 1px solid #ddd; padding: 3px 4px;
+    vertical-align: top; min-width: 36px;
+  }
+  .cal-table td.empty { background: #f5f5f5; }
+  .cal-date { font-weight: bold; display: block; margin-bottom: 1px; }
+  .cal-event { font-size: 0.82em; display: block; line-height: 1.3; }
+  .cal-event.cancelled { color: #aaa; }
+
+  .bg-meeting      { background: #c7d7fb; }
+  .bg-board        { background: #e9d5ff; }
+  .bg-social       { background: #bbf7d0; }
+  .bg-service      { background: #fed7aa; }
+  .bg-other        { background: #f3f4f6; }
+  .bg-cancelled    { background: #e5e7eb; }
+
+  .bulletin-footer {
+    margin-top: 2em; padding-top: 0.5em; border-top: 1px solid #ddd;
+    color: #bbb; font-size: 0.75em; text-align: center;
+    font-style: italic; font-family: Arial, sans-serif;
+  }
+  a { color: #1a56db; }
+
+  @media (max-width: 600px) {
+    #bulletin { font-size: 10pt; }
+    .event-photo { max-width: 100%; }
+    .cal-table { font-size: 0.68em; }
+    .cal-table td { min-width: 28px; padding: 2px; }
+  }
 </style>
 
 <div id="bulletin-loading" style="text-align:center;padding:2em;color:#666;">
-  Loading this week's bulletin…
+  Loading this week&rsquo;s bulletin&hellip;
 </div>
-<div id="bulletin" style="display:none;"></div>
+<article id="bulletin" style="display:none;"></article>
 
 <script>
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
+const CSV_URL      = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_0TarOYXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
+const DETAIL_COUNT = 3;
+const WEEKS_AHEAD  = 12;
 
 const COL = {
-  eventId:        0,
-  eventType:      1,
-  cancelled:      2,
-  day:            3,
-  date:           4,
-  time:           5,
-  durationMin:    6,
-  location:       7,
-  meetLink:       8,
-  openingSpeaker: 9,
-  mainSpeaker:    10,
-  mainTopic:      11,
-  description:    12,
-  summary:        13,
-  photo:          14,
-  mc:             15,
-  setupTeardown:  16,
-  avZoom:         17,
-  greeter:        18,
-  fourWayTest:    19,
-  thought:        20,
-  detective:      21,
-  bagPerson:      22,
-  comments:       23,
+  eventId:0, eventType:1, cancelled:2, day:3, date:4, time:5,
+  durationMin:6, location:7, meetLink:8, openingSpeaker:9,
+  mainSpeaker:10, mainTopic:11, description:12, summary:13,
+  photo:14, mc:15, setupTeardown:16, avZoom:17, greeter:18,
+  fourWayTest:19, thought:20, detective:21, bagPerson:22, comments:23
 };
 
+const ROLE_FIELDS = [
+  { key:'mc',            label:'MC'             },
+  { key:'setupTeardown', label:'Setup/Teardown' },
+  { key:'avZoom',        label:'AV/Zoom'        },
+  { key:'greeter',       label:'Greeter'        },
+  { key:'fourWayTest',   label:'4-Way-Test'     },
+  { key:'thought',       label:'Thought'        },
+  { key:'detective',     label:'Detective'      },
+  { key:'bagPerson',     label:'Bag Person'     },
+];
+
+const TYPE_BG = {
+  'meeting':'bg-meeting', 'board meeting':'bg-board',
+  'social':'bg-social',   'service':'bg-service',
+  'committee':'bg-other', 'other':'bg-other',
+};
+const TYPE_ABBREV = {
+  'meeting':'Mtg', 'board meeting':'Brd', 'social':'Soc',
+  'service':'Svc', 'committee':'Com',     'other':'Oth',
+};
+const DETAIL_TYPES = ['meeting', 'board meeting'];
+
+// ── Parsing ───────────────────────────────────────────────────────────────
 function parseCSV(text) {
   const rows = [];
   let cur = [], field = '', inQuote = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (inQuote) {
-      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      if (ch === '"' && text[i+1] === '"') { field += '"'; i++; }
       else if (ch === '"') { inQuote = false; }
       else { field += ch; }
     } else {
-      if (ch === '"') { inQuote = true; }
-      else if (ch === ',') { cur.push(field); field = ''; }
+      if      (ch === '"')  { inQuote = true; }
+      else if (ch === ',')  { cur.push(field); field = ''; }
       else if (ch === '\n') { cur.push(field); rows.push(cur); cur = []; field = ''; }
       else if (ch !== '\r') { field += ch; }
     }
@@ -72,163 +180,338 @@ function parseCSV(text) {
   return rows;
 }
 
-function f(row, idx) { return (row[idx] || '').trim(); }
+const fv          = (row, col) => (row[col] || '').trim();
+const isCancelled = row => fv(row, COL.cancelled).toUpperCase() === 'TRUE';
 
 function to24h(t) {
   const m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
   if (!m) return t;
   let h = parseInt(m[1]);
-  const min = m[2];
-  const ampm = m[3].toUpperCase();
-  if (ampm === 'PM' && h !== 12) h += 12;
-  if (ampm === 'AM' && h === 12) h = 0;
-  return `${String(h).padStart(2,'0')}:${min}:00`;
+  if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
+  if (m[3].toUpperCase() === 'AM' && h === 12)  h = 0;
+  return `${String(h).padStart(2,'0')}:${m[2]}:00`;
 }
 
 function parseRowDate(row) {
-  const dateStr = f(row, COL.date);
-  const timeStr = f(row, COL.time);
-  if (!dateStr) return null;
-  try {
-    const d = new Date(timeStr ? `${dateStr}T${to24h(timeStr)}` : dateStr);
-    return isNaN(d) ? null : d;
-  } catch { return null; }
+  const ds = fv(row, COL.date);
+  if (!ds) return null;
+  const ts = fv(row, COL.time);
+  const d  = new Date(ts ? `${ds}T${to24h(ts)}` : `${ds}T00:00:00`);
+  return isNaN(d) ? null : d;
 }
 
-function formatDate(d) {
-  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+function abbrevTime(ts) {
+  if (!ts) return '';
+  const m = ts.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return '';
+  let h = parseInt(m[1]);
+  const min = parseInt(m[2]);
+  if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
+  if (m[3].toUpperCase() === 'AM' && h === 12)  h = 0;
+  const h12  = h % 12 || 12;
+  const ampm = h >= 12 ? 'p' : 'a';
+  return min === 0 ? `${h12}${ampm}` : `${h12}:${String(min).padStart(2,'0')}${ampm}`;
 }
 
-function row2(label, value) {
-  if (!value) return '';
-  return `<tr><td>${label}</td><td>${value}</td></tr>`;
+// ── HTML helpers ──────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function textToHtml(s) { return esc(s).replace(/\n/g,'<br>'); }
+
+function mapLink(location, displayText) {
+  if (!location) return esc(displayText || '');
+  const url = `https://maps.google.com/?q=${encodeURIComponent(location)}`;
+  return `<a href="${url}" target="_blank" rel="noopener">${esc(displayText || location)}</a>`;
 }
 
-function pickMeeting(rows) {
-  const now   = new Date();
-  const dated = rows
-    .map(r => ({ row: r, d: parseRowDate(r) }))
-    .filter(x => x.d && f(x.row, COL.eventType).toLowerCase() !== 'board meeting');
+const fmt = (d, opts) => d.toLocaleDateString('en-US', opts);
+const fmtLong      = d => fmt(d, {weekday:'long', month:'long', day:'numeric', year:'numeric'});
+const fmtShort     = d => fmt(d, {month:'short', day:'numeric'});
+const fmtDayDate   = d => fmt(d, {weekday:'short', month:'short', day:'numeric'});
+const fmtMonthYear = d => fmt(d, {month:'long', year:'numeric'});
 
-  const upcoming = dated.filter(x => x.d >= now).sort((a, b) => a.d - b.d);
-  if (upcoming.length) return upcoming[0];
-  return dated.sort((a, b) => b.d - a.d)[0] || null;
+// ── Section: Masthead ─────────────────────────────────────────────────────
+function masthead(today) {
+  const ds = fmt(today, {month:'long', day:'numeric', year:'numeric'});
+  return `<header class="masthead">
+  <h1>SLV Rotary</h1>
+  <p class="masthead-sub">Weekly Newsletter &nbsp;&middot;&nbsp; ${esc(ds)}</p>
+</header>`;
 }
 
-function renderBulletin(meeting, allRows) {
-  const r  = meeting.row;
-  const d  = meeting.d;
-  const cancelled = f(r, COL.cancelled).toUpperCase() === 'TRUE';
+// ── Section: Coming Up ────────────────────────────────────────────────────
+function comingUp(rows) {
+  const blocks = rows.map((row, idx) => {
+    const d        = parseRowDate(row);
+    const type     = fv(row, COL.eventType) || 'Meeting';
+    const location = fv(row, COL.location);
+    const speaker  = fv(row, COL.mainSpeaker);
+    const topic    = fv(row, COL.mainTopic);
+    const opening  = fv(row, COL.openingSpeaker);
+    const summary  = fv(row, COL.summary);
+    const desc     = fv(row, COL.description);
+    const photo    = fv(row, COL.photo);
+    const meetLink = fv(row, COL.meetLink);
+    const timeStr  = fv(row, COL.time);
 
-  const next = allRows
-    .map(r2 => ({ row: r2, d: parseRowDate(r2) }))
-    .filter(x => x.d && x.d > d && f(x.row, COL.eventType).toLowerCase() !== 'board meeting')
-    .sort((a, b) => a.d - b.d)
-    .slice(0, 3);
+    let heading = `${esc(fmtShort(d))}: ${esc(type)}`;
+    if (speaker && topic)  heading += ` &mdash; ${esc(speaker)}: ${esc(topic)}`;
+    else if (speaker)      heading += ` &mdash; ${esc(speaker)}`;
+    else if (topic)        heading += ` &mdash; ${esc(topic)}`;
 
-  const meetLink    = f(r, COL.meetLink);
-  const summary     = f(r, COL.summary) || f(r, COL.description);
-  const photo       = f(r, COL.photo);
-  const mainSpeaker = f(r, COL.mainSpeaker);
-  const mainTopic   = f(r, COL.mainTopic);
+    let metaParts = [`${esc(fmtLong(d))}${timeStr ? ' at ' + esc(timeStr) : ''}`];
+    if (location) metaParts.push(mapLink(location));
+    const meta = metaParts.join(' &nbsp;&middot;&nbsp; ');
 
-  const sections = [];
+    let html = `<div class="event-block">
+  <h3 class="event-heading">${heading}</h3>
+  <p class="event-meta">${meta}</p>`;
 
-  sections.push(`
-    <h2>SLV Rotary — Weekly Bulletin</h2>
-    <p class="bulletin-meta">
-      ${formatDate(new Date())} ·
-      <a href="${CSV_URL}" target="_blank">view source sheet</a>
-    </p>
-    ${cancelled ? '<p style="color:red;font-weight:bold;">⚠️ This meeting has been CANCELLED.</p>' : ''}
-  `);
+    if (photo && photo.startsWith('http')) {
+      html += `\n  <img src="${esc(photo)}" alt="${esc(speaker || topic || type)}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
+    }
+    if (opening) {
+      html += `\n  <p class="event-opening"><strong>Opening:</strong> ${esc(opening)}</p>`;
+    }
+    const narrative = summary || desc;
+    if (narrative) {
+      html += `\n  <p class="event-narrative">${textToHtml(narrative)}</p>`;
+    }
+    if (meetLink) {
+      html += `\n  <p class="meet-link"><a href="${esc(meetLink)}" target="_blank" rel="noopener">Join via Google Meet</a></p>`;
+    }
 
-  sections.push(`
-    <div class="bulletin-section">
-      <h3>This Week's Meeting</h3>
-      <table class="role-table">
-        ${row2('Date',     formatDate(d))}
-        ${row2('Time',     f(r, COL.time) || 'Noon')}
-        ${row2('Location', f(r, COL.location))}
-        ${meetLink ? `<tr><td>Join online</td><td><a href="${meetLink}" target="_blank">Google Meet</a></td></tr>` : ''}
-      </table>
-    </div>
-  `);
+    const filled = ROLE_FIELDS.filter(rf => fv(row, COL[rf.key]));
+    const tbd    = ROLE_FIELDS.filter(rf => !fv(row, COL[rf.key]));
+    html += `\n  <div class="duty-roster"><h4>Meeting Duties</h4>`;
+    if (filled.length) {
+      html += `<table class="duty-table">` +
+        filled.map(rf => `<tr><td>${esc(rf.label)}</td><td>${esc(fv(row, COL[rf.key]))}</td></tr>`).join('') +
+        `</table>`;
+    }
+    if (tbd.length) {
+      html += `<p class="tbd-roles">${tbd.map(rf => esc(rf.label)).join(', ')}: TBD</p>`;
+    }
+    html += `</div></div>`;
+    if (idx < rows.length - 1) html += `\n<hr class="section-rule">`;
+    return html;
+  }).join('\n');
 
-  if (mainSpeaker || mainTopic) {
-    sections.push(`
-      <div class="bulletin-section">
-        <h3>Program</h3>
-        ${photo ? `<img src="${photo}" alt="${mainSpeaker}" style="float:right;max-width:140px;margin-left:1em;border-radius:4px;">` : ''}
-        <table class="role-table">
-          ${row2('Topic',            mainTopic)}
-          ${row2('Main Speaker',     mainSpeaker)}
-          ${row2('Opening Speaker',  f(r, COL.openingSpeaker))}
-        </table>
-        ${summary ? `<p style="margin-top:0.75em;">${summary}</p>` : ''}
-        <div style="clear:both;"></div>
-      </div>
-    `);
+  return `<section class="bulletin-section">
+<h2>Coming Up</h2>
+${blocks}
+</section>`;
+}
+
+// ── Section: Looking Ahead ────────────────────────────────────────────────
+function lookingAhead(rows) {
+  let inner = '', curMonth = '', openList = false;
+
+  rows.forEach(row => {
+    const d         = parseRowDate(row);
+    const type      = fv(row, COL.eventType) || 'Meeting';
+    const typeLow   = type.toLowerCase();
+    const speaker   = fv(row, COL.mainSpeaker);
+    const topic     = fv(row, COL.mainTopic);
+    const location  = fv(row, COL.location);
+    const cancelled = isCancelled(row);
+    const isMeeting = DETAIL_TYPES.includes(typeLow);
+    const tAbb      = abbrevTime(fv(row, COL.time));
+
+    const mo = fmtMonthYear(d);
+    if (mo !== curMonth) {
+      if (openList) inner += '</ul></div>\n';
+      curMonth = mo;
+      openList = true;
+      inner += `<div class="month-group"><h3>${esc(mo)}</h3><ul class="skim-list">`;
+    }
+
+    let line = cancelled ? '&#x274C; CANCELLED &nbsp; ' : '';
+    line += `${esc(fmtDayDate(d))}${tAbb ? ' ' + esc(tAbb) : ''} &nbsp; ${esc(type)}`;
+
+    if (!cancelled) {
+      if (isMeeting) {
+        if (speaker && topic)  line += ` &nbsp;&middot;&nbsp; ${esc(speaker)}: ${esc(topic)}`;
+        else if (speaker)      line += ` &nbsp;&middot;&nbsp; ${esc(speaker)}`;
+        else if (topic)        line += ` &nbsp;&middot;&nbsp; ${esc(topic)}`;
+        else                   line += ` &nbsp;&middot;&nbsp; TBD`;
+      } else {
+        if (speaker && topic)  line += ` &nbsp;&middot;&nbsp; ${esc(speaker)}: ${esc(topic)}`;
+        else if (speaker)      line += ` &nbsp;&middot;&nbsp; ${esc(speaker)}`;
+        else if (topic)        line += ` &nbsp;&middot;&nbsp; ${esc(topic)}`;
+      }
+    }
+
+    const venue = (location && !cancelled)
+      ? ` <span class="skim-venue">&nbsp;&#x1F4CD; ${mapLink(location, location.split(',')[0].trim())}</span>`
+      : '';
+
+    inner += `<li class="skim-item${cancelled ? ' cancelled' : ''}">${line}${venue}</li>`;
+  });
+
+  if (openList) inner += '</ul></div>';
+
+  return `<section class="bulletin-section">
+<h2>Looking Ahead</h2>
+<p class="skim-note">Speakers are subject to change &mdash; more to be announced soon!</p>
+${inner}
+</section>`;
+}
+
+// ── Section: Recent Meetings ──────────────────────────────────────────────
+function recentMeetings(rows) {
+  const blocks = rows.map(row => {
+    const d       = parseRowDate(row);
+    const speaker = fv(row, COL.mainSpeaker);
+    const topic   = fv(row, COL.mainTopic);
+    const summary = fv(row, COL.summary);
+    const desc    = fv(row, COL.description);
+    const photo   = fv(row, COL.photo);
+
+    let label = esc(fmtShort(d));
+    if (speaker) label += `: ${esc(speaker)}`;
+    if (topic)   label += (speaker ? ' &mdash; ' : ': ') + esc(topic);
+
+    let html = `<div class="event-block">
+  <h3 class="event-heading past">${label}</h3>`;
+    if (photo && photo.startsWith('http')) {
+      html += `\n  <img src="${esc(photo)}" alt="${esc(speaker||topic||'')}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
+    }
+    const narrative = summary || desc;
+    if (narrative) html += `\n  <p class="event-narrative">${textToHtml(narrative)}</p>`;
+    html += `\n</div>`;
+    return html;
+  }).join('\n');
+
+  return `<hr class="section-rule">
+<section class="bulletin-section">
+<h2>Recent Meetings</h2>
+${blocks}
+</section>`;
+}
+
+// ── Section: Calendar Grid (4 months) ────────────────────────────────────
+function calendarGrid(allRows, today) {
+  // Build event map keyed by 'YYYY-MM-DD'
+  const evMap = {};
+  allRows.forEach(row => {
+    const ds = fv(row, COL.date);
+    if (!ds) return;
+    if (!evMap[ds]) evMap[ds] = [];
+    evMap[ds].push({
+      type:      fv(row, COL.eventType).toLowerCase() || 'meeting',
+      cancelled: isCancelled(row),
+      time:      abbrevTime(fv(row, COL.time)),
+    });
+  });
+
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let html = `<hr class="section-rule">
+<section class="bulletin-section">
+<h2>Calendar</h2>
+<p class="calendar-legend">Mtg = Meeting &nbsp;&middot;&nbsp; Brd = Board Mtg &nbsp;&middot;&nbsp; Soc = Social &nbsp;&middot;&nbsp; Svc = Service &nbsp;&middot;&nbsp; Com = Committee</p>`;
+
+  for (let mo = 0; mo < 4; mo++) {
+    const ms       = new Date(today.getFullYear(), today.getMonth() + mo, 1);
+    const daysInMo = new Date(ms.getFullYear(), ms.getMonth() + 1, 0).getDate();
+    const yr       = ms.getFullYear();
+    const moNum    = ms.getMonth() + 1;
+
+    html += `<div class="month-calendar"><h3>${esc(fmtMonthYear(ms))}</h3>
+<table class="cal-table">
+<thead><tr>${DOW.map(d => `<th>${d}</th>`).join('')}</tr></thead>
+<tbody>`;
+
+    let dayNum = 1 - ms.getDay();
+    while (dayNum <= daysInMo) {
+      html += '<tr>';
+      for (let dow = 0; dow < 7; dow++, dayNum++) {
+        if (dayNum < 1 || dayNum > daysInMo) {
+          html += '<td class="empty"></td>';
+        } else {
+          const key  = `${yr}-${String(moNum).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
+          const evs  = evMap[key] || [];
+          const first = evs.find(e => !e.cancelled) || evs[0];
+          const bgCls = evs.length === 0 ? '' : (first.cancelled ? 'bg-cancelled' : (TYPE_BG[first.type] || 'bg-other'));
+
+          html += `<td${bgCls ? ` class="${bgCls}"` : ''}><span class="cal-date">${dayNum}</span>`;
+          evs.forEach(ev => {
+            const abbr = TYPE_ABBREV[ev.type] || 'Evt';
+            html += `<span class="cal-event${ev.cancelled ? ' cancelled' : ''}">${ev.cancelled ? '&#x274C; ' : ''}${abbr}${ev.time ? ' ' + esc(ev.time) : ''}</span>`;
+          });
+          html += '</td>';
+        }
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
   }
 
-  const roles = [
-    ['MC',             f(r, COL.mc)],
-    ['Greeter',        f(r, COL.greeter)],
-    ['AV / Zoom',      f(r, COL.avZoom)],
-    ['Setup/Teardown', f(r, COL.setupTeardown)],
-    ['4-Way Test',     f(r, COL.fourWayTest)],
-    ['Thought',        f(r, COL.thought)],
-    ['Detective',      f(r, COL.detective)],
-    ['Bag Person',     f(r, COL.bagPerson)],
-  ].filter(([, v]) => v);
-
-  if (roles.length) {
-    sections.push(`
-      <div class="bulletin-section">
-        <h3>Meeting Roles</h3>
-        <table class="role-table">
-          ${roles.map(([l, v]) => row2(l, v)).join('')}
-        </table>
-      </div>
-    `);
-  }
-
-  if (next.length) {
-    const items = next.map(x => {
-      const nr    = x.row;
-      const topic = f(nr, COL.mainTopic);
-      const spkr  = f(nr, COL.mainSpeaker);
-      const label = [f(nr, COL.eventType), topic, spkr ? `(${spkr})` : ''].filter(Boolean).join(' — ');
-      return `<li>${formatDate(x.d)}: ${label}</li>`;
-    }).join('');
-    sections.push(`
-      <div class="bulletin-section">
-        <h3>Upcoming</h3>
-        <ul>${items}</ul>
-      </div>
-    `);
-  }
-
-  document.getElementById('bulletin').innerHTML = sections.join('');
+  html += '</section>';
+  return html;
 }
 
-document.addEventListener('DOMContentLoaded', function () {
+// ── Footer ────────────────────────────────────────────────────────────────
+function bulletinFooter(today) {
+  const ds = fmt(today, {month:'long', day:'numeric', year:'numeric'});
+  return `<footer class="bulletin-footer">Generated ${esc(ds)} &nbsp;&middot;&nbsp; SLV Rotary Calendar Sync</footer>`;
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────
+function renderNewsletter(allRows) {
+  const today  = new Date(); today.setHours(0,0,0,0);
+  const cutoff = new Date(today.getTime() + WEEKS_AHEAD * 7 * 86400000);
+
+  const detailRows = [], skimRows = [], recentRows = [];
+
+  allRows.forEach(row => {
+    const d = parseRowDate(row);
+    if (!d) return;
+    const dateOnly  = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const cancelled = isCancelled(row);
+    const type      = fv(row, COL.eventType).toLowerCase() || 'meeting';
+    const isDetail  = DETAIL_TYPES.includes(type);
+
+    if (dateOnly >= today) {
+      if (dateOnly <= cutoff) {
+        skimRows.push(row);
+        if (!cancelled && isDetail && (fv(row, COL.mainSpeaker) || fv(row, COL.mainTopic))) {
+          detailRows.push(row);
+        }
+      }
+    } else if (isDetail && (fv(row, COL.summary) || fv(row, COL.description))) {
+      recentRows.push(row);
+    }
+  });
+
+  detailRows.sort((a,b) => parseRowDate(a) - parseRowDate(b));
+  skimRows.sort((a,b)   => parseRowDate(a) - parseRowDate(b));
+  recentRows.sort((a,b) => parseRowDate(b) - parseRowDate(a));
+
+  const parts = [masthead(today)];
+  if (detailRows.length) parts.push(comingUp(detailRows.slice(0, DETAIL_COUNT)));
+  if (skimRows.length)   parts.push(lookingAhead(skimRows));
+  if (recentRows.length) parts.push(recentMeetings(recentRows.slice(0, 3)));
+  parts.push(calendarGrid(allRows, today));
+  parts.push(bulletinFooter(today));
+
+  const el = document.getElementById('bulletin');
+  el.innerHTML = parts.join('\n');
+  document.getElementById('bulletin-loading').style.display = 'none';
+  el.style.display = 'block';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
   fetch(CSV_URL)
     .then(r => r.text())
     .then(text => {
-      const rows    = parseCSV(text).slice(1).filter(r => r.length > COL.date);
-      const meeting = pickMeeting(rows);
-      if (!meeting) {
-        document.getElementById('bulletin-loading').textContent = 'No meeting data found in sheet.';
-        return;
-      }
-      document.getElementById('bulletin-loading').style.display = 'none';
-      document.getElementById('bulletin').style.display         = 'block';
-      renderBulletin(meeting, rows);
+      const rows = parseCSV(text).slice(1).filter(r => r.length > COL.time);
+      renderNewsletter(rows);
     })
     .catch(() => {
       document.getElementById('bulletin-loading').textContent =
-        'Could not load bulletin data. Make sure the sheet is published to the web.';
+        'Could not load newsletter data. Make sure the sheet is published to the web.';
     });
 });
 </script>
