@@ -1324,7 +1324,13 @@ function getPageData() {
 
   upcoming.sort((a, b) => a.row[COL.DATE - 1] - b.row[COL.DATE - 1]);
 
-  const meetings = upcoming.slice(0, 3).map(({ sheetRow, row }) => {
+  const cutoff = new Date(today.getTime() + NEWSLETTER_WEEKS_AHEAD * 7 * 24 * 3600 * 1000);
+  const withinWindow = upcoming.filter(({ row }) => {
+    const d = new Date(row[COL.DATE - 1]); d.setHours(0,0,0,0);
+    return d <= cutoff;
+  });
+
+  const meetings = withinWindow.map(({ sheetRow, row }) => {
     const dateVal = row[COL.DATE - 1];
     const timeVal = row[COL.TIME - 1];
     const type    = String(row[COL.EVENT_TYPE - 1] || "Meeting");
@@ -1563,7 +1569,7 @@ function getDutyEditorHtml() {
 </head>
 <body>
 <h1>SLV Rotary &mdash; Duty Editor</h1>
-<p class="sub">Assign duties for the next 3 upcoming meetings.
+<p class="sub">Assign duties for upcoming meetings within the next 12 weeks.
   Names come from the <strong>Members</strong> tab in the spreadsheet.</p>
 <p id="loading">Loading upcoming meetings&hellip;</p>
 <div id="no-members" style="display:none">

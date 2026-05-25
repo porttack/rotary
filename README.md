@@ -1,28 +1,44 @@
 # SLV Rotary Website
 
-A prototype website for the **San Lorenzo Valley Rotary Club**, hosted on GitHub Pages. It replaces scattered email threads with three self-serve tools:
+A prototype website for the **San Lorenzo Valley Rotary Club**, hosted on GitHub Pages.
 
-- **Calendar** — a live view of upcoming meetings pulled from Google Sheets
-- **Weekly Newsletter** — auto-generated bulletin rendered in the browser from the same Sheet
-- **Duty Editor** — a web app for assigning meeting roles (MC, Greeter, etc.) without touching the spreadsheet directly
+**This is not a replacement for ClubRunner** — the treasurer's workflow is untouched and ClubRunner remains the club's official platform. This site is also not meant to replace the existing Google Calendar; it can optionally sync with it, but the Google Calendar stays the authoritative source.
 
-This site is **not** a ClubRunner replacement. The treasurer's workflow is untouched.
+Everything here is **driven by a single Google Sheet** that club leadership and committee chairs manage. The website reads from that sheet automatically — no one needs to touch the website itself after initial setup.
+
+The goal is to reduce copy-paste email work in three areas:
+
+- **Calendar sync** — keep the Google Calendar up to date from the sheet (and vice versa)
+- **Newsletter** — auto-generate a bulletin from the same sheet, so there's much less manual copy-paste
+- **Duty Editor** — a simple web form for assigning meeting roles (MC, Greeter, etc.) without touching the spreadsheet directly
 
 ---
 
 ## How the pieces fit together
 
-```
-Google Calendar  ←──────────────────────────────────────────────────┐
-      ↕  (Apps Script sync)                                          │
-Google Sheet  ──→  published CSV  ──→  calendar.html  (FullCalendar)│
-      │                          └──→  newsletter.html (JS bulletin) │
-      │                                                              │
-      └──→  Apps Script web app  ──→  Duty Editor (browser form)    │
-                                      saves back to Sheet ───────────┘
+```mermaid
+graph TD
+    Sheet["📊 Google Sheet\n(single source of truth)"]
+    Cal["📅 Google Calendar"]
+    CSV["Published CSV\n(public, no auth)"]
+    CalPage["calendar.html\n(FullCalendar view)"]
+    NewsPage["newsletter.html\n(browser bulletin)"]
+    NewsDoc["Generate Newsletter Doc\n(Google Doc in Drive)"]
+    DutyApp["Duty Editor\n(Apps Script web app)"]
+
+    Sheet -- "bidirectional sync\n(Apps Script)" --> Cal
+    Cal -- "bidirectional sync\n(Apps Script)" --> Sheet
+    Sheet -- "File → Publish to web" --> CSV
+    CSV --> CalPage
+    CSV --> NewsPage
+    Sheet -- "Apps Script" --> NewsDoc
+    Sheet -- "Apps Script web app" --> DutyApp
+    DutyApp -- "saves back" --> Sheet
 ```
 
-The Sheet is the single source of truth. The website reads it as a published CSV (no authentication needed). The Apps Script handles the Calendar sync, newsletter Doc generation, and the Duty Editor.
+**`newsletter.html` and Generate Newsletter Doc produce the same content** — one renders in the browser, the other creates a shareable Google Doc in Drive. Use whichever fits your workflow for a given week.
+
+**`calendar.html` is included for reference/completeness.** It reads the same sheet data and shows events in a calendar grid. It is not meant to replace the Google Calendar — just a quick visual check that doesn't require a Google login.
 
 ---
 
@@ -31,7 +47,7 @@ The Sheet is the single source of truth. The website reads it as a published CSV
 | Path | Purpose |
 |---|---|
 | `index.md` | Homepage |
-| `calendar.html` | FullCalendar 6 view, reads Sheet CSV |
+| `calendar.html` | FullCalendar 6 view, reads Sheet CSV (reference only) |
 | `newsletter.html` | Dynamic weekly bulletin, reads Sheet CSV |
 | `speak.md` | Link to "offer to speak" Google Form |
 | `request.md` | Link to "request a speaker" Google Form |
@@ -47,7 +63,7 @@ The Sheet is the single source of truth. The website reads it as a published CSV
 
 1. Create a new Google Sheet named **Rotary Events** (or similar).
 2. Open **Extensions → Apps Script** and paste the entire contents of `appscript/RotaryCalendarSync.gs`.
-3. From the **🔄 Rotary Sync** menu that appears, run **Setup / Reset Sheet Headers**. This creates the 29-column header row, formatting, dropdowns, and hidden columns.
+3. From the **🔄 Rotary Sync** menu that appears, run **Setup / Reset Sheet Headers**. This creates the 30-column header row, formatting, dropdowns, and hidden columns.
 4. Update `CALENDAR_ID` at the top of the script to your Google Calendar's ID (find it in Calendar Settings → Integrate calendar).
 5. Publish the Sheet: **File → Share → Publish to web → Sheet: Events, Format: CSV → Publish**. Copy the URL.
 6. Paste that URL into `calendar.html` and `newsletter.html` where `CSV_URL` is defined.
@@ -75,31 +91,12 @@ Run **🔄 Rotary Sync → Setup Members Tab**. Replace the sample names with yo
 |---|---|
 | ⬇️ Pull from Calendar → Sheet | Imports the next 180 days of Google Calendar events into the Sheet |
 | ⬆️ Push Sheet → Calendar | Pushes Sheet rows to Google Calendar; skips rows whose hash hasn't changed |
-| 📰 Generate Newsletter Doc | Creates a formatted Google Doc newsletter in your Drive's "Rotary" folder |
+| 📰 Generate Newsletter Doc | Creates a formatted Google Doc newsletter in your Drive's "Rotary" folder (same content as newsletter.html) |
 | 🖼️ Sync Photos → URL Columns | Extracts URLs from photo cells (see [Photos](#photos)) |
 | 📝 Open Duty Editor | Opens the deployed web app for assigning meeting duties |
 | 👥 Setup Members Tab | Creates or resets the Members tab used by the Duty Editor |
 | 📋 Setup / Reset Sheet Headers | Re-applies headers, formatting, dropdowns, and column widths |
 | ⚡ Install Edit Trigger | Installs the onEdit trigger for automatic row coloring (run once) |
-
----
-
-## Weekly workflows
-
-### Before each meeting
-
-1. Open the Sheet and fill in the speaker, topic, summary, and duty roles for the upcoming meeting row.
-2. Optionally assign duties via the **Duty Editor** web app instead of editing the Sheet directly.
-3. Run **Push Sheet → Calendar** to sync any changes to Google Calendar.
-4. Run **Generate Newsletter Doc** and distribute the link.
-
-### Adding a new event
-
-Add a row manually or run **Pull from Calendar → Sheet** to import from Google Calendar. Fill in the columns you know; leave the rest blank for now.
-
-### Cancelling an event
-
-Check the **Cancelled** checkbox in column C. The row turns grey, the calendar shows it struck through, and the newsletter skips it from the detail section.
 
 ---
 
@@ -109,7 +106,7 @@ The newsletter can display up to two photos per event: **Speaker Top Photo** (ab
 
 ### Option A — Plain URL (simplest)
 
-Paste any `https://...` image URL directly into the Photo Top or Photo Bottom cell (columns O/P). The newsletter picks it up from the CSV immediately — no sync needed.
+Paste any `https://...` image URL directly into the Photo Top or Photo Bottom cell (columns P/Q). The newsletter picks it up from the CSV immediately — no sync needed.
 
 For images stored in Google Drive, use this URL pattern (set sharing to "Anyone with the link can view"):
 ```
@@ -118,7 +115,7 @@ https://drive.google.com/uc?export=view&id=FILE_ID
 
 ### Option B — `=IMAGE("url")` formula
 
-Type `=IMAGE("https://...")` into the cell. Run **🖼️ Sync Photos → URL Columns** to extract the URL into the hidden companion columns (AB/AC). The newsletter then displays the image.
+Type `=IMAGE("https://...")` into the cell. Run **🖼️ Sync Photos → URL Columns** to extract the URL into the hidden companion columns (AC/AD). The newsletter then displays the image.
 
 ### Option C — Embedded image (drag-drop or paste)
 
@@ -129,7 +126,7 @@ Insert an image directly into the cell via **Insert → Image → Image in cell*
 
 The sync reads the image cell using the Sheets API, writes the extracted URL to the hidden companion column, and leaves your image cell exactly as it was.
 
-**How the fallback works:** The newsletter first checks the photo cell (col O/P) for a plain URL. If the cell is blank in the CSV (which happens with embedded images and `=IMAGE()` formulas), it falls back to the hidden URL column (col AB/AC) that was written by the sync.
+**How the fallback works:** The newsletter first checks the photo cell (col P/Q) for a plain URL. If the cell is blank in the CSV (which happens with embedded images and `=IMAGE()` formulas), it falls back to the hidden URL column (col AC/AD) that was written by the sync.
 
 > **Note:** Embedded images may not always yield a publicly accessible URL depending on your Google Workspace settings. If the newsletter image doesn't load after syncing, use Option A instead.
 
