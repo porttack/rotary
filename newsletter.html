@@ -134,7 +134,9 @@ const COL = {
   durationMin:6, location:7, meetLink:8, openingSpeaker:9,
   mainSpeaker:10, mainTopic:11, speakerUrl:12, summary:13,
   photoTop:14, photoBottom:15, mc:16, setupTeardown:17, avZoom:18, greeter:19,
-  fourWayTest:20, thought:21, detective:22, bagPerson:23, comments:24
+  fourWayTest:20, thought:21, detective:22, bagPerson:23, comments:24,
+  // cols 25-26: Status, Hash (skipped)
+  photoTopUrl:27, photoBottomUrl:28,  // hidden companion URL columns (written by Sync Photos)
 };
 
 const ROLE_FIELDS = [
@@ -230,6 +232,15 @@ function linkWrap(text, url) {
   return `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>`;
 }
 
+// Prefer a direct URL in the photo cell; fall back to the companion URL column
+// (populated by the Apps Script "Sync Photos" function for embedded cell images).
+function photoSrc(row, primaryCol, fallbackCol) {
+  const v = fv(row, primaryCol);
+  if (v && v.startsWith('http')) return v;
+  const f = fv(row, fallbackCol);
+  return (f && f.startsWith('http')) ? f : '';
+}
+
 const fmt = (d, opts) => d.toLocaleDateString('en-US', opts);
 const fmtLong      = d => fmt(d, {weekday:'long', month:'long', day:'numeric', year:'numeric'});
 const fmtShort     = d => fmt(d, {month:'short', day:'numeric'});
@@ -256,8 +267,8 @@ function comingUp(rows) {
     const opening    = fv(row, COL.openingSpeaker);
     const summary     = fv(row, COL.summary);
     const speakerUrl  = fv(row, COL.speakerUrl);
-    const photoTop    = fv(row, COL.photoTop);
-    const photoBottom = fv(row, COL.photoBottom);
+    const photoTop    = photoSrc(row, COL.photoTop,    COL.photoTopUrl);
+    const photoBottom = photoSrc(row, COL.photoBottom, COL.photoBottomUrl);
     const meetLink    = fv(row, COL.meetLink);
     const timeStr    = fv(row, COL.time);
 
@@ -379,8 +390,8 @@ function recentMeetings(rows) {
     const topic   = fv(row, COL.mainTopic);
     const summary     = fv(row, COL.summary);
     const speakerUrl  = fv(row, COL.speakerUrl);
-    const photoTop    = fv(row, COL.photoTop);
-    const photoBottom = fv(row, COL.photoBottom);
+    const photoTop    = photoSrc(row, COL.photoTop,    COL.photoTopUrl);
+    const photoBottom = photoSrc(row, COL.photoBottom, COL.photoBottomUrl);
 
     let label = esc(fmtShort(d));
     if (speaker) label += `: ${linkWrap(speaker, speakerUrl)}`;

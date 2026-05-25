@@ -69,7 +69,8 @@ cleanly via GitHub Pages with zero CI pipeline.
   9 Opening Speaker | 10 Main Speaker | 11 Main Topic | 12 Speaker URL (optional link) |
   13 Summary (newsletter + calendar body) | 14 Speaker Top Photo URL | 15 Speaker Bottom Photo URL |
   16 MC | 17 Setup/Teardown | 18 AV/Zoom | 19 Greeter | 20 4-Way-Test | 21 Thought |
-  22 Detective | 23 Bag Person | 24 Comments | 25 Sync Status | 26 Hash
+  22 Detective | 23 Bag Person | 24 Comments | 25 Sync Status | 26 Hash |
+  27 Photo Top URL (hidden, auto) | 28 Photo Bottom URL (hidden, auto)
 
 ---
 

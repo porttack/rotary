@@ -37,9 +37,11 @@ const COL = {
   COMMENTS:        25,  // Y - Internal comments (not pushed to Calendar)
   STATUS:          26,  // Z - Sync status
   HASH:            27,  // AA - Hash of last-pushed fields (hidden, do not edit)
+  PHOTO_TOP_URL:   28,  // AB - Extracted URL for Photo Top (hidden; written by Sync Photos)
+  PHOTO_BOTTOM_URL:29,  // AC - Extracted URL for Photo Bottom (hidden; written by Sync Photos)
 };
 
-const NUM_COLS = 27;
+const NUM_COLS = 29;
 
 // Duty field key → COL mapping (shared by web app and sheet save logic)
 const DUTY_COLS = {
@@ -90,6 +92,7 @@ function onOpen() {
     .addSeparator()
     .addItem("📰  Generate Newsletter Doc",     "generateNewsletter")
     .addSeparator()
+    .addItem("🖼️  Sync Photos → URL Columns",   "syncPhotos")
     .addItem("📝  Open Duty Editor (web app)",  "openDutyEditor")
     .addItem("👥  Setup Members Tab",           "setupMembers")
     .addSeparator()
@@ -183,6 +186,8 @@ function setupSheet() {
     "Comments",                 // Y
     "Sync Status",              // Z
     "Hash (do not edit)",       // AA
+    "Photo Top URL (auto)",     // AB - written by Sync Photos; do not edit
+    "Photo Bottom URL (auto)",  // AC - written by Sync Photos; do not edit
   ];
 
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
@@ -222,12 +227,15 @@ function setupSheet() {
     220,  // Y Comments
     180,  // Z Sync Status
     50,   // AA Hash
+    280,  // AB Photo Top URL (auto)
+    280,  // AC Photo Bottom URL (auto)
   ];
   widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
-  // Hide Event ID and Hash columns
+  // Hide Event ID, Hash, and auto-URL columns
   sheet.hideColumns(COL.EVENT_ID);
   sheet.hideColumns(COL.HASH);
+  sheet.hideColumns(COL.PHOTO_TOP_URL, 2); // AB + AC
 
   // Event Type dropdown
   const typeRule = SpreadsheetApp.newDataValidation()
@@ -315,9 +323,10 @@ function pullFromCalendar() {
 
     if (existingIdMap[id]) {
       const targetRow = existingIdMap[id];
-      // Write A-C (cols 1-3), skip D (DAY_LABEL formula, col 4), write E-W (cols 5-23)
+      // Write cols 1-3 (A-C), skip col 4 (DAY_LABEL formula), write remaining
       sheet.getRange(targetRow, 1, 1, 3).setValues([rowData.slice(0, 3)]);
-      sheet.getRange(targetRow, 5, 1, NUM_COLS - 4).setValues([rowData.slice(4)]);
+      const tail = rowData.slice(4);
+      sheet.getRange(targetRow, 5, 1, tail.length).setValues([tail]);
       updated++;
     } else {
       sheet.appendRow(rowData);
@@ -499,7 +508,7 @@ function eventToRow(event) {
     "",                  // O  COL.PHOTO_TOP = 15 (not in Calendar)
     "",                  // P  COL.PHOTO_BOTTOM = 16 (not in Calendar)
     mc,                  // Q  COL.MC = 17
-    setupTeardown,       // Q  COL.SETUP_TEARDOWN = 17
+    setupTeardown,       // R  COL.SETUP_TEARDOWN = 18
     avZoom,              // R  COL.AV_ZOOM = 18
     greeter,             // S  COL.GREETER = 19
     fourWayTest,         // T  COL.FOUR_WAY_TEST = 20
@@ -1376,6 +1385,111 @@ function saveDuties(rowIndex, duties) {
   sheet.getRange(rowIndex, COL.STATUS).setValue("✏️ Duties updated " + ts);
   recolorRow(sheet, rowIndex);
   return "Saved ✓ (" + ts + ")";
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  PHOTO SYNC
+//  Reads Photo Top / Photo Bottom cells and writes extractable URLs
+//  to the hidden PHOTO_TOP_URL / PHOTO_BOTTOM_URL companion columns
+//  so the published CSV can reference them without touching the cells
+//  that contain the actual embedded images.
+//
+//  Supports:
+//    • Plain URL text already in the cell (no-op — CSV already has it)
+//    • =IMAGE("url") formulas — URL extracted via getFormulas()
+//    • Embedded cell images — requires the Advanced Google Sheets Service:
+//        Apps Script editor → + (Add a service) → Google Sheets API
+// ═══════════════════════════════════════════════════════════════
+
+function syncPhotos() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) { SpreadsheetApp.getUi().alert('Sheet "' + SHEET_NAME + '" not found.'); return; }
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) { SpreadsheetApp.getUi().alert('No data rows found.'); return; }
+
+  const ssId   = ss.getId();
+  let synced   = 0, skipped = 0;
+
+  const photoCols = [
+    { src: COL.PHOTO_TOP,    dst: COL.PHOTO_TOP_URL    },
+    { src: COL.PHOTO_BOTTOM, dst: COL.PHOTO_BOTTOM_URL },
+  ];
+
+  photoCols.forEach(({ src, dst }) => {
+    const srcLetter = columnToLetter(src);
+    const numRows   = lastRow - 1;
+
+    // Attempt Sheets API for embedded images (requires Advanced Sheets Service)
+    let apiRows = null;
+    try {
+      const range  = "'" + SHEET_NAME + "'!" + srcLetter + "2:" + srcLetter + lastRow;
+      const result = Sheets.Spreadsheets.get(ssId, {
+        ranges:          [range],
+        includeGridData: true,
+        fields:          "sheets.data.rowData.values.userEnteredValue.formulaValue," +
+                         "sheets.data.rowData.values.effectiveValue.imageValue.contentUrl",
+      });
+      apiRows = (result.sheets[0].data[0].rowData || []);
+    } catch(e) {
+      Logger.log("Sheets API unavailable (enable Advanced Google Sheets Service for embedded image support): " + e.message);
+    }
+
+    const formulas = sheet.getRange(2, src, numRows, 1).getFormulas();
+
+    for (let i = 0; i < numRows; i++) {
+      let url = null;
+
+      // 1. Embedded image via Sheets API contentUrl
+      if (apiRows && apiRows[i] && apiRows[i].values && apiRows[i].values[0]) {
+        const v = apiRows[i].values[0];
+        if (v.effectiveValue && v.effectiveValue.imageValue) {
+          url = v.effectiveValue.imageValue.contentUrl || null;
+        }
+        // IMAGE() formula via API
+        if (!url && v.userEnteredValue && v.userEnteredValue.formulaValue) {
+          const m = v.userEnteredValue.formulaValue.match(/=IMAGE\s*\(\s*"([^"]+)"/i);
+          if (m) url = m[1];
+        }
+      }
+
+      // 2. IMAGE() formula via SpreadsheetApp (fallback when API not enabled)
+      if (!url && formulas[i][0]) {
+        const m = formulas[i][0].match(/=IMAGE\s*\(\s*"([^"]+)"/i);
+        if (m) url = m[1];
+      }
+
+      if (url) {
+        const current = String(sheet.getRange(i + 2, dst).getValue() || "");
+        if (url !== current) {
+          sheet.getRange(i + 2, dst).setValue(url);
+          synced++;
+        }
+      } else {
+        skipped++;
+      }
+    }
+  });
+
+  SpreadsheetApp.getUi().alert(
+    "Photo sync complete!\n" +
+    "✅ " + synced + " URL" + (synced !== 1 ? "s" : "") + " written to companion columns\n" +
+    "⏭️ " + skipped + " cells skipped (empty, plain text URL, or no extractable image)\n\n" +
+    "Note: plain-text URLs in the photo cells are used directly by the\n" +
+    "newsletter — no sync needed for those."
+  );
+}
+
+/** Convert 1-based column number to sheet letter (e.g. 28 → "AB") */
+function columnToLetter(col) {
+  let letter = "";
+  while (col > 0) {
+    const rem = (col - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    col    = Math.floor((col - 1) / 26);
+  }
+  return letter;
 }
 
 
