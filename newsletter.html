@@ -1,0 +1,234 @@
+---
+layout: page
+title: Newsletter
+permalink: /newsletter/
+---
+
+<style>
+  #bulletin { max-width: 720px; margin: 0 auto; font-family: inherit; }
+  #bulletin h2 { color: #17458F; border-bottom: 2px solid #17458F; padding-bottom: 0.25em; }
+  #bulletin h3 { color: #555; margin-top: 1.5em; }
+  .bulletin-meta { color: #888; font-size: 0.9em; }
+  .bulletin-section { margin-bottom: 1.5em; }
+  .bulletin-label { font-weight: bold; color: #17458F; min-width: 8em; display: inline-block; }
+  .bulletin-row { margin: 0.25em 0; }
+  .role-table { border-collapse: collapse; margin-top: 0.5em; }
+  .role-table td { padding: 0.2em 1em 0.2em 0; vertical-align: top; }
+  .role-table td:first-child { color: #17458F; font-weight: bold; white-space: nowrap; }
+</style>
+
+<div id="bulletin-loading" style="text-align:center;padding:2em;color:#666;">
+  Loading this week's bulletin…
+</div>
+<div id="bulletin" style="display:none;"></div>
+
+<script>
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
+
+const COL = {
+  eventId:        0,
+  eventType:      1,
+  cancelled:      2,
+  day:            3,
+  date:           4,
+  time:           5,
+  durationMin:    6,
+  location:       7,
+  meetLink:       8,
+  openingSpeaker: 9,
+  mainSpeaker:    10,
+  mainTopic:      11,
+  description:    12,
+  summary:        13,
+  photo:          14,
+  mc:             15,
+  setupTeardown:  16,
+  avZoom:         17,
+  greeter:        18,
+  fourWayTest:    19,
+  thought:        20,
+  detective:      21,
+  bagPerson:      22,
+  comments:       23,
+};
+
+function parseCSV(text) {
+  const rows = [];
+  let cur = [], field = '', inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuote) {
+      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') { inQuote = false; }
+      else { field += ch; }
+    } else {
+      if (ch === '"') { inQuote = true; }
+      else if (ch === ',') { cur.push(field); field = ''; }
+      else if (ch === '\n') { cur.push(field); rows.push(cur); cur = []; field = ''; }
+      else if (ch !== '\r') { field += ch; }
+    }
+  }
+  if (field || cur.length) { cur.push(field); rows.push(cur); }
+  return rows;
+}
+
+function f(row, idx) { return (row[idx] || '').trim(); }
+
+function to24h(t) {
+  const m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return t;
+  let h = parseInt(m[1]);
+  const min = m[2];
+  const ampm = m[3].toUpperCase();
+  if (ampm === 'PM' && h !== 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return `${String(h).padStart(2,'0')}:${min}:00`;
+}
+
+function parseRowDate(row) {
+  const dateStr = f(row, COL.date);
+  const timeStr = f(row, COL.time);
+  if (!dateStr) return null;
+  try {
+    const d = new Date(timeStr ? `${dateStr}T${to24h(timeStr)}` : dateStr);
+    return isNaN(d) ? null : d;
+  } catch { return null; }
+}
+
+function formatDate(d) {
+  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function row2(label, value) {
+  if (!value) return '';
+  return `<tr><td>${label}</td><td>${value}</td></tr>`;
+}
+
+function pickMeeting(rows) {
+  const now   = new Date();
+  const dated = rows
+    .map(r => ({ row: r, d: parseRowDate(r) }))
+    .filter(x => x.d && f(x.row, COL.eventType).toLowerCase() !== 'board meeting');
+
+  const upcoming = dated.filter(x => x.d >= now).sort((a, b) => a.d - b.d);
+  if (upcoming.length) return upcoming[0];
+  return dated.sort((a, b) => b.d - a.d)[0] || null;
+}
+
+function renderBulletin(meeting, allRows) {
+  const r  = meeting.row;
+  const d  = meeting.d;
+  const cancelled = f(r, COL.cancelled).toUpperCase() === 'TRUE';
+
+  const next = allRows
+    .map(r2 => ({ row: r2, d: parseRowDate(r2) }))
+    .filter(x => x.d && x.d > d && f(x.row, COL.eventType).toLowerCase() !== 'board meeting')
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 3);
+
+  const meetLink    = f(r, COL.meetLink);
+  const summary     = f(r, COL.summary) || f(r, COL.description);
+  const photo       = f(r, COL.photo);
+  const mainSpeaker = f(r, COL.mainSpeaker);
+  const mainTopic   = f(r, COL.mainTopic);
+
+  const sections = [];
+
+  sections.push(`
+    <h2>SLV Rotary — Weekly Bulletin</h2>
+    <p class="bulletin-meta">
+      ${formatDate(new Date())} ·
+      <a href="${CSV_URL}" target="_blank">view source sheet</a>
+    </p>
+    ${cancelled ? '<p style="color:red;font-weight:bold;">⚠️ This meeting has been CANCELLED.</p>' : ''}
+  `);
+
+  sections.push(`
+    <div class="bulletin-section">
+      <h3>This Week's Meeting</h3>
+      <table class="role-table">
+        ${row2('Date',     formatDate(d))}
+        ${row2('Time',     f(r, COL.time) || 'Noon')}
+        ${row2('Location', f(r, COL.location))}
+        ${meetLink ? `<tr><td>Join online</td><td><a href="${meetLink}" target="_blank">Google Meet</a></td></tr>` : ''}
+      </table>
+    </div>
+  `);
+
+  if (mainSpeaker || mainTopic) {
+    sections.push(`
+      <div class="bulletin-section">
+        <h3>Program</h3>
+        ${photo ? `<img src="${photo}" alt="${mainSpeaker}" style="float:right;max-width:140px;margin-left:1em;border-radius:4px;">` : ''}
+        <table class="role-table">
+          ${row2('Topic',            mainTopic)}
+          ${row2('Main Speaker',     mainSpeaker)}
+          ${row2('Opening Speaker',  f(r, COL.openingSpeaker))}
+        </table>
+        ${summary ? `<p style="margin-top:0.75em;">${summary}</p>` : ''}
+        <div style="clear:both;"></div>
+      </div>
+    `);
+  }
+
+  const roles = [
+    ['MC',             f(r, COL.mc)],
+    ['Greeter',        f(r, COL.greeter)],
+    ['AV / Zoom',      f(r, COL.avZoom)],
+    ['Setup/Teardown', f(r, COL.setupTeardown)],
+    ['4-Way Test',     f(r, COL.fourWayTest)],
+    ['Thought',        f(r, COL.thought)],
+    ['Detective',      f(r, COL.detective)],
+    ['Bag Person',     f(r, COL.bagPerson)],
+  ].filter(([, v]) => v);
+
+  if (roles.length) {
+    sections.push(`
+      <div class="bulletin-section">
+        <h3>Meeting Roles</h3>
+        <table class="role-table">
+          ${roles.map(([l, v]) => row2(l, v)).join('')}
+        </table>
+      </div>
+    `);
+  }
+
+  if (next.length) {
+    const items = next.map(x => {
+      const nr    = x.row;
+      const topic = f(nr, COL.mainTopic);
+      const spkr  = f(nr, COL.mainSpeaker);
+      const label = [f(nr, COL.eventType), topic, spkr ? `(${spkr})` : ''].filter(Boolean).join(' — ');
+      return `<li>${formatDate(x.d)}: ${label}</li>`;
+    }).join('');
+    sections.push(`
+      <div class="bulletin-section">
+        <h3>Upcoming</h3>
+        <ul>${items}</ul>
+      </div>
+    `);
+  }
+
+  document.getElementById('bulletin').innerHTML = sections.join('');
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  fetch(CSV_URL)
+    .then(r => r.text())
+    .then(text => {
+      const rows    = parseCSV(text).slice(1).filter(r => r.length > COL.date);
+      const meeting = pickMeeting(rows);
+      if (!meeting) {
+        document.getElementById('bulletin-loading').textContent = 'No meeting data found in sheet.';
+        return;
+      }
+      document.getElementById('bulletin-loading').style.display = 'none';
+      document.getElementById('bulletin').style.display         = 'block';
+      renderBulletin(meeting, rows);
+    })
+    .catch(() => {
+      document.getElementById('bulletin-loading').textContent =
+        'Could not load bulletin data. Make sure the sheet is published to the web.';
+    });
+});
+</script>

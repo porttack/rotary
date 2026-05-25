@@ -1,0 +1,42 @@
+# Site settings
+title: SLV Rotary
+tagline: San Lorenzo Valley Rotary Club
+description: >-
+  Prototype site for the San Lorenzo Valley Rotary Club — speaker pipeline,
+  meeting calendar, and weekly newsletter bulletin.
+url: "https://rotary.porttack.com"
+baseurl: ""
+email: ""  # TODO: add club contact email if desired
+
+# Build
+theme: minima
+minima:
+  skin: classic          # light/blue — matches Rotary brand
+  date_format: "%B %-d, %Y"
+
+# Navigation — order controls header menu
+header_pages:
+  - calendar.html
+  - newsletter.html
+  - speak.md
+  - request.md
+
+# Plugins (all supported by GitHub Pages)
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# Exclude from build output
+exclude:
+  - appscript/
+  - docs/
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+  - CLAUDE.md
+  - LICENSE
+  - "*.sh"
+
+# Social / SEO (optional — fill in as desired)
+# twitter_username: slvrotary
+# github_username:  ebrown

@@ -26,7 +26,7 @@ comfortable reading/editing code, but values clarity and maintainability.
 
 | Layer | Choice |
 |---|---|
-| Static site | Jekyll via `github-pages ~> 227` gem |
+| Static site | Jekyll via `github-pages ~> 232` gem |
 | Theme | Minima 2.5.1 (classic skin) |
 | Hosting | GitHub Pages |
 | Dynamic data | Google Sheets (published CSV or JSON feed) |
@@ -43,11 +43,13 @@ cleanly via GitHub Pages with zero CI pipeline.
 
 | File | Purpose |
 |---|---|
-| `index.md` or `calendar.html` | FullCalendar view of upcoming meetings |
-| `newsletter.html` | Auto-generated bulletin from Google Sheet |
-| `speak.html` | Link/embed: offer to speak (Google Form) |
-| `request.html` | Link/embed: request a speaker (Google Form) |
+| `index.md` | Homepage with quick links |
+| `calendar.html` | FullCalendar view of upcoming meetings (reads Sheet CSV) |
+| `newsletter.html` | Auto-generated weekly bulletin (reads Sheet CSV) |
+| `speak.md` | Link to Google Form: offer to speak |
+| `request.md` | Link to Google Form: request a speaker |
 | `_config.yml` | Site config — title, header_pages, theme |
+| `Gemfile` | GitHub Pages gem pin |
 
 ---
 
@@ -60,9 +62,14 @@ cleanly via GitHub Pages with zero CI pipeline.
 - **Prototype mindset** — prefer working simply over perfect; this is a demo
   to show the club what's possible, not a production system.
 - **Google Sheets as the source of truth** for speakers and events.
-  The Apps Script / Sheet column order is:
-  Event ID | Type | Date | Start Time | Duration | Title | Location |
-  Google Meet Link | Opening Speaker | Main Speaker | Description | MC | Comments
+  Published CSV URL: `https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv`
+  Actual sheet column order (0-based):
+  0 Event ID | 1 Event Type | 2 Cancelled | 3 Day | 4 Date (YYYY-MM-DD) |
+  5 Time (H:MM AM/PM) | 6 Duration (min) | 7 Location | 8 Google Meet Link |
+  9 Opening Speaker | 10 Main Speaker | 11 Main Topic | 12 Description |
+  13 Summary (newsletter) | 14 Photo (URL) | 15 MC | 16 Setup/Teardown |
+  17 AV/Zoom | 18 Greeter | 19 4-Way-Test | 20 Thought | 21 Detective |
+  22 Bag Person | 23 Comments | 24 Sync Status | 25 Hash
 
 ---
 
@@ -83,7 +90,8 @@ cleanly via GitHub Pages with zero CI pipeline.
 - When editing `_config.yml`, preserve existing comments.
 - Suggest Google Forms for any data-entry workflow; don't build custom
   backends.
-- If touching the newsletter JS, parse the **published Google Sheets CSV**
-  endpoint (`/export?format=csv`) rather than the Sheets API (no auth needed).
+- If touching the newsletter or calendar JS, parse the **published Google Sheets CSV**
+  endpoint (`/pub?output=csv`) rather than the Sheets API (no auth needed).
+  The live URL is already hardcoded in both `calendar.html` and `newsletter.html`.
 - Default to **FullCalendar 6.x** for calendar UI (loaded from cdnjs or
   jsDelivr).

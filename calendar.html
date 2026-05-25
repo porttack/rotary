@@ -1,0 +1,170 @@
+---
+layout: page
+title: Calendar
+permalink: /calendar/
+---
+
+<!-- Sheet column order (actual, from published CSV):
+     0  Event ID | 1  Event Type | 2  Cancelled | 3  Day | 4  Date | 5  Time |
+     6  Duration (min) | 7  Location | 8  Google Meet Link | 9  Opening Speaker |
+     10 Main Speaker | 11 Main Topic | 12 Description | 13 Summary (newsletter) |
+     14 Photo | 15 MC | 16 Setup/Teardown | 17 AV/Zoom | 18 Greeter |
+     19 4-Way-Test | 20 Thought | 21 Detective | 22 Bag Person |
+     23 Comments | 24 Sync Status | 25 Hash -->
+
+<style>
+  #calendar { max-width: 900px; margin: 0 auto; }
+  .fc-event-title { font-size: 0.85em; }
+  .fc-toolbar-title { color: #17458F; }
+  .fc-event.cancelled { opacity: 0.45; text-decoration: line-through; }
+</style>
+
+<!-- FullCalendar 6 -->
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+
+<div id="calendar-loading" style="text-align:center;padding:2em;color:#666;">
+  Loading calendar…
+</div>
+<div id="calendar" style="display:none;"></div>
+
+<script>
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
+
+const COL = {
+  eventId:        0,
+  eventType:      1,
+  cancelled:      2,
+  day:            3,
+  date:           4,
+  time:           5,
+  durationMin:    6,
+  location:       7,
+  meetLink:       8,
+  openingSpeaker: 9,
+  mainSpeaker:    10,
+  mainTopic:      11,
+  description:    12,
+  summary:        13,
+  photo:          14,
+  mc:             15,
+  comments:       23,
+};
+
+function parseCSV(text) {
+  const rows = [];
+  let cur = [], field = '', inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuote) {
+      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') { inQuote = false; }
+      else { field += ch; }
+    } else {
+      if (ch === '"') { inQuote = true; }
+      else if (ch === ',') { cur.push(field); field = ''; }
+      else if (ch === '\n') { cur.push(field); rows.push(cur); cur = []; field = ''; }
+      else if (ch !== '\r') { field += ch; }
+    }
+  }
+  if (field || cur.length) { cur.push(field); rows.push(cur); }
+  return rows;
+}
+
+function f(row, idx) { return (row[idx] || '').trim(); }
+
+function rowToEvent(row) {
+  const dateStr = f(row, COL.date);
+  const timeStr = f(row, COL.time);
+  if (!dateStr) return null;
+
+  // Date is YYYY-MM-DD; time is "7:00 PM". Build a parseable string.
+  let start;
+  try {
+    const combined = timeStr ? `${dateStr}T${to24h(timeStr)}` : dateStr;
+    const d = new Date(combined);
+    if (isNaN(d)) return null;
+    start = d;
+  } catch { return null; }
+
+  const durMin = parseInt(f(row, COL.durationMin)) || 60;
+  const end    = new Date(start.getTime() + durMin * 60000);
+
+  const cancelled = f(row, COL.cancelled).toUpperCase() === 'TRUE';
+  const eventType = f(row, COL.eventType);
+  const topic     = f(row, COL.mainTopic);
+  const speaker   = f(row, COL.mainSpeaker);
+
+  // Build a readable title: "Meeting — Topic (Speaker)" or just "Board Meeting"
+  let title = eventType;
+  if (topic)   title += ` — ${topic}`;
+  if (speaker) title += ` (${speaker})`;
+  if (cancelled) title = `[CANCELLED] ${title}`;
+
+  return {
+    id:        f(row, COL.eventId),
+    title,
+    start:     start.toISOString(),
+    end:       end.toISOString(),
+    url:       f(row, COL.meetLink) || undefined,
+    color:     cancelled ? '#999' : '#17458F',
+    classNames: cancelled ? ['cancelled'] : [],
+    extendedProps: {
+      cancelled,
+      eventType,
+      topic,
+      speaker,
+      openingSpeaker: f(row, COL.openingSpeaker),
+      location:       f(row, COL.location),
+      description:    f(row, COL.description) || f(row, COL.summary),
+      mc:             f(row, COL.mc),
+    },
+  };
+}
+
+// Convert "7:00 PM" → "19:00:00" for Date parsing
+function to24h(t) {
+  const m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return t;
+  let h = parseInt(m[1]);
+  const min = m[2];
+  const ampm = m[3].toUpperCase();
+  if (ampm === 'PM' && h !== 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return `${String(h).padStart(2,'0')}:${min}:00`;
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  fetch(CSV_URL)
+    .then(r => r.text())
+    .then(text => {
+      const rows   = parseCSV(text).slice(1);
+      const events = rows.map(rowToEvent).filter(Boolean);
+
+      document.getElementById('calendar-loading').style.display = 'none';
+      document.getElementById('calendar').style.display         = 'block';
+
+      const cal = new FullCalendar.Calendar(document.getElementById('calendar'), {
+        initialView:   'dayGridMonth',
+        headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,listMonth' },
+        events,
+        eventClick(info) {
+          if (info.event.url) {
+            info.jsEvent.preventDefault();
+            window.open(info.event.url, '_blank');
+          }
+        },
+        eventDidMount(info) {
+          const p = info.event.extendedProps;
+          const parts = [p.eventType, p.location, p.topic, p.description].filter(Boolean);
+          if (parts.length) info.el.title = parts.join(' · ');
+        },
+      });
+      cal.render();
+    })
+    .catch(() => {
+      document.getElementById('calendar-loading').textContent =
+        'Could not load calendar data. Make sure the sheet is published to the web.';
+    });
+});
+</script>
