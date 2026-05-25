@@ -148,26 +148,27 @@ The sync reads the image cell using the Sheets API, writes the extracted URL to 
 | G (7) | Duration (min) | Defaults to 60 |
 | H (8) | Location | Full venue address for Google Maps links |
 | I (9) | Google Meet Link | Join URL shown in newsletter and calendar |
-| J (10) | Opening Speaker | Invocation / opening speaker |
-| K (11) | Main Speaker | Program speaker |
-| L (12) | Main Topic | Program title |
-| M (13) | Speaker URL | Optional link for speaker bio or topic reference |
-| N (14) | Summary | Narrative paragraph — used in newsletter and as calendar event body |
-| O (15) | Speaker Top Photo | URL **or** embedded image — displayed above narrative |
-| P (16) | Speaker Bottom Photo | URL **or** embedded image — displayed below narrative |
-| Q (17) | MC | Meeting MC if not the president |
-| R (18) | Setup/Teardown | |
-| S (19) | AV/Zoom | |
-| T (20) | Greeter | |
-| U (21) | 4-Way-Test | |
-| V (22) | Thought | |
-| W (23) | Detective | |
-| X (24) | Bag Person | |
-| Y (25) | Comments | Internal notes — not synced to Calendar |
-| Z (26) | Sync Status | Written by push/pull/duty operations — do not edit |
-| AA (27) | Hash | Change-detection hash — hidden, do not edit |
-| AB (28) | Photo Top URL | Auto-populated by Sync Photos — hidden, do not edit |
-| AC (29) | Photo Bottom URL | Auto-populated by Sync Photos — hidden, do not edit |
+| J (10) | Speaker(s) Organizer | Who is managing / booking this speaker |
+| K (11) | Opening Speaker | Invocation / opening speaker |
+| L (12) | Main Speaker | Program speaker |
+| M (13) | Main Topic | Program title |
+| N (14) | Speaker URL | Optional link for speaker bio or topic reference |
+| O (15) | Summary | Narrative paragraph — used in newsletter and as calendar event body |
+| P (16) | Speaker Top Photo | URL **or** embedded image — displayed above narrative |
+| Q (17) | Speaker Bottom Photo | URL **or** embedded image — displayed below narrative |
+| R (18) | MC | Meeting MC if not the president |
+| S (19) | Setup/Teardown | |
+| T (20) | AV/Zoom | |
+| U (21) | Greeter | |
+| V (22) | 4-Way-Test | |
+| W (23) | Thought | |
+| X (24) | Detective | |
+| Y (25) | Bag Person | |
+| Z (26) | Comments | Internal notes — not synced to Calendar |
+| AA (27) | Sync Status | Written by push/pull/duty operations — do not edit |
+| AB (28) | Hash | Change-detection hash — hidden, do not edit |
+| AC (29) | Photo Top URL | Auto-populated by Sync Photos — hidden, do not edit |
+| AD (30) | Photo Bottom URL | Auto-populated by Sync Photos — hidden, do not edit |
 
 ---
 

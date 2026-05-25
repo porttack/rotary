@@ -18,30 +18,31 @@ const COL = {
   TIME:            6,   // F - Start time
   DURATION:        7,   // G - Duration in minutes (default 60)
   LOCATION:        8,   // H - Venue / address
-  GOOGLE_MEET:     9,   // I - Google Meet link
-  OPENING_SPEAKER: 10,  // J - Opening speaker / invocation
-  MAIN_SPEAKER:    11,  // K - Main speaker
-  MAIN_TOPIC:      12,  // L - Main topic / program title
-  SPEAKER_URL:     13,  // M - Optional URL for speaker/topic (links in newsletter & calendar)
-  SUMMARY:         14,  // N - Rich narrative paragraph for newsletter
-  PHOTO_TOP:       15,  // O - Top photo URL (speaker or event, displayed above narrative)
-  PHOTO_BOTTOM:    16,  // P - Bottom photo URL (second image, displayed below narrative)
-  MC:              17,  // Q - MC if not the president
-  SETUP_TEARDOWN:  18,  // R - Setup/Teardown
-  AV_ZOOM:         19,  // S - AV/Zoom
-  GREETER:         20,  // T - Greeter
-  FOUR_WAY_TEST:   21,  // U - 4-Way-Test
-  THOUGHT:         22,  // V - Thought
-  DETECTIVE:       23,  // W - Detective
-  BAG_PERSON:      24,  // X - Bag Person
-  COMMENTS:        25,  // Y - Internal comments (not pushed to Calendar)
-  STATUS:          26,  // Z - Sync status
-  HASH:            27,  // AA - Hash of last-pushed fields (hidden, do not edit)
-  PHOTO_TOP_URL:   28,  // AB - Extracted URL for Photo Top (hidden; written by Sync Photos)
-  PHOTO_BOTTOM_URL:29,  // AC - Extracted URL for Photo Bottom (hidden; written by Sync Photos)
+  GOOGLE_MEET:      9,  // I - Google Meet link
+  SPEAKER_ORGANIZER:10, // J - Who is managing / booking this speaker
+  OPENING_SPEAKER:  11, // K - Opening speaker / invocation
+  MAIN_SPEAKER:     12, // L - Main speaker
+  MAIN_TOPIC:       13, // M - Main topic / program title
+  SPEAKER_URL:      14, // N - Optional URL for speaker/topic (links in newsletter & calendar)
+  SUMMARY:          15, // O - Rich narrative paragraph for newsletter
+  PHOTO_TOP:        16, // P - Top photo URL (speaker or event, displayed above narrative)
+  PHOTO_BOTTOM:     17, // Q - Bottom photo URL (second image, displayed below narrative)
+  MC:               18, // R - MC if not the president
+  SETUP_TEARDOWN:   19, // S - Setup/Teardown
+  AV_ZOOM:          20, // T - AV/Zoom
+  GREETER:          21, // U - Greeter
+  FOUR_WAY_TEST:    22, // V - 4-Way-Test
+  THOUGHT:          23, // W - Thought
+  DETECTIVE:        24, // X - Detective
+  BAG_PERSON:       25, // Y - Bag Person
+  COMMENTS:         26, // Z - Internal comments (not pushed to Calendar)
+  STATUS:           27, // AA - Sync status
+  HASH:             28, // AB - Hash of last-pushed fields (hidden, do not edit)
+  PHOTO_TOP_URL:    29, // AC - Extracted URL for Photo Top (hidden; written by Sync Photos)
+  PHOTO_BOTTOM_URL: 30, // AD - Extracted URL for Photo Bottom (hidden; written by Sync Photos)
 };
 
-const NUM_COLS = 29;
+const NUM_COLS = 30;
 
 // Duty field key → COL mapping (shared by web app and sheet save logic)
 const DUTY_COLS = {
@@ -167,27 +168,28 @@ function setupSheet() {
     "Time",                    // F
     "Duration (min)",          // G
     "Location",                // H
-    "Google Meet Link",        // I
-    "Opening Speaker",         // J
-    "Main Speaker",            // K
-    "Main Topic",              // L
-    "Speaker URL",              // M - optional link for speaker or topic
-    "Summary (newsletter)",     // N - rich narrative paragraph
-    "Speaker Top Photo URL",    // O - photo displayed above narrative
-    "Speaker Bottom Photo URL", // P - second photo displayed below narrative
-    "MC",                       // Q
-    "Setup/Teardown",           // R
-    "AV/Zoom",                  // S
-    "Greeter",                  // T
-    "4-Way-Test",               // U
-    "Thought",                  // V
-    "Detective",                // W
-    "Bag Person",               // X
-    "Comments",                 // Y
-    "Sync Status",              // Z
-    "Hash (do not edit)",       // AA
-    "Photo Top URL (auto)",     // AB - written by Sync Photos; do not edit
-    "Photo Bottom URL (auto)",  // AC - written by Sync Photos; do not edit
+    "Google Meet Link",         // I
+    "Speaker(s) Organizer",     // J - who is managing / booking this speaker
+    "Opening Speaker",          // K
+    "Main Speaker",             // L
+    "Main Topic",               // M
+    "Speaker URL",              // N - optional link for speaker or topic
+    "Summary (newsletter)",     // O - rich narrative paragraph
+    "Speaker Top Photo URL",    // P - photo displayed above narrative
+    "Speaker Bottom Photo URL", // Q - second photo displayed below narrative
+    "MC",                       // R
+    "Setup/Teardown",           // S
+    "AV/Zoom",                  // T
+    "Greeter",                  // U
+    "4-Way-Test",               // V
+    "Thought",                  // W
+    "Detective",                // X
+    "Bag Person",               // Y
+    "Comments",                 // Z
+    "Sync Status",              // AA
+    "Hash (do not edit)",       // AB
+    "Photo Top URL (auto)",     // AC - written by Sync Photos; do not edit
+    "Photo Bottom URL (auto)",  // AD - written by Sync Photos; do not edit
   ];
 
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
@@ -209,26 +211,27 @@ function setupSheet() {
     90,   // G Duration
     200,  // H Location
     240,  // I Google Meet
-    180,  // J Opening Speaker
-    180,  // K Main Speaker
-    200,  // L Main Topic
-    280,  // M Speaker URL
-    350,  // N Summary
-    200,  // O Speaker Top Photo URL
-    200,  // P Speaker Bottom Photo URL
-    150,  // Q MC
-    150,  // R Setup/Teardown
-    120,  // S AV/Zoom
-    150,  // T Greeter
-    150,  // U 4-Way-Test
-    150,  // V Thought
-    150,  // W Detective
-    150,  // X Bag Person
-    220,  // Y Comments
-    180,  // Z Sync Status
-    50,   // AA Hash
-    280,  // AB Photo Top URL (auto)
-    280,  // AC Photo Bottom URL (auto)
+    160,  // J Speaker(s) Organizer
+    180,  // K Opening Speaker
+    180,  // L Main Speaker
+    200,  // M Main Topic
+    280,  // N Speaker URL
+    350,  // O Summary
+    200,  // P Speaker Top Photo URL
+    200,  // Q Speaker Bottom Photo URL
+    150,  // R MC
+    150,  // S Setup/Teardown
+    120,  // T AV/Zoom
+    150,  // U Greeter
+    150,  // V 4-Way-Test
+    150,  // W Thought
+    150,  // X Detective
+    150,  // Y Bag Person
+    220,  // Z Comments
+    180,  // AA Sync Status
+    50,   // AB Hash
+    280,  // AC Photo Top URL (auto)
+    280,  // AD Photo Bottom URL (auto)
   ];
   widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
@@ -500,23 +503,24 @@ function eventToRow(event) {
     durationMin || 60,   // G  COL.DURATION = 7
     event.getLocation() || "", // H  COL.LOCATION = 8
     meetLink,            // I  COL.GOOGLE_MEET = 9
-    openingSpeaker,      // J  COL.OPENING_SPEAKER = 10
-    mainSpeaker,         // K  COL.MAIN_SPEAKER = 11
-    mainTopic,           // L  COL.MAIN_TOPIC = 12
-    speakerUrl,          // M  COL.SPEAKER_URL = 13
-    summary,             // N  COL.SUMMARY = 14
-    "",                  // O  COL.PHOTO_TOP = 15 (not in Calendar)
-    "",                  // P  COL.PHOTO_BOTTOM = 16 (not in Calendar)
-    mc,                  // Q  COL.MC = 17
-    setupTeardown,       // R  COL.SETUP_TEARDOWN = 18
-    avZoom,              // R  COL.AV_ZOOM = 18
-    greeter,             // S  COL.GREETER = 19
-    fourWayTest,         // T  COL.FOUR_WAY_TEST = 20
-    thought,             // U  COL.THOUGHT = 21
-    detective,           // V  COL.DETECTIVE = 22
-    bagPerson,           // W  COL.BAG_PERSON = 23
-    "",                  // X  COL.COMMENTS = 24 (user-managed, not overwritten)
-    "Pulled " + timestamp(), // Y  COL.STATUS = 25
+    "",                  // J  COL.SPEAKER_ORGANIZER = 10 (not in Calendar)
+    openingSpeaker,      // K  COL.OPENING_SPEAKER = 11
+    mainSpeaker,         // L  COL.MAIN_SPEAKER = 12
+    mainTopic,           // M  COL.MAIN_TOPIC = 13
+    speakerUrl,          // N  COL.SPEAKER_URL = 14
+    summary,             // O  COL.SUMMARY = 15
+    "",                  // P  COL.PHOTO_TOP = 16 (not in Calendar)
+    "",                  // Q  COL.PHOTO_BOTTOM = 17 (not in Calendar)
+    mc,                  // R  COL.MC = 18
+    setupTeardown,       // S  COL.SETUP_TEARDOWN = 19
+    avZoom,              // T  COL.AV_ZOOM = 20
+    greeter,             // U  COL.GREETER = 21
+    fourWayTest,         // V  COL.FOUR_WAY_TEST = 22
+    thought,             // W  COL.THOUGHT = 23
+    detective,           // X  COL.DETECTIVE = 24
+    bagPerson,           // Y  COL.BAG_PERSON = 25
+    "",                  // Z  COL.COMMENTS = 26 (user-managed, not overwritten)
+    "Pulled " + timestamp(), // AA  COL.STATUS = 27
   ];
 }
 

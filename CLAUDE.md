@@ -66,11 +66,12 @@ cleanly via GitHub Pages with zero CI pipeline.
   Actual sheet column order (0-based):
   0 Event ID | 1 Event Type | 2 Cancelled | 3 Day | 4 Date (YYYY-MM-DD) |
   5 Time (H:MM AM/PM) | 6 Duration (min) | 7 Location | 8 Google Meet Link |
-  9 Opening Speaker | 10 Main Speaker | 11 Main Topic | 12 Speaker URL (optional link) |
-  13 Summary (newsletter + calendar body) | 14 Speaker Top Photo URL | 15 Speaker Bottom Photo URL |
-  16 MC | 17 Setup/Teardown | 18 AV/Zoom | 19 Greeter | 20 4-Way-Test | 21 Thought |
-  22 Detective | 23 Bag Person | 24 Comments | 25 Sync Status | 26 Hash |
-  27 Photo Top URL (hidden, auto) | 28 Photo Bottom URL (hidden, auto)
+  9 Speaker(s) Organizer | 10 Opening Speaker | 11 Main Speaker | 12 Main Topic |
+  13 Speaker URL (optional link) | 14 Summary (newsletter + calendar body) |
+  15 Speaker Top Photo URL | 16 Speaker Bottom Photo URL |
+  17 MC | 18 Setup/Teardown | 19 AV/Zoom | 20 Greeter | 21 4-Way-Test | 22 Thought |
+  23 Detective | 24 Bag Person | 25 Comments | 26 Sync Status | 27 Hash |
+  28 Photo Top URL (hidden, auto) | 29 Photo Bottom URL (hidden, auto)
 
 ---
 
