@@ -22,7 +22,7 @@ const COL = {
   OPENING_SPEAKER: 10,  // J - Opening speaker / invocation
   MAIN_SPEAKER:    11,  // K - Main speaker
   MAIN_TOPIC:      12,  // L - Main topic / program title
-  DESCRIPTION:     13,  // M - Short description / notes
+  SPEAKER_URL:     13,  // M - Optional URL for speaker/topic (links in newsletter & calendar)
   SUMMARY:         14,  // N - Rich narrative paragraph for newsletter
   PHOTO:           15,  // O - Photo URL or uploaded image (for newsletter)
   MC:              16,  // P - MC if not the president
@@ -152,7 +152,7 @@ function setupSheet() {
     "Opening Speaker",         // J
     "Main Speaker",            // K
     "Main Topic",              // L
-    "Description",             // M
+    "Speaker URL",             // M - optional link for speaker or topic
     "Summary (newsletter)",    // N - rich narrative paragraph
     "Photo (URL or image)",    // O - for newsletter
     "MC",                      // P
@@ -190,7 +190,7 @@ function setupSheet() {
     180,  // J Opening Speaker
     180,  // K Main Speaker
     200,  // L Main Topic
-    280,  // M Description
+    280,  // M Speaker URL
     350,  // N Summary
     200,  // O Photo
     150,  // P MC
@@ -442,50 +442,53 @@ function eventToRow(event) {
   const thought        = get("Thought");
   const detective      = get("Detective");
   const bagPerson      = get("Bag Person");
+  const speakerUrl     = get("More Info");
   const meetLink       = get("Meet") ||
     (desc.match(/(https:\/\/meet\.google\.com\/\S+)/i) || [])[1] || "";
   const eventType      = get("Type") || guessType(title);
 
-  // Strip all tagged lines to get clean description body
+  // Strip all tagged lines to get clean summary body
   const allLabels = [
     "Type","Opening Speaker","Main Speaker","Main Topic",
     "MC","Setup/Teardown","AV/Zoom","Greeter","4-Way-Test",
-    "Thought","Detective","Bag Person","Meet"
+    "Thought","Detective","Bag Person","Meet","More Info"
   ];
-  let cleanDesc = desc;
+  let summary = desc;
   allLabels.forEach(label => {
-    cleanDesc = cleanDesc.replace(
+    summary = summary.replace(
       new RegExp(`^${escapeRegex(label)}:\\s*.+\\n?`, "mi"), ""
     );
   });
-  cleanDesc = cleanDesc
+  summary = summary
     .replace(/(https:\/\/meet\.google\.com\/\S+)/gi, "")
     .trim();
 
   return [
-    event.getId(),       // A
-    eventType,           // B
-    cancelled,           // C - boolean for checkbox
-    "",                  // D - DAY_LABEL formula (not written by script)
-    Utilities.formatDate(start, tz, "yyyy-MM-dd"), // E
-    Utilities.formatDate(start, tz, "h:mm a"),     // F
-    durationMin || 60,   // G
-    event.getLocation() || "", // H
-    meetLink,            // I
-    openingSpeaker,      // J
-    mainSpeaker,         // K
-    mainTopic,           // L
-    cleanDesc,           // M
-    mc,                  // N
-    setupTeardown,       // O
-    avZoom,              // P
-    greeter,             // Q
-    fourWayTest,         // R
-    thought,             // S
-    detective,           // T
-    bagPerson,           // U
-    "",                  // V - Comments (user-managed, not overwritten on pull)
-    "Pulled " + timestamp(), // W
+    event.getId(),       // A  COL.EVENT_ID = 1
+    eventType,           // B  COL.EVENT_TYPE = 2
+    cancelled,           // C  COL.CANCELLED = 3
+    "",                  // D  COL.DAY_LABEL = 4 (formula, not written)
+    Utilities.formatDate(start, tz, "yyyy-MM-dd"), // E  COL.DATE = 5
+    Utilities.formatDate(start, tz, "h:mm a"),     // F  COL.TIME = 6
+    durationMin || 60,   // G  COL.DURATION = 7
+    event.getLocation() || "", // H  COL.LOCATION = 8
+    meetLink,            // I  COL.GOOGLE_MEET = 9
+    openingSpeaker,      // J  COL.OPENING_SPEAKER = 10
+    mainSpeaker,         // K  COL.MAIN_SPEAKER = 11
+    mainTopic,           // L  COL.MAIN_TOPIC = 12
+    speakerUrl,          // M  COL.SPEAKER_URL = 13
+    summary,             // N  COL.SUMMARY = 14
+    "",                  // O  COL.PHOTO = 15 (not in Calendar)
+    mc,                  // P  COL.MC = 16
+    setupTeardown,       // Q  COL.SETUP_TEARDOWN = 17
+    avZoom,              // R  COL.AV_ZOOM = 18
+    greeter,             // S  COL.GREETER = 19
+    fourWayTest,         // T  COL.FOUR_WAY_TEST = 20
+    thought,             // U  COL.THOUGHT = 21
+    detective,           // V  COL.DETECTIVE = 22
+    bagPerson,           // W  COL.BAG_PERSON = 23
+    "",                  // X  COL.COMMENTS = 24 (user-managed, not overwritten)
+    "Pulled " + timestamp(), // Y  COL.STATUS = 25
   ];
 }
 
@@ -518,7 +521,8 @@ function buildEventOptions(row) {
   const openingSpeaker = row[COL.OPENING_SPEAKER - 1]  || "";
   const mainSpeaker    = row[COL.MAIN_SPEAKER - 1]     || "";
   const mainTopic      = row[COL.MAIN_TOPIC - 1]       || "";
-  const description    = row[COL.DESCRIPTION - 1]      || "";
+  const description    = row[COL.SUMMARY - 1]          || "";  // Summary is the calendar body
+  const speakerUrl     = row[COL.SPEAKER_URL - 1]      || "";
   const eventType      = row[COL.EVENT_TYPE - 1]       || "Meeting";
 
   // Build structured header block
@@ -528,6 +532,7 @@ function buildEventOptions(row) {
   if (mainSpeaker)    desc += `Main Speaker: ${mainSpeaker}\n`;
   if (mainTopic)      desc += `Main Topic: ${mainTopic}\n`;
   if (meetLink)       desc += `Meet: ${meetLink}\n`;
+  if (speakerUrl)     desc += `More Info: ${speakerUrl}\n`;
 
   // Free-form description body
   if (description)    desc += `\n${description}\n`;
@@ -662,7 +667,7 @@ function rowHash(row) {
   const fields = [
     COL.EVENT_TYPE, COL.CANCELLED, COL.DATE, COL.TIME, COL.DURATION,
     COL.LOCATION, COL.GOOGLE_MEET, COL.OPENING_SPEAKER, COL.MAIN_SPEAKER,
-    COL.MAIN_TOPIC, COL.DESCRIPTION, COL.MC, COL.SETUP_TEARDOWN, COL.AV_ZOOM,
+    COL.MAIN_TOPIC, COL.SPEAKER_URL, COL.SUMMARY, COL.MC, COL.SETUP_TEARDOWN, COL.AV_ZOOM,
     COL.GREETER, COL.FOUR_WAY_TEST, COL.THOUGHT, COL.DETECTIVE, COL.BAG_PERSON,
   ];
   const str = fields.map(c => String(row[c - 1] || "")).join("|");
@@ -715,7 +720,7 @@ function generateNewsletter() {
     const d = new Date(dateVal); d.setHours(0,0,0,0);
     const cancelled = row[COL.CANCELLED - 1];
     const type      = val(row, COL.EVENT_TYPE).toLowerCase() || "meeting";
-    const hasSummary = val(row, COL.SUMMARY) || val(row, COL.DESCRIPTION);
+    const hasSummary = val(row, COL.SUMMARY);
 
     if (d >= today && d <= cutoff) {
       upcomingSkim.push(row);  // all future events for skim + grid
@@ -857,10 +862,10 @@ function generateNewsletter() {
       const speaker  = val(row, COL.MAIN_SPEAKER);
       const topic    = val(row, COL.MAIN_TOPIC);
       const opening  = val(row, COL.OPENING_SPEAKER);
-      const summary  = val(row, COL.SUMMARY);
-      const desc     = val(row, COL.DESCRIPTION);
-      const photo    = val(row, COL.PHOTO);
-      const meet     = val(row, COL.GOOGLE_MEET);
+      const summary    = val(row, COL.SUMMARY);
+      const speakerUrl = val(row, COL.SPEAKER_URL);
+      const photo      = val(row, COL.PHOTO);
+      const meet       = val(row, COL.GOOGLE_MEET);
 
       // Event heading: "Jun 3: Meeting — Jane Smith: Water Conservation"
       const dayLabel = Utilities.formatDate(dateVal, tz, "MMM d");
@@ -887,13 +892,10 @@ function generateNewsletter() {
       // Opening speaker
       if (opening) addBoldLine("Opening", opening);
 
-      // Summary or description paragraph
+      // Summary paragraph
       if (summary) {
         body.appendParagraph("").setSpacingAfter(0);
         body.appendParagraph(summary).editAsText().setFontSize(11);
-      } else if (desc) {
-        body.appendParagraph("").setSpacingAfter(0);
-        body.appendParagraph(desc).editAsText().setFontSize(11);
       }
 
       // Google Meet link
@@ -901,6 +903,17 @@ function generateNewsletter() {
         const lp = body.appendParagraph("Join online: ");
         lp.editAsText().setFontSize(10);
         lp.appendText(meet).editAsText().setLinkUrl(meet).setForegroundColor("#1a56db");
+      }
+
+      // Speaker / topic URL
+      if (speakerUrl) {
+        const lp = body.appendParagraph("More info: " + speakerUrl);
+        const t  = lp.editAsText();
+        t.setFontSize(10);
+        const s = "More info: ".length;
+        const e = s + speakerUrl.length - 1;
+        t.setForegroundColor(s, e, "#1a56db");
+        t.setLinkUrl(s, e, speakerUrl);
       }
 
       // Duty roster — always show all roles (filled or TBD)
@@ -1032,9 +1045,9 @@ function generateNewsletter() {
       const dateVal = row[COL.DATE - 1];
       const speaker = val(row, COL.MAIN_SPEAKER);
       const topic   = val(row, COL.MAIN_TOPIC);
-      const summary = val(row, COL.SUMMARY);
-      const desc    = val(row, COL.DESCRIPTION);
-      const photo   = val(row, COL.PHOTO);
+      const summary    = val(row, COL.SUMMARY);
+      const speakerUrl = val(row, COL.SPEAKER_URL);
+      const photo      = val(row, COL.PHOTO);
 
       let label = Utilities.formatDate(dateVal, tz, "MMM d");
       if (speaker) label += ": " + speaker;
@@ -1047,8 +1060,16 @@ function generateNewsletter() {
 
       embedPhoto(photo);
 
-      if (summary)   body.appendParagraph(summary).editAsText().setFontSize(11);
-      else if (desc) body.appendParagraph(desc).editAsText().setFontSize(11);
+      if (summary) body.appendParagraph(summary).editAsText().setFontSize(11);
+      if (speakerUrl) {
+        const lp = body.appendParagraph("More info: " + speakerUrl);
+        const t  = lp.editAsText();
+        t.setFontSize(10);
+        const s = "More info: ".length;
+        const e = s + speakerUrl.length - 1;
+        t.setForegroundColor(s, e, "#1a56db");
+        t.setLinkUrl(s, e, speakerUrl);
+      }
       body.appendParagraph("").setSpacingAfter(0);
     });
   }

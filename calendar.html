@@ -44,7 +44,7 @@ const COL = {
   openingSpeaker: 9,
   mainSpeaker:    10,
   mainTopic:      11,
-  description:    12,
+  speakerUrl:     12,
   summary:        13,
   photo:          14,
   mc:             15,
@@ -106,7 +106,7 @@ function rowToEvent(row) {
     title,
     start:     start.toISOString(),
     end:       end.toISOString(),
-    url:       f(row, COL.meetLink) || undefined,
+    url:       f(row, COL.meetLink) || f(row, COL.speakerUrl) || undefined,
     color:     cancelled ? '#999' : '#17458F',
     classNames: cancelled ? ['cancelled'] : [],
     extendedProps: {
@@ -116,7 +116,8 @@ function rowToEvent(row) {
       speaker,
       openingSpeaker: f(row, COL.openingSpeaker),
       location:       f(row, COL.location),
-      description:    f(row, COL.description) || f(row, COL.summary),
+      summary:        f(row, COL.summary),
+      speakerUrl:     f(row, COL.speakerUrl),
       mc:             f(row, COL.mc),
     },
   };
@@ -156,7 +157,7 @@ document.addEventListener('DOMContentLoaded', function () {
         },
         eventDidMount(info) {
           const p = info.event.extendedProps;
-          const parts = [p.eventType, p.location, p.topic, p.description].filter(Boolean);
+          const parts = [p.eventType, p.location, p.topic, p.summary].filter(Boolean);
           if (parts.length) info.el.title = parts.join(' · ');
         },
       });

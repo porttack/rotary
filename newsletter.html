@@ -132,7 +132,7 @@ const WEEKS_AHEAD  = 12;
 const COL = {
   eventId:0, eventType:1, cancelled:2, day:3, date:4, time:5,
   durationMin:6, location:7, meetLink:8, openingSpeaker:9,
-  mainSpeaker:10, mainTopic:11, description:12, summary:13,
+  mainSpeaker:10, mainTopic:11, speakerUrl:12, summary:13,
   photo:14, mc:15, setupTeardown:16, avZoom:17, greeter:18,
   fourWayTest:19, thought:20, detective:21, bagPerson:22, comments:23
 };
@@ -225,6 +225,11 @@ function mapLink(location, displayText) {
   return `<a href="${url}" target="_blank" rel="noopener">${esc(displayText || location)}</a>`;
 }
 
+function linkWrap(text, url) {
+  if (!url) return esc(text);
+  return `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>`;
+}
+
 const fmt = (d, opts) => d.toLocaleDateString('en-US', opts);
 const fmtLong      = d => fmt(d, {weekday:'long', month:'long', day:'numeric', year:'numeric'});
 const fmtShort     = d => fmt(d, {month:'short', day:'numeric'});
@@ -248,17 +253,17 @@ function comingUp(rows) {
     const location = fv(row, COL.location);
     const speaker  = fv(row, COL.mainSpeaker);
     const topic    = fv(row, COL.mainTopic);
-    const opening  = fv(row, COL.openingSpeaker);
-    const summary  = fv(row, COL.summary);
-    const desc     = fv(row, COL.description);
-    const photo    = fv(row, COL.photo);
-    const meetLink = fv(row, COL.meetLink);
-    const timeStr  = fv(row, COL.time);
+    const opening    = fv(row, COL.openingSpeaker);
+    const summary    = fv(row, COL.summary);
+    const speakerUrl = fv(row, COL.speakerUrl);
+    const photo      = fv(row, COL.photo);
+    const meetLink   = fv(row, COL.meetLink);
+    const timeStr    = fv(row, COL.time);
 
     let heading = `${esc(fmtShort(d))}: ${esc(type)}`;
-    if (speaker && topic)  heading += ` &mdash; ${esc(speaker)}: ${esc(topic)}`;
-    else if (speaker)      heading += ` &mdash; ${esc(speaker)}`;
-    else if (topic)        heading += ` &mdash; ${esc(topic)}`;
+    if (speaker && topic)  heading += ` &mdash; ${linkWrap(speaker, speakerUrl)}: ${esc(topic)}`;
+    else if (speaker)      heading += ` &mdash; ${linkWrap(speaker, speakerUrl)}`;
+    else if (topic)        heading += ` &mdash; ${linkWrap(topic, speakerUrl)}`;
 
     let metaParts = [`${esc(fmtLong(d))}${timeStr ? ' at ' + esc(timeStr) : ''}`];
     if (location) metaParts.push(mapLink(location));
@@ -274,12 +279,14 @@ function comingUp(rows) {
     if (opening) {
       html += `\n  <p class="event-opening"><strong>Opening:</strong> ${esc(opening)}</p>`;
     }
-    const narrative = summary || desc;
-    if (narrative) {
-      html += `\n  <p class="event-narrative">${textToHtml(narrative)}</p>`;
+    if (summary) {
+      html += `\n  <p class="event-narrative">${textToHtml(summary)}</p>`;
     }
     if (meetLink) {
       html += `\n  <p class="meet-link"><a href="${esc(meetLink)}" target="_blank" rel="noopener">Join via Google Meet</a></p>`;
+    }
+    if (speakerUrl && !speaker && !topic) {
+      html += `\n  <p class="meet-link"><a href="${esc(speakerUrl)}" target="_blank" rel="noopener">More info &rarr;</a></p>`;
     }
 
     const filled = ROLE_FIELDS.filter(rf => fv(row, COL[rf.key]));
@@ -312,12 +319,13 @@ function lookingAhead(rows) {
     const d         = parseRowDate(row);
     const type      = fv(row, COL.eventType) || 'Meeting';
     const typeLow   = type.toLowerCase();
-    const speaker   = fv(row, COL.mainSpeaker);
-    const topic     = fv(row, COL.mainTopic);
-    const location  = fv(row, COL.location);
-    const cancelled = isCancelled(row);
-    const isMeeting = DETAIL_TYPES.includes(typeLow);
-    const tAbb      = abbrevTime(fv(row, COL.time));
+    const speaker    = fv(row, COL.mainSpeaker);
+    const topic      = fv(row, COL.mainTopic);
+    const location   = fv(row, COL.location);
+    const cancelled  = isCancelled(row);
+    const isMeeting  = DETAIL_TYPES.includes(typeLow);
+    const tAbb       = abbrevTime(fv(row, COL.time));
+    const speakerUrl = fv(row, COL.speakerUrl);
 
     const mo = fmtMonthYear(d);
     if (mo !== curMonth) {
@@ -332,14 +340,14 @@ function lookingAhead(rows) {
 
     if (!cancelled) {
       if (isMeeting) {
-        if (speaker && topic)  line += ` &nbsp;&middot;&nbsp; ${esc(speaker)}: ${esc(topic)}`;
-        else if (speaker)      line += ` &nbsp;&middot;&nbsp; ${esc(speaker)}`;
-        else if (topic)        line += ` &nbsp;&middot;&nbsp; ${esc(topic)}`;
+        if (speaker && topic)  line += ` &nbsp;&middot;&nbsp; ${linkWrap(speaker, speakerUrl)}: ${esc(topic)}`;
+        else if (speaker)      line += ` &nbsp;&middot;&nbsp; ${linkWrap(speaker, speakerUrl)}`;
+        else if (topic)        line += ` &nbsp;&middot;&nbsp; ${linkWrap(topic, speakerUrl)}`;
         else                   line += ` &nbsp;&middot;&nbsp; TBD`;
       } else {
-        if (speaker && topic)  line += ` &nbsp;&middot;&nbsp; ${esc(speaker)}: ${esc(topic)}`;
-        else if (speaker)      line += ` &nbsp;&middot;&nbsp; ${esc(speaker)}`;
-        else if (topic)        line += ` &nbsp;&middot;&nbsp; ${esc(topic)}`;
+        if (speaker && topic)  line += ` &nbsp;&middot;&nbsp; ${linkWrap(speaker, speakerUrl)}: ${esc(topic)}`;
+        else if (speaker)      line += ` &nbsp;&middot;&nbsp; ${linkWrap(speaker, speakerUrl)}`;
+        else if (topic)        line += ` &nbsp;&middot;&nbsp; ${linkWrap(topic, speakerUrl)}`;
       }
     }
 
@@ -365,12 +373,12 @@ function recentMeetings(rows) {
     const d       = parseRowDate(row);
     const speaker = fv(row, COL.mainSpeaker);
     const topic   = fv(row, COL.mainTopic);
-    const summary = fv(row, COL.summary);
-    const desc    = fv(row, COL.description);
-    const photo   = fv(row, COL.photo);
+    const summary    = fv(row, COL.summary);
+    const speakerUrl = fv(row, COL.speakerUrl);
+    const photo      = fv(row, COL.photo);
 
     let label = esc(fmtShort(d));
-    if (speaker) label += `: ${esc(speaker)}`;
+    if (speaker) label += `: ${linkWrap(speaker, speakerUrl)}`;
     if (topic)   label += (speaker ? ' &mdash; ' : ': ') + esc(topic);
 
     let html = `<div class="event-block">
@@ -378,8 +386,7 @@ function recentMeetings(rows) {
     if (photo && photo.startsWith('http')) {
       html += `\n  <img src="${esc(photo)}" alt="${esc(speaker||topic||'')}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
     }
-    const narrative = summary || desc;
-    if (narrative) html += `\n  <p class="event-narrative">${textToHtml(narrative)}</p>`;
+    if (summary) html += `\n  <p class="event-narrative">${textToHtml(summary)}</p>`;
     html += `\n</div>`;
     return html;
   }).join('\n');
@@ -480,7 +487,7 @@ function renderNewsletter(allRows) {
           detailRows.push(row);
         }
       }
-    } else if (isDetail && (fv(row, COL.summary) || fv(row, COL.description))) {
+    } else if (isDetail && fv(row, COL.summary)) {
       recentRows.push(row);
     }
   });
