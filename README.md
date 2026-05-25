@@ -1,10 +1,10 @@
-# SLV Rotary Website
+# SLV Rotary Management Prototype
 
-A prototype website for the **San Lorenzo Valley Rotary Club**, hosted on GitHub Pages.
+A prototype management website for the **San Lorenzo Valley Rotary Club**, hosted on GitHub Pages.
 
-**This is not a replacement for ClubRunner** — the treasurer's workflow is untouched and ClubRunner remains the club's official platform. This site is also not meant to replace the existing Google Calendar; it can optionally sync with it, but the Google Calendar stays the authoritative source.
+**This is not a replacement for ClubRunner**. ClubRunner remains the club's official platform. This site is also not meant to replace the existing Google Calendar; it can optionally sync with it, but the Google Calendar stays the authoritative source.
 
-Everything here is **driven by a single Google Sheet** that club leadership and committee chairs manage. The website reads from that sheet automatically — no one needs to touch the website itself after initial setup.
+Everything here is **driven by a single Google Sheet** that club leadership and committee chairs could manage. The website reads from that sheet automatically — no one needs to touch the website itself after initial setup.
 
 The goal is to reduce copy-paste email work in three areas:
 
