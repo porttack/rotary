@@ -24,21 +24,34 @@ const COL = {
   MAIN_TOPIC:      12,  // L - Main topic / program title
   SPEAKER_URL:     13,  // M - Optional URL for speaker/topic (links in newsletter & calendar)
   SUMMARY:         14,  // N - Rich narrative paragraph for newsletter
-  PHOTO:           15,  // O - Photo URL or uploaded image (for newsletter)
-  MC:              16,  // P - MC if not the president
-  SETUP_TEARDOWN:  17,  // Q - Setup/Teardown
-  AV_ZOOM:         18,  // R - AV/Zoom
-  GREETER:         19,  // S - Greeter
-  FOUR_WAY_TEST:   20,  // T - 4-Way-Test
-  THOUGHT:         21,  // U - Thought
-  DETECTIVE:       22,  // V - Detective
-  BAG_PERSON:      23,  // W - Bag Person
-  COMMENTS:        24,  // X - Internal comments (not pushed to Calendar)
-  STATUS:          25,  // Y - Sync status
-  HASH:            26,  // Z - Hash of last-pushed fields (hidden, do not edit)
+  PHOTO_TOP:       15,  // O - Top photo URL (speaker or event, displayed above narrative)
+  PHOTO_BOTTOM:    16,  // P - Bottom photo URL (second image, displayed below narrative)
+  MC:              17,  // Q - MC if not the president
+  SETUP_TEARDOWN:  18,  // R - Setup/Teardown
+  AV_ZOOM:         19,  // S - AV/Zoom
+  GREETER:         20,  // T - Greeter
+  FOUR_WAY_TEST:   21,  // U - 4-Way-Test
+  THOUGHT:         22,  // V - Thought
+  DETECTIVE:       23,  // W - Detective
+  BAG_PERSON:      24,  // X - Bag Person
+  COMMENTS:        25,  // Y - Internal comments (not pushed to Calendar)
+  STATUS:          26,  // Z - Sync status
+  HASH:            27,  // AA - Hash of last-pushed fields (hidden, do not edit)
 };
 
-const NUM_COLS = 26;
+const NUM_COLS = 27;
+
+// Duty field key → COL mapping (shared by web app and sheet save logic)
+const DUTY_COLS = {
+  mc:            COL.MC,
+  setupTeardown: COL.SETUP_TEARDOWN,
+  avZoom:        COL.AV_ZOOM,
+  greeter:       COL.GREETER,
+  fourWayTest:   COL.FOUR_WAY_TEST,
+  thought:       COL.THOUGHT,
+  detective:     COL.DETECTIVE,
+  bagPerson:     COL.BAG_PERSON,
+};
 
 // Event type options
 const EVENT_TYPES = ["Meeting", "Board Meeting", "Social", "Service", "Committee", "Other"];
@@ -76,6 +89,9 @@ function onOpen() {
     .addItem("⬆️  Push Sheet → Calendar",       "pushToCalendar")
     .addSeparator()
     .addItem("📰  Generate Newsletter Doc",     "generateNewsletter")
+    .addSeparator()
+    .addItem("📝  Open Duty Editor (web app)",  "openDutyEditor")
+    .addItem("👥  Setup Members Tab",           "setupMembers")
     .addSeparator()
     .addItem("📋  Setup / Reset Sheet Headers", "setupSheet")
     .addItem("⚡  Install Edit Trigger (run once)", "installEditTrigger")
@@ -152,20 +168,21 @@ function setupSheet() {
     "Opening Speaker",         // J
     "Main Speaker",            // K
     "Main Topic",              // L
-    "Speaker URL",             // M - optional link for speaker or topic
-    "Summary (newsletter)",    // N - rich narrative paragraph
-    "Photo (URL or image)",    // O - for newsletter
-    "MC",                      // P
-    "Setup/Teardown",          // Q
-    "AV/Zoom",                 // R
-    "Greeter",                 // S
-    "4-Way-Test",              // T
-    "Thought",                 // U
-    "Detective",               // V
-    "Bag Person",              // W
-    "Comments",                // X
-    "Sync Status",             // Y
-    "Hash (do not edit)",      // Z
+    "Speaker URL",              // M - optional link for speaker or topic
+    "Summary (newsletter)",     // N - rich narrative paragraph
+    "Speaker Top Photo URL",    // O - photo displayed above narrative
+    "Speaker Bottom Photo URL", // P - second photo displayed below narrative
+    "MC",                       // Q
+    "Setup/Teardown",           // R
+    "AV/Zoom",                  // S
+    "Greeter",                  // T
+    "4-Way-Test",               // U
+    "Thought",                  // V
+    "Detective",                // W
+    "Bag Person",               // X
+    "Comments",                 // Y
+    "Sync Status",              // Z
+    "Hash (do not edit)",       // AA
   ];
 
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
@@ -192,18 +209,19 @@ function setupSheet() {
     200,  // L Main Topic
     280,  // M Speaker URL
     350,  // N Summary
-    200,  // O Photo
-    150,  // P MC
-    150,  // Q Setup/Teardown
-    120,  // R AV/Zoom
-    150,  // S Greeter
-    150,  // T 4-Way-Test
-    150,  // U Thought
-    150,  // V Detective
-    150,  // W Bag Person
-    220,  // X Comments
-    180,  // Y Sync Status
-    50,   // Z Hash
+    200,  // O Speaker Top Photo URL
+    200,  // P Speaker Bottom Photo URL
+    150,  // Q MC
+    150,  // R Setup/Teardown
+    120,  // S AV/Zoom
+    150,  // T Greeter
+    150,  // U 4-Way-Test
+    150,  // V Thought
+    150,  // W Detective
+    150,  // X Bag Person
+    220,  // Y Comments
+    180,  // Z Sync Status
+    50,   // AA Hash
   ];
   widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
@@ -478,8 +496,9 @@ function eventToRow(event) {
     mainTopic,           // L  COL.MAIN_TOPIC = 12
     speakerUrl,          // M  COL.SPEAKER_URL = 13
     summary,             // N  COL.SUMMARY = 14
-    "",                  // O  COL.PHOTO = 15 (not in Calendar)
-    mc,                  // P  COL.MC = 16
+    "",                  // O  COL.PHOTO_TOP = 15 (not in Calendar)
+    "",                  // P  COL.PHOTO_BOTTOM = 16 (not in Calendar)
+    mc,                  // Q  COL.MC = 17
     setupTeardown,       // Q  COL.SETUP_TEARDOWN = 17
     avZoom,              // R  COL.AV_ZOOM = 18
     greeter,             // S  COL.GREETER = 19
@@ -862,10 +881,11 @@ function generateNewsletter() {
       const speaker  = val(row, COL.MAIN_SPEAKER);
       const topic    = val(row, COL.MAIN_TOPIC);
       const opening  = val(row, COL.OPENING_SPEAKER);
-      const summary    = val(row, COL.SUMMARY);
-      const speakerUrl = val(row, COL.SPEAKER_URL);
-      const photo      = val(row, COL.PHOTO);
-      const meet       = val(row, COL.GOOGLE_MEET);
+      const summary     = val(row, COL.SUMMARY);
+      const speakerUrl  = val(row, COL.SPEAKER_URL);
+      const photoTop    = val(row, COL.PHOTO_TOP);
+      const photoBottom = val(row, COL.PHOTO_BOTTOM);
+      const meet        = val(row, COL.GOOGLE_MEET);
 
       // Event heading: "Jun 3: Meeting — Jane Smith: Water Conservation"
       const dayLabel = Utilities.formatDate(dateVal, tz, "MMM d");
@@ -886,8 +906,8 @@ function generateNewsletter() {
       mp.editAsText().setFontSize(10).setForegroundColor("#555555").setItalic(true);
       mp.setSpacingAfter(6);
 
-      // Photo
-      embedPhoto(photo);
+      // Top photo (speaker headshot or event banner)
+      embedPhoto(photoTop);
 
       // Opening speaker
       if (opening) addBoldLine("Opening", opening);
@@ -897,6 +917,9 @@ function generateNewsletter() {
         body.appendParagraph("").setSpacingAfter(0);
         body.appendParagraph(summary).editAsText().setFontSize(11);
       }
+
+      // Bottom photo (additional event or venue image)
+      embedPhoto(photoBottom);
 
       // Google Meet link
       if (meet) {
@@ -1045,9 +1068,10 @@ function generateNewsletter() {
       const dateVal = row[COL.DATE - 1];
       const speaker = val(row, COL.MAIN_SPEAKER);
       const topic   = val(row, COL.MAIN_TOPIC);
-      const summary    = val(row, COL.SUMMARY);
-      const speakerUrl = val(row, COL.SPEAKER_URL);
-      const photo      = val(row, COL.PHOTO);
+      const summary     = val(row, COL.SUMMARY);
+      const speakerUrl  = val(row, COL.SPEAKER_URL);
+      const photoTop    = val(row, COL.PHOTO_TOP);
+      const photoBottom = val(row, COL.PHOTO_BOTTOM);
 
       let label = Utilities.formatDate(dateVal, tz, "MMM d");
       if (speaker) label += ": " + speaker;
@@ -1058,9 +1082,12 @@ function generateNewsletter() {
       eh.editAsText().setForegroundColor("#555555").setFontSize(13);
       eh.setSpacingBefore(8).setSpacingAfter(4);
 
-      embedPhoto(photo);
+      embedPhoto(photoTop);
 
       if (summary) body.appendParagraph(summary).editAsText().setFontSize(11);
+
+      embedPhoto(photoBottom);
+
       if (speakerUrl) {
         const lp = body.appendParagraph("More info: " + speakerUrl);
         const t  = lp.editAsText();
@@ -1209,4 +1236,315 @@ function generateNewsletter() {
     '<p style="font-family:sans-serif;font-size:11px;color:#666">Saved to your Rotary folder in Google Drive.</p>'
   ).setWidth(400).setHeight(140);
   SpreadsheetApp.getUi().showModalDialog(html, "Newsletter Ready");
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  DUTY EDITOR — WEB APP
+//  Deploy via: Extensions > Apps Script > Deploy > New deployment
+//  Type: Web app | Execute as: Me | Who has access: Anyone (or org)
+// ═══════════════════════════════════════════════════════════════
+
+/** Entry point for the deployed web app */
+function doGet() {
+  return HtmlService.createHtmlOutput(getDutyEditorHtml())
+    .setTitle("SLV Rotary — Duty Editor")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** Open the deployed web app URL from the sheet menu */
+function openDutyEditor() {
+  let url;
+  try {
+    url = ScriptApp.getService().getUrl();
+  } catch(e) { url = null; }
+
+  if (!url || url.includes("AKfycb") === false) {
+    SpreadsheetApp.getUi().alert(
+      "Duty Editor is not yet deployed as a web app.\n\n" +
+      "Steps:\n" +
+      "  1. Extensions > Apps Script\n" +
+      "  2. Deploy > New deployment\n" +
+      "  3. Type: Web app\n" +
+      "  4. Execute as: Me\n" +
+      "  5. Who has access: Anyone (or your org)\n" +
+      "  6. Click Deploy, copy the URL\n\n" +
+      "Then run 'Open Duty Editor' again."
+    );
+    return;
+  }
+
+  const html = HtmlService.createHtmlOutput(
+    '<p style="font-family:sans-serif;font-size:14px">Opening Duty Editor in a new tab&hellip;</p>' +
+    '<script>window.open("' + url + '","_blank");google.script.host.close();</script>'
+  ).setWidth(360).setHeight(80);
+  SpreadsheetApp.getUi().showModalDialog(html, "Duty Editor");
+}
+
+/**
+ * Returns upcoming meeting data + member list for the duty editor page.
+ * Called client-side via google.script.run.getPageData()
+ */
+function getPageData() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+
+  const tz      = Session.getScriptTimeZone();
+  const today   = new Date(); today.setHours(0,0,0,0);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { meetings: [], members: [] };
+
+  const data = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+  const upcoming = [];
+
+  data.forEach((row, i) => {
+    const dateVal = row[COL.DATE - 1];
+    if (!dateVal || !(dateVal instanceof Date)) return;
+    const d = new Date(dateVal); d.setHours(0,0,0,0);
+    const type      = String(row[COL.EVENT_TYPE - 1] || "").toLowerCase();
+    const cancelled = row[COL.CANCELLED - 1];
+    if (d >= today && !cancelled && DETAIL_TYPES.includes(type)) {
+      upcoming.push({ sheetRow: i + 2, row });
+    }
+  });
+
+  upcoming.sort((a, b) => a.row[COL.DATE - 1] - b.row[COL.DATE - 1]);
+
+  const meetings = upcoming.slice(0, 3).map(({ sheetRow, row }) => {
+    const dateVal = row[COL.DATE - 1];
+    const timeVal = row[COL.TIME - 1];
+    const type    = String(row[COL.EVENT_TYPE - 1] || "Meeting");
+    const speaker = String(row[COL.MAIN_SPEAKER - 1] || "");
+    const topic   = String(row[COL.MAIN_TOPIC - 1]   || "");
+
+    let title = type;
+    if (speaker && topic) title += " — " + speaker + ": " + topic;
+    else if (speaker)     title += " — " + speaker;
+    else if (topic)       title += " — " + topic;
+
+    const dateStr = Utilities.formatDate(dateVal, tz, "EEEE, MMMM d");
+    const timeStr = timeVal instanceof Date
+      ? Utilities.formatDate(timeVal, tz, "h:mm a")
+      : String(timeVal || "");
+
+    const duties = {};
+    Object.keys(DUTY_COLS).forEach(key => {
+      duties[key] = String(row[DUTY_COLS[key] - 1] || "");
+    });
+
+    return {
+      rowIndex: sheetRow,
+      title,
+      dateStr,
+      time:     timeStr,
+      location: String(row[COL.LOCATION - 1] || ""),
+      duties,
+    };
+  });
+
+  // Member names from optional Members tab
+  let members = [];
+  const ms = ss.getSheetByName("Members");
+  if (ms && ms.getLastRow() > 1) {
+    members = ms.getRange(2, 1, ms.getLastRow() - 1, 1)
+      .getValues()
+      .map(r => String(r[0] || "").trim())
+      .filter(Boolean)
+      .sort();
+  }
+
+  return { meetings, members };
+}
+
+/**
+ * Writes duty assignments back to the sheet for one meeting row.
+ * Called client-side via google.script.run.saveDuties(rowIndex, duties)
+ */
+function saveDuties(rowIndex, duties) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+  if (!rowIndex || rowIndex < 2) throw new Error("Invalid row index.");
+
+  Object.keys(DUTY_COLS).forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(duties, key)) {
+      sheet.getRange(rowIndex, DUTY_COLS[key]).setValue(duties[key] || "");
+    }
+  });
+
+  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "M/d/yy h:mm a");
+  sheet.getRange(rowIndex, COL.STATUS).setValue("✏️ Duties updated " + ts);
+  recolorRow(sheet, rowIndex);
+  return "Saved ✓ (" + ts + ")";
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  MEMBERS TAB SETUP
+// ═══════════════════════════════════════════════════════════════
+
+/** Create (or reset) the Members tab with a header and sample rows */
+function setupMembers() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let ms = ss.getSheetByName("Members");
+  if (!ms) ms = ss.insertSheet("Members");
+
+  const hdr = ms.getRange(1, 1, 1, 1);
+  hdr.setValue("Name");
+  hdr.setBackground("#1a3a6b").setFontColor("#ffffff").setFontWeight("bold").setFontSize(11);
+  ms.setColumnWidth(1, 220);
+  ms.setFrozenRows(1);
+
+  if (ms.getLastRow() < 2) {
+    ms.getRange(2, 1, 3, 1).setValues([
+      ["Alice Aardvark"],
+      ["Bob Bobcat"],
+      ["Carol Chen"],
+    ]);
+  }
+
+  SpreadsheetApp.getUi().alert(
+    "Members tab is ready!\n\n" +
+    "Replace the sample names with your club members' names.\n" +
+    "These names will appear as dropdown options in the Duty Editor."
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  DUTY EDITOR HTML (served by doGet)
+// ═══════════════════════════════════════════════════════════════
+
+function getDutyEditorHtml() {
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLV Rotary &mdash; Duty Editor</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 680px; margin: 0 auto; padding: 1em 1.2em; color: #222; }
+  h1 { color: #17458F; margin-bottom: 0.15em; font-size: 1.5em; }
+  .sub { color: #666; font-size: 0.9em; margin-top: 0; margin-bottom: 1.5em; }
+  .card { border: 1px solid #c5cae9; border-radius: 7px; padding: 1em 1.2em; margin: 1.2em 0; background: #fafafa; }
+  .card h2 { color: #1a56db; font-size: 1.05em; margin: 0 0 0.2em; }
+  .meta { color: #555; font-size: 0.87em; margin: 0 0 0.8em; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 4px 6px; vertical-align: middle; }
+  td.lbl { width: 130px; font-weight: bold; color: #17458F; white-space: nowrap; font-size: 0.92em; }
+  select { width: 100%; padding: 4px; font-size: 0.95em; border: 1px solid #ccc; border-radius: 3px; background: #fff; }
+  .btn { background: #17458F; color: #fff; border: none; padding: 8px 22px; border-radius: 4px;
+         cursor: pointer; font-size: 0.97em; margin-top: 0.8em; }
+  .btn:disabled { background: #aaa; cursor: default; }
+  .msg { font-size: 0.88em; margin: 0.4em 0 0; min-height: 1.2em; }
+  .ok  { color: #166534; }
+  .err { color: #b91c1c; }
+  #loading { color: #666; padding: 1.5em 0; }
+  #no-members { color: #888; font-size: 0.9em; font-style: italic; margin-bottom: 0.8em; }
+</style>
+</head>
+<body>
+<h1>SLV Rotary &mdash; Duty Editor</h1>
+<p class="sub">Assign duties for the next 3 upcoming meetings.
+  Names come from the <strong>Members</strong> tab in the spreadsheet.</p>
+<p id="loading">Loading upcoming meetings&hellip;</p>
+<div id="no-members" style="display:none">
+  No members found. Run <strong>Setup Members Tab</strong> from the sheet menu and add names.
+</div>
+<div id="cards"></div>
+<script>
+var DUTY_FIELDS = [
+  {key: 'mc',            label: 'MC'},
+  {key: 'setupTeardown', label: 'Setup/Teardown'},
+  {key: 'avZoom',        label: 'AV/Zoom'},
+  {key: 'greeter',       label: 'Greeter'},
+  {key: 'fourWayTest',   label: '4-Way-Test'},
+  {key: 'thought',       label: 'Thought'},
+  {key: 'detective',     label: 'Detective'},
+  {key: 'bagPerson',     label: 'Bag Person'}
+];
+
+var pageMembers = [];
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function buildSelect(name, curVal) {
+  var opts = [''].concat(pageMembers).map(function(m) {
+    return '<option value="' + esc(m) + '"' + (m === curVal ? ' selected' : '') + '>'
+      + esc(m || '— unassigned —') + '</option>';
+  }).join('');
+  return '<select name="' + name + '">' + opts + '</select>';
+}
+
+function renderCards(data) {
+  pageMembers = data.members;
+  document.getElementById('loading').style.display = 'none';
+  if (!data.members.length) {
+    document.getElementById('no-members').style.display = 'block';
+  }
+  var container = document.getElementById('cards');
+  data.meetings.forEach(function(mtg, idx) {
+    var metaParts = [esc(mtg.dateStr)];
+    if (mtg.time)     metaParts.push(esc(mtg.time));
+    if (mtg.location) metaParts.push(esc(mtg.location));
+    var rows = DUTY_FIELDS.map(function(f) {
+      return '<tr><td class="lbl">' + esc(f.label) + '</td><td>'
+        + buildSelect(f.key, mtg.duties[f.key] || '') + '</td></tr>';
+    }).join('');
+    var div = document.createElement('div');
+    div.className = 'card';
+    div.setAttribute('data-row', mtg.rowIndex);
+    div.setAttribute('data-idx', idx);
+    div.innerHTML =
+      '<h2>' + esc(mtg.title) + '</h2>'
+      + '<p class="meta">' + metaParts.join(' &nbsp;&middot;&nbsp; ') + '</p>'
+      + '<table>' + rows + '</table>'
+      + '<button class="btn" onclick="saveMeeting(this)">Save Changes</button>'
+      + '<p class="msg" id="msg' + idx + '"></p>';
+    container.appendChild(div);
+  });
+  if (!data.meetings.length) {
+    container.innerHTML = '<p style="color:#666">No upcoming meetings found.</p>';
+  }
+}
+
+function saveMeeting(btn) {
+  var card     = btn.closest('.card');
+  var rowIndex = parseInt(card.getAttribute('data-row'), 10);
+  var idx      = parseInt(card.getAttribute('data-idx'), 10);
+  var selects  = card.querySelectorAll('select');
+  var duties   = {};
+  selects.forEach(function(s) { duties[s.name] = s.value; });
+  btn.disabled    = true;
+  btn.textContent = 'Saving…';
+  var msgEl = document.getElementById('msg' + idx);
+  msgEl.className = 'msg';
+  msgEl.textContent = '';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      btn.disabled    = false;
+      btn.textContent = 'Save Changes';
+      msgEl.className = 'msg ok';
+      msgEl.textContent = result;
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled    = false;
+      btn.textContent = 'Save Changes';
+      msgEl.className = 'msg err';
+      msgEl.textContent = 'Error: ' + err.message;
+    })
+    .saveDuties(rowIndex, duties);
+}
+
+google.script.run
+  .withSuccessHandler(renderCards)
+  .withFailureHandler(function(err) {
+    document.getElementById('loading').textContent = 'Error loading data: ' + err.message;
+  })
+  .getPageData();
+</script>
+</body>
+</html>`;
 }

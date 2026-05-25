@@ -133,8 +133,8 @@ const COL = {
   eventId:0, eventType:1, cancelled:2, day:3, date:4, time:5,
   durationMin:6, location:7, meetLink:8, openingSpeaker:9,
   mainSpeaker:10, mainTopic:11, speakerUrl:12, summary:13,
-  photo:14, mc:15, setupTeardown:16, avZoom:17, greeter:18,
-  fourWayTest:19, thought:20, detective:21, bagPerson:22, comments:23
+  photoTop:14, photoBottom:15, mc:16, setupTeardown:17, avZoom:18, greeter:19,
+  fourWayTest:20, thought:21, detective:22, bagPerson:23, comments:24
 };
 
 const ROLE_FIELDS = [
@@ -254,10 +254,11 @@ function comingUp(rows) {
     const speaker  = fv(row, COL.mainSpeaker);
     const topic    = fv(row, COL.mainTopic);
     const opening    = fv(row, COL.openingSpeaker);
-    const summary    = fv(row, COL.summary);
-    const speakerUrl = fv(row, COL.speakerUrl);
-    const photo      = fv(row, COL.photo);
-    const meetLink   = fv(row, COL.meetLink);
+    const summary     = fv(row, COL.summary);
+    const speakerUrl  = fv(row, COL.speakerUrl);
+    const photoTop    = fv(row, COL.photoTop);
+    const photoBottom = fv(row, COL.photoBottom);
+    const meetLink    = fv(row, COL.meetLink);
     const timeStr    = fv(row, COL.time);
 
     let heading = `${esc(fmtShort(d))}: ${esc(type)}`;
@@ -273,14 +274,17 @@ function comingUp(rows) {
   <h3 class="event-heading">${heading}</h3>
   <p class="event-meta">${meta}</p>`;
 
-    if (photo && photo.startsWith('http')) {
-      html += `\n  <img src="${esc(photo)}" alt="${esc(speaker || topic || type)}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
+    if (photoTop && photoTop.startsWith('http')) {
+      html += `\n  <img src="${esc(photoTop)}" alt="${esc(speaker || topic || type)}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
     }
     if (opening) {
       html += `\n  <p class="event-opening"><strong>Opening:</strong> ${esc(opening)}</p>`;
     }
     if (summary) {
       html += `\n  <p class="event-narrative">${textToHtml(summary)}</p>`;
+    }
+    if (photoBottom && photoBottom.startsWith('http')) {
+      html += `\n  <img src="${esc(photoBottom)}" alt="${esc(speaker || topic || type)}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
     }
     if (meetLink) {
       html += `\n  <p class="meet-link"><a href="${esc(meetLink)}" target="_blank" rel="noopener">Join via Google Meet</a></p>`;
@@ -373,9 +377,10 @@ function recentMeetings(rows) {
     const d       = parseRowDate(row);
     const speaker = fv(row, COL.mainSpeaker);
     const topic   = fv(row, COL.mainTopic);
-    const summary    = fv(row, COL.summary);
-    const speakerUrl = fv(row, COL.speakerUrl);
-    const photo      = fv(row, COL.photo);
+    const summary     = fv(row, COL.summary);
+    const speakerUrl  = fv(row, COL.speakerUrl);
+    const photoTop    = fv(row, COL.photoTop);
+    const photoBottom = fv(row, COL.photoBottom);
 
     let label = esc(fmtShort(d));
     if (speaker) label += `: ${linkWrap(speaker, speakerUrl)}`;
@@ -383,10 +388,13 @@ function recentMeetings(rows) {
 
     let html = `<div class="event-block">
   <h3 class="event-heading past">${label}</h3>`;
-    if (photo && photo.startsWith('http')) {
-      html += `\n  <img src="${esc(photo)}" alt="${esc(speaker||topic||'')}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
+    if (photoTop && photoTop.startsWith('http')) {
+      html += `\n  <img src="${esc(photoTop)}" alt="${esc(speaker||topic||'')}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
     }
     if (summary) html += `\n  <p class="event-narrative">${textToHtml(summary)}</p>`;
+    if (photoBottom && photoBottom.startsWith('http')) {
+      html += `\n  <img src="${esc(photoBottom)}" alt="${esc(speaker||topic||'')}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
+    }
     html += `\n</div>`;
     return html;
   }).join('\n');

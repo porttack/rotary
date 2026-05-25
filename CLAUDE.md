@@ -67,9 +67,9 @@ cleanly via GitHub Pages with zero CI pipeline.
   0 Event ID | 1 Event Type | 2 Cancelled | 3 Day | 4 Date (YYYY-MM-DD) |
   5 Time (H:MM AM/PM) | 6 Duration (min) | 7 Location | 8 Google Meet Link |
   9 Opening Speaker | 10 Main Speaker | 11 Main Topic | 12 Speaker URL (optional link) |
-  13 Summary (newsletter + calendar body) | 14 Photo (URL) | 15 MC | 16 Setup/Teardown |
-  17 AV/Zoom | 18 Greeter | 19 4-Way-Test | 20 Thought | 21 Detective |
-  22 Bag Person | 23 Comments | 24 Sync Status | 25 Hash
+  13 Summary (newsletter + calendar body) | 14 Speaker Top Photo URL | 15 Speaker Bottom Photo URL |
+  16 MC | 17 Setup/Teardown | 18 AV/Zoom | 19 Greeter | 20 4-Way-Test | 21 Thought |
+  22 Detective | 23 Bag Person | 24 Comments | 25 Sync Status | 26 Hash
 
 ---
 
