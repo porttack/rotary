@@ -1,0 +1,1191 @@
+// ============================================================
+//  ROTARY CALENDAR <-> GOOGLE SHEETS SYNC
+//  Paste this entire file into Extensions > Apps Script in your Sheet
+// ============================================================
+
+// ── CONFIGURATION ────────────────────────────────────────────
+const CALENDAR_ID   = "primary"; // <-- CHANGE THIS to your calendar ID
+const PULL_DAYS_AHEAD = 180;     // how many days ahead to pull
+const SHEET_NAME    = "Events";
+
+// ── COLUMN MAP ───────────────────────────────────────────────
+const COL = {
+  EVENT_ID:        1,   // A - Google Calendar Event ID (hidden)
+  EVENT_TYPE:      2,   // B - Meeting / Board Meeting / Social / Committee / Other
+  CANCELLED:       3,   // C - Checkbox: if checked, prefixes title with "Cancelled - "
+  DAY_LABEL:       4,   // D - Computed: "Tue, Sep W3" for Meeting/blank (formula, read-only)
+  DATE:            5,   // E - Date (yyyy-MM-dd)
+  TIME:            6,   // F - Start time
+  DURATION:        7,   // G - Duration in minutes (default 60)
+  LOCATION:        8,   // H - Venue / address
+  GOOGLE_MEET:     9,   // I - Google Meet link
+  OPENING_SPEAKER: 10,  // J - Opening speaker / invocation
+  MAIN_SPEAKER:    11,  // K - Main speaker
+  MAIN_TOPIC:      12,  // L - Main topic / program title
+  DESCRIPTION:     13,  // M - Short description / notes
+  SUMMARY:         14,  // N - Rich narrative paragraph for newsletter
+  PHOTO:           15,  // O - Photo URL or uploaded image (for newsletter)
+  MC:              16,  // P - MC if not the president
+  SETUP_TEARDOWN:  17,  // Q - Setup/Teardown
+  AV_ZOOM:         18,  // R - AV/Zoom
+  GREETER:         19,  // S - Greeter
+  FOUR_WAY_TEST:   20,  // T - 4-Way-Test
+  THOUGHT:         21,  // U - Thought
+  DETECTIVE:       22,  // V - Detective
+  BAG_PERSON:      23,  // W - Bag Person
+  COMMENTS:        24,  // X - Internal comments (not pushed to Calendar)
+  STATUS:          25,  // Y - Sync status
+  HASH:            26,  // Z - Hash of last-pushed fields (hidden, do not edit)
+};
+
+const NUM_COLS = 26;
+
+// Event type options
+const EVENT_TYPES = ["Meeting", "Board Meeting", "Social", "Service", "Committee", "Other"];
+
+// Text color and bold per event type (row background stays white/grey for cancelled)
+// Each entry: { color, bold }
+const TYPE_STYLES = {
+  "meeting":       { color: "#1a56db", bold: true  },  // bold blue
+  "board meeting": { color: "#7e22ce", bold: true  },  // purple
+  "social":        { color: "#166534", bold: false },  // green
+  "service":       { color: "#c2410c", bold: false },  // orange
+  "committee":     { color: "#000000", bold: false },  // black
+  "other":         { color: "#000000", bold: false },  // black
+};
+const DEFAULT_STYLE = { color: "#000000", bold: false };
+
+// Role fields that go into Calendar description (in display order)
+// Each entry: { col, label }
+const ROLE_FIELDS = [
+  { col: COL.MC,             label: "MC"             },
+  { col: COL.SETUP_TEARDOWN, label: "Setup/Teardown" },
+  { col: COL.AV_ZOOM,        label: "AV/Zoom"        },
+  { col: COL.GREETER,        label: "Greeter"        },
+  { col: COL.FOUR_WAY_TEST,  label: "4-Way-Test"     },
+  { col: COL.THOUGHT,        label: "Thought"        },
+  { col: COL.DETECTIVE,      label: "Detective"      },
+  { col: COL.BAG_PERSON,     label: "Bag Person"     },
+];
+
+// ── MENU ─────────────────────────────────────────────────────
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu("🔄 Rotary Sync")
+    .addItem("⬇️  Pull from Calendar → Sheet", "pullFromCalendar")
+    .addItem("⬆️  Push Sheet → Calendar",       "pushToCalendar")
+    .addSeparator()
+    .addItem("📰  Generate Newsletter Doc",     "generateNewsletter")
+    .addSeparator()
+    .addItem("📋  Setup / Reset Sheet Headers", "setupSheet")
+    .addItem("⚡  Install Edit Trigger (run once)", "installEditTrigger")
+    .addToUi();
+}
+
+// ── EDIT TRIGGER ─────────────────────────────────────────────
+// Simple triggers can't reliably set formatting. Instead we use an
+// installable trigger. Run "Install Edit Trigger" from the menu once.
+
+function onEditInstallable(e) {
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== SHEET_NAME) return;
+
+  const col = e.range.getColumn();
+  if (col !== COL.DATE && col !== COL.EVENT_TYPE && col !== COL.CANCELLED) return;
+
+  const startRow = e.range.getRow();
+  const numRows  = e.range.getNumRows();
+  if (startRow < 2) return;
+
+  for (let i = 0; i < numRows; i++) {
+    recolorRow(sheet, startRow + i);
+  }
+}
+
+/** Install the installable onEdit trigger (run once from the menu) */
+function installEditTrigger() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Remove any existing triggers for this function to avoid duplicates
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === "onEditInstallable") {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger("onEditInstallable")
+    .forSpreadsheet(ss)
+    .onEdit()
+    .create();
+  SpreadsheetApp.getUi().alert("Edit trigger installed! Row colors will now update automatically.");
+}
+
+/** Recolor a single row based on its current Event Type and Cancelled values */
+function recolorRow(sheet, sheetRow) {
+  const type      = String(sheet.getRange(sheetRow, COL.EVENT_TYPE).getValue()).toLowerCase().trim();
+  const cancelled = sheet.getRange(sheetRow, COL.CANCELLED).getValue();
+  const dateVal   = sheet.getRange(sheetRow, COL.DATE).getValue();
+  const style     = TYPE_STYLES[type] || DEFAULT_STYLE;
+  const rowRange  = sheet.getRange(sheetRow, 1, 1, NUM_COLS);
+
+  rowRange.setBackground(cancelled ? "#cccccc" : "#ffffff");
+  rowRange.setFontColor(cancelled ? "#888888" : style.color);
+  rowRange.setFontWeight((!cancelled && style.bold) ? "bold" : "normal");
+
+  applyDayCellStyle(sheet.getRange(sheetRow, COL.DAY_LABEL), dateVal, cancelled);
+}
+
+// ── SETUP ────────────────────────────────────────────────────
+function setupSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
+
+  const headers = [
+    "Event ID (do not edit)",  // A
+    "Event Type",              // B
+    "Cancelled",               // C
+    "Day",                     // D - computed
+    "Date",                    // E
+    "Time",                    // F
+    "Duration (min)",          // G
+    "Location",                // H
+    "Google Meet Link",        // I
+    "Opening Speaker",         // J
+    "Main Speaker",            // K
+    "Main Topic",              // L
+    "Description",             // M
+    "Summary (newsletter)",    // N - rich narrative paragraph
+    "Photo (URL or image)",    // O - for newsletter
+    "MC",                      // P
+    "Setup/Teardown",          // Q
+    "AV/Zoom",                 // R
+    "Greeter",                 // S
+    "4-Way-Test",              // T
+    "Thought",                 // U
+    "Detective",               // V
+    "Bag Person",              // W
+    "Comments",                // X
+    "Sync Status",             // Y
+    "Hash (do not edit)",      // Z
+  ];
+
+  const headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setValues([headers]);
+  headerRange.setBackground("#1a3a6b");
+  headerRange.setFontColor("#ffffff");
+  headerRange.setFontWeight("bold");
+  headerRange.setFontSize(11);
+  sheet.setFrozenRows(1);
+
+  // Column widths
+  const widths = [
+    200,  // A Event ID
+    130,  // B Event Type
+    70,   // C Cancelled
+    100,  // D Day
+    100,  // E Date
+    90,   // F Time
+    90,   // G Duration
+    200,  // H Location
+    240,  // I Google Meet
+    180,  // J Opening Speaker
+    180,  // K Main Speaker
+    200,  // L Main Topic
+    280,  // M Description
+    350,  // N Summary
+    200,  // O Photo
+    150,  // P MC
+    150,  // Q Setup/Teardown
+    120,  // R AV/Zoom
+    150,  // S Greeter
+    150,  // T 4-Way-Test
+    150,  // U Thought
+    150,  // V Detective
+    150,  // W Bag Person
+    220,  // X Comments
+    180,  // Y Sync Status
+    50,   // Z Hash
+  ];
+  widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
+
+  // Hide Event ID and Hash columns
+  sheet.hideColumns(COL.EVENT_ID);
+  sheet.hideColumns(COL.HASH);
+
+  // Event Type dropdown
+  const typeRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(EVENT_TYPES, true)
+    .setAllowInvalid(false)
+    .build();
+  sheet.getRange(2, COL.EVENT_TYPE, 500, 1).setDataValidation(typeRule);
+
+  // Cancelled checkbox — cover plenty of rows so new rows inherit it
+  sheet.getRange(2, COL.CANCELLED, 1000, 1).insertCheckboxes();
+
+  // DAY_LABEL: single ARRAYFORMULA in D2 covers the whole column automatically.
+  // This prevents Sheets from copying the formula into adjacent cells when new rows are added.
+  // Shows "Tue, Sep W3" only for Meeting or blank Event Type; empty otherwise.
+  sheet.getRange(2, COL.DAY_LABEL, 1000, 1).clearContent(); // clear any old individual formulas
+  sheet.getRange(2, COL.DAY_LABEL).setFormula(
+    '=ARRAYFORMULA(' +
+      'IF(OR(B2:B="Meeting",B2:B=""),' +
+        'IF(ISNUMBER(E2:E),' +
+          'TEXT(E2:E,"ddd")&", "&TEXT(E2:E,"mmm")&" W"&INT((DAY(E2:E)-1)/7+1),' +
+          '""' +
+        '),' +
+        '""' +
+      ')' +
+    ')'
+  );
+  sheet.getRange(2, COL.DAY_LABEL, 500, 1)
+    .setFontStyle("italic")
+    .setFontColor("#555555");
+
+  // Date format
+  sheet.getRange(2, COL.DATE, 500, 1).setNumberFormat("yyyy-mm-dd");
+
+  // Time format
+  sheet.getRange(2, COL.TIME, 500, 1).setNumberFormat("h:mm am/pm");
+
+  // Duration: plain number
+  sheet.getRange(2, COL.DURATION, 500, 1).setNumberFormat("0");
+
+  // Apply month colors to Day column if data already exists
+  colorDayColumn(sheet);
+
+  SpreadsheetApp.getUi().alert(
+    "Sheet is ready!\n\n" +
+    "Next steps:\n" +
+    "1. Update CALENDAR_ID at the top of the script\n" +
+    "2. Use 'Pull from Calendar' to import existing events,\n" +
+    "   or add rows manually and use 'Push to Calendar'"
+  );
+}
+
+// ── PULL: Calendar → Sheet ────────────────────────────────────
+function pullFromCalendar() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Sheet "' + SHEET_NAME + '" not found. Run Setup first.');
+    return;
+  }
+
+  const cal = CalendarApp.getCalendarById(CALENDAR_ID);
+  if (!cal) {
+    SpreadsheetApp.getUi().alert("Calendar not found. Check CALENDAR_ID in the script.");
+    return;
+  }
+
+  const now = new Date();
+  const future = new Date();
+  future.setDate(future.getDate() + PULL_DAYS_AHEAD);
+  const events = cal.getEvents(now, future);
+
+  // Build map of existing Event IDs → row number
+  const lastRow = sheet.getLastRow();
+  const existingIdMap = {};
+  if (lastRow > 1) {
+    sheet.getRange(2, COL.EVENT_ID, lastRow - 1, 1).getValues()
+      .forEach((row, i) => { if (row[0]) existingIdMap[row[0]] = i + 2; });
+  }
+
+  let created = 0, updated = 0;
+
+  events.forEach(event => {
+    const id = event.getId();
+    const rowData = eventToRow(event);
+
+    if (existingIdMap[id]) {
+      const targetRow = existingIdMap[id];
+      // Write A-C (cols 1-3), skip D (DAY_LABEL formula, col 4), write E-W (cols 5-23)
+      sheet.getRange(targetRow, 1, 1, 3).setValues([rowData.slice(0, 3)]);
+      sheet.getRange(targetRow, 5, 1, NUM_COLS - 4).setValues([rowData.slice(4)]);
+      updated++;
+    } else {
+      sheet.appendRow(rowData);
+      created++;
+    }
+  });
+
+  applyRowColors(sheet);
+  sortByDate(sheet);
+
+  SpreadsheetApp.getUi().alert(
+    `Pull complete!\n✅ ${created} new events\n🔄 ${updated} updated`
+  );
+}
+
+// ── PUSH: Sheet → Calendar ────────────────────────────────────
+function pushToCalendar() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Sheet "' + SHEET_NAME + '" not found. Run Setup first.');
+    return;
+  }
+
+  const cal = CalendarApp.getCalendarById(CALENDAR_ID);
+  if (!cal) {
+    SpreadsheetApp.getUi().alert("Calendar not found. Check CALENDAR_ID in the script.");
+    return;
+  }
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) { SpreadsheetApp.getUi().alert("No data rows found."); return; }
+
+  const data = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+  let created = 0, updated = 0, skipped = 0, unchanged = 0, errors = 0;
+
+  data.forEach((row, i) => {
+    const sheetRow = i + 2;
+    const dateVal  = row[COL.DATE - 1];
+    if (!dateVal) { skipped++; return; }
+
+    // Skip rows that haven't changed since the last push
+    const currentHash = rowHash(row);
+    const storedHash  = String(row[COL.HASH - 1] || "");
+    if (currentHash === storedHash && row[COL.EVENT_ID - 1]) {
+      unchanged++;
+      return;
+    }
+
+    const eventType = row[COL.EVENT_TYPE - 1] || "Meeting";
+    const timeVal   = row[COL.TIME - 1];
+    const duration  = parseInt(row[COL.DURATION - 1]) || 60;
+    const eventId   = row[COL.EVENT_ID - 1];
+
+    try {
+      const { start, end } = buildDateTimes(dateVal, timeVal, duration);
+      const title   = buildTitle(row);
+      const options = buildEventOptions(row);
+
+      if (eventId) {
+        try {
+          const existing = cal.getEventById(eventId);
+          if (existing) {
+            existing.setTitle(title);
+            existing.setTime(start, end);
+            existing.setLocation(options.location || "");
+            existing.setDescription(options.description || "");
+            sheet.getRange(sheetRow, COL.STATUS).setValue("✅ Updated " + timestamp());
+            sheet.getRange(sheetRow, COL.HASH).setValue(currentHash);
+            updated++;
+          } else {
+            const newEvt = cal.createEvent(title, start, end, options);
+            sheet.getRange(sheetRow, COL.EVENT_ID).setValue(newEvt.getId());
+            sheet.getRange(sheetRow, COL.STATUS).setValue("✅ Re-created " + timestamp());
+            sheet.getRange(sheetRow, COL.HASH).setValue(currentHash);
+            created++;
+          }
+        } catch(e) {
+          const newEvt = cal.createEvent(title, start, end, options);
+          sheet.getRange(sheetRow, COL.EVENT_ID).setValue(newEvt.getId());
+          sheet.getRange(sheetRow, COL.STATUS).setValue("✅ Created " + timestamp());
+          sheet.getRange(sheetRow, COL.HASH).setValue(currentHash);
+          created++;
+        }
+      } else {
+        const newEvt = cal.createEvent(title, start, end, options);
+        sheet.getRange(sheetRow, COL.EVENT_ID).setValue(newEvt.getId());
+        sheet.getRange(sheetRow, COL.STATUS).setValue("✅ Created " + timestamp());
+        sheet.getRange(sheetRow, COL.HASH).setValue(currentHash);
+        created++;
+      }
+
+      // Throttle: pause 500ms every 5 actual API calls
+      if ((created + updated) % 5 === 0) Utilities.sleep(500);
+
+    } catch(e) {
+      sheet.getRange(sheetRow, COL.STATUS).setValue("❌ " + e.message);
+      errors++;
+    }
+  });
+
+  applyRowColors(sheet);
+
+  SpreadsheetApp.getUi().alert(
+    `Push complete!\n` +
+    `✅ ${created} created  🔄 ${updated} updated\n` +
+    `⏭️ ${unchanged} unchanged  ➖ ${skipped} skipped  ❌ ${errors} errors`
+  );
+}
+
+// ── HELPERS ───────────────────────────────────────────────────
+
+/** Convert a Calendar event → sheet row array */
+function eventToRow(event) {
+  const tz    = Session.getScriptTimeZone();
+  const start = event.getStartTime();
+  const end   = event.getEndTime();
+  const desc  = event.getDescription() || "";
+  const title = event.getTitle();
+
+  const durationMin = Math.round((end - start) / 60000);
+
+  // Detect cancellation from title prefix
+  const cancelled = title.toLowerCase().startsWith("cancelled -");
+
+  // Parse all tagged fields from description
+  const get = (label) => {
+    const m = desc.match(new RegExp(`^${escapeRegex(label)}:\\s*(.+)`, "mi"));
+    return m ? m[1].trim() : "";
+  };
+
+  const openingSpeaker = get("Opening Speaker");
+  const mainSpeaker    = get("Main Speaker");
+  const mainTopic      = get("Main Topic");
+  const mc             = get("MC");
+  const setupTeardown  = get("Setup/Teardown");
+  const avZoom         = get("AV/Zoom");
+  const greeter        = get("Greeter");
+  const fourWayTest    = get("4-Way-Test");
+  const thought        = get("Thought");
+  const detective      = get("Detective");
+  const bagPerson      = get("Bag Person");
+  const meetLink       = get("Meet") ||
+    (desc.match(/(https:\/\/meet\.google\.com\/\S+)/i) || [])[1] || "";
+  const eventType      = get("Type") || guessType(title);
+
+  // Strip all tagged lines to get clean description body
+  const allLabels = [
+    "Type","Opening Speaker","Main Speaker","Main Topic",
+    "MC","Setup/Teardown","AV/Zoom","Greeter","4-Way-Test",
+    "Thought","Detective","Bag Person","Meet"
+  ];
+  let cleanDesc = desc;
+  allLabels.forEach(label => {
+    cleanDesc = cleanDesc.replace(
+      new RegExp(`^${escapeRegex(label)}:\\s*.+\\n?`, "mi"), ""
+    );
+  });
+  cleanDesc = cleanDesc
+    .replace(/(https:\/\/meet\.google\.com\/\S+)/gi, "")
+    .trim();
+
+  return [
+    event.getId(),       // A
+    eventType,           // B
+    cancelled,           // C - boolean for checkbox
+    "",                  // D - DAY_LABEL formula (not written by script)
+    Utilities.formatDate(start, tz, "yyyy-MM-dd"), // E
+    Utilities.formatDate(start, tz, "h:mm a"),     // F
+    durationMin || 60,   // G
+    event.getLocation() || "", // H
+    meetLink,            // I
+    openingSpeaker,      // J
+    mainSpeaker,         // K
+    mainTopic,           // L
+    cleanDesc,           // M
+    mc,                  // N
+    setupTeardown,       // O
+    avZoom,              // P
+    greeter,             // Q
+    fourWayTest,         // R
+    thought,             // S
+    detective,           // T
+    bagPerson,           // U
+    "",                  // V - Comments (user-managed, not overwritten on pull)
+    "Pulled " + timestamp(), // W
+  ];
+}
+
+/** Build the Calendar event title */
+function buildTitle(row) {
+  const cancelled   = row[COL.CANCELLED - 1];
+  const type        = row[COL.EVENT_TYPE - 1]   || "Meeting";
+  const mainSpeaker = row[COL.MAIN_SPEAKER - 1] || "";
+  const mainTopic   = row[COL.MAIN_TOPIC - 1]   || "";
+
+  let title = `SLV Rotary ${type}`;
+
+  if (mainSpeaker && mainTopic) {
+    title += ` - ${mainSpeaker}: ${mainTopic}`;
+  } else if (mainSpeaker) {
+    title += ` - ${mainSpeaker}`;
+  } else if (mainTopic) {
+    title += ` - ${mainTopic}`;
+  }
+
+  if (cancelled) title = `Cancelled - ${title}`;
+
+  return title;
+}
+
+/** Build the Calendar event options (location + structured description) */
+function buildEventOptions(row) {
+  const location       = row[COL.LOCATION - 1]        || "";
+  const meetLink       = row[COL.GOOGLE_MEET - 1]      || "";
+  const openingSpeaker = row[COL.OPENING_SPEAKER - 1]  || "";
+  const mainSpeaker    = row[COL.MAIN_SPEAKER - 1]     || "";
+  const mainTopic      = row[COL.MAIN_TOPIC - 1]       || "";
+  const description    = row[COL.DESCRIPTION - 1]      || "";
+  const eventType      = row[COL.EVENT_TYPE - 1]       || "Meeting";
+
+  // Build structured header block
+  let desc = "";
+  if (eventType)      desc += `Type: ${eventType}\n`;
+  if (openingSpeaker) desc += `Opening Speaker: ${openingSpeaker}\n`;
+  if (mainSpeaker)    desc += `Main Speaker: ${mainSpeaker}\n`;
+  if (mainTopic)      desc += `Main Topic: ${mainTopic}\n`;
+  if (meetLink)       desc += `Meet: ${meetLink}\n`;
+
+  // Free-form description body
+  if (description)    desc += `\n${description}\n`;
+
+  // Role assignments block
+  const roles = ROLE_FIELDS
+    .map(f => {
+      const val = row[f.col - 1] || "";
+      return val ? `${f.label}: ${val}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  if (roles) desc += `\n${roles}`;
+
+  return {
+    location:    location,
+    description: desc.trim(),
+  };
+}
+
+/** Guess event type from title when not tagged */
+function guessType(title) {
+  const t = title.toLowerCase().replace(/^cancelled\s*-\s*/i, "");
+  if (t.includes("board"))     return "Board Meeting";
+  if (t.includes("social"))    return "Social";
+  if (t.includes("committee")) return "Committee";
+  if (t.includes("meeting"))   return "Meeting";
+  return "Other";
+}
+
+/** Build start/end Date objects from sheet values */
+function buildDateTimes(dateVal, timeVal, durationMin) {
+  const tz = Session.getScriptTimeZone();
+  const dateStr = (dateVal instanceof Date)
+    ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd")
+    : String(dateVal).trim();
+
+  let timeStr = "7:15 AM";
+  if (timeVal instanceof Date) {
+    timeStr = Utilities.formatDate(timeVal, tz, "h:mm a");
+  } else if (timeVal) {
+    timeStr = String(timeVal).trim();
+  }
+
+  const start = new Date(dateStr + " " + timeStr);
+  if (isNaN(start)) throw new Error("Invalid date/time: " + dateStr + " " + timeStr);
+  const end = new Date(start.getTime() + durationMin * 60000);
+  return { start, end };
+}
+
+/** Apply event type text color/bold to all data rows; grey background for cancelled */
+function applyRowColors(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const data = sheet.getRange(2, COL.EVENT_TYPE, lastRow - 1, 2).getValues();
+  data.forEach((row, i) => {
+    const sheetRow = i + 2;
+    const type      = String(row[0]).toLowerCase().trim();
+    const cancelled = row[1];
+    const style     = TYPE_STYLES[type] || DEFAULT_STYLE;
+    const rowRange  = sheet.getRange(sheetRow, 1, 1, NUM_COLS);
+
+    // Background: grey if cancelled, white otherwise
+    rowRange.setBackground(cancelled ? "#cccccc" : "#ffffff");
+
+    // Text: dimmed if cancelled, otherwise apply type color+bold
+    rowRange.setFontColor(cancelled ? "#888888" : style.color);
+    rowRange.setFontWeight((!cancelled && style.bold) ? "bold" : "normal");
+
+    // Day column gets its own month color (overrides row color for that cell)
+    const dateVal = sheet.getRange(sheetRow, COL.DATE).getValue();
+    applyDayCellStyle(sheet.getRange(sheetRow, COL.DAY_LABEL), dateVal, cancelled);
+  });
+}
+
+/** Color column D (DAY_LABEL) text by month; called per-cell and in bulk */
+function colorDayColumn(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const dates     = sheet.getRange(2, COL.DATE,      lastRow - 1, 1).getValues();
+  const cancelled = sheet.getRange(2, COL.CANCELLED, lastRow - 1, 1).getValues();
+  dates.forEach((row, i) => {
+    applyDayCellStyle(
+      sheet.getRange(i + 2, COL.DAY_LABEL),
+      row[0],
+      cancelled[i][0]
+    );
+  });
+}
+
+/**
+ * Set font color on a single Day cell based on month and cancelled state.
+ * Odd months → teal #00695c, Even months → indigo #283593
+ */
+function applyDayCellStyle(cell, dateVal, cancelled) {
+  if (cancelled) {
+    cell.setFontColor("#888888").setFontStyle("italic");
+    return;
+  }
+  if (!dateVal || !(dateVal instanceof Date)) {
+    cell.setFontColor("#555555").setFontStyle("italic");
+    return;
+  }
+  const month = dateVal.getMonth() + 1;
+  cell.setFontColor(month % 2 === 1 ? "#00695c" : "#283593").setFontStyle("italic");
+}
+
+/** Sort data rows by date ascending */
+function sortByDate(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 3) return;
+  sheet.getRange(2, 1, lastRow - 1, NUM_COLS).sort({ column: COL.DATE, ascending: true });
+}
+
+/** Escape special regex characters in a label string */
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Short timestamp for Status column */
+function timestamp() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "M/d/yy h:mm a");
+}
+
+/**
+ * Compute a simple hash string from all calendar-relevant fields in a row.
+ * If this matches the stored HASH column value, the row hasn't changed since
+ * the last push and can be safely skipped.
+ */
+function rowHash(row) {
+  const fields = [
+    COL.EVENT_TYPE, COL.CANCELLED, COL.DATE, COL.TIME, COL.DURATION,
+    COL.LOCATION, COL.GOOGLE_MEET, COL.OPENING_SPEAKER, COL.MAIN_SPEAKER,
+    COL.MAIN_TOPIC, COL.DESCRIPTION, COL.MC, COL.SETUP_TEARDOWN, COL.AV_ZOOM,
+    COL.GREETER, COL.FOUR_WAY_TEST, COL.THOUGHT, COL.DETECTIVE, COL.BAG_PERSON,
+  ];
+  const str = fields.map(c => String(row[c - 1] || "")).join("|");
+  // Simple DJB2-style hash — fast and collision-resistant enough for this use
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    hash = hash & hash; // keep 32-bit int
+  }
+  return String(hash >>> 0); // unsigned
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  NEWSLETTER GENERATOR
+// ═══════════════════════════════════════════════════════════════
+
+const NEWSLETTER_DETAIL_COUNT = 3;   // full detail blocks for next N *meetings*
+const NEWSLETTER_WEEKS_AHEAD  = 12;  // lookahead for skim list and calendar
+const CLUB_NAME = "SLV Rotary";
+
+// Which event types get full detail treatment
+const DETAIL_TYPES = ["meeting", "board meeting"];
+
+function generateNewsletter() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) { SpreadsheetApp.getUi().alert('Sheet "' + SHEET_NAME + '" not found.'); return; }
+
+  const tz     = Session.getScriptTimeZone();
+  const today  = new Date(); today.setHours(0,0,0,0);
+  const cutoff = new Date(today.getTime() + NEWSLETTER_WEEKS_AHEAD * 7 * 24 * 3600 * 1000);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) { SpreadsheetApp.getUi().alert("No events found."); return; }
+
+  const data = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+  const val   = (row, col) => String(row[col - 1] || "").trim();
+
+  // ── Partition ────────────────────────────────────────────────
+  // upcomingDetail  = future meetings/board meetings, not cancelled, within cutoff
+  // upcomingSkim    = ALL future events within cutoff (including socials etc.)
+  // recentMeetings  = past meetings with a summary or description
+  const upcomingDetail  = [];
+  const upcomingSkim    = [];
+  const recentMeetings  = [];
+
+  data.forEach(row => {
+    const dateVal = row[COL.DATE - 1];
+    if (!dateVal || !(dateVal instanceof Date)) return;
+    const d = new Date(dateVal); d.setHours(0,0,0,0);
+    const cancelled = row[COL.CANCELLED - 1];
+    const type      = val(row, COL.EVENT_TYPE).toLowerCase() || "meeting";
+    const hasSummary = val(row, COL.SUMMARY) || val(row, COL.DESCRIPTION);
+
+    if (d >= today && d <= cutoff) {
+      upcomingSkim.push(row);  // all future events for skim + grid
+      if (!cancelled && DETAIL_TYPES.includes(type)) {
+        upcomingDetail.push(row);
+      }
+    } else if (d < today && DETAIL_TYPES.includes(type) && hasSummary) {
+      recentMeetings.push(row);
+    }
+  });
+
+  upcomingDetail.sort((a,b) => a[COL.DATE-1] - b[COL.DATE-1]);
+  upcomingSkim.sort((a,b)   => a[COL.DATE-1] - b[COL.DATE-1]);
+  recentMeetings.sort((a,b) => b[COL.DATE-1] - a[COL.DATE-1]);
+
+  const detailRows = upcomingDetail
+    .filter(r => val(r, COL.MAIN_SPEAKER) || val(r, COL.MAIN_TOPIC))
+    .slice(0, NEWSLETTER_DETAIL_COUNT);
+  // Skim = ALL upcoming events within the cutoff (already filtered by date above)
+  // Board meetings, socials, service — everything appears here
+  const skimRows = upcomingSkim; // no slice — use full 12-week window
+  const recentRows = recentMeetings.slice(0, 3);
+
+  // ── Create Doc ───────────────────────────────────────────────
+  const dateStr    = Utilities.formatDate(today, tz, "MMMM d, yyyy");
+  const datePrefix = Utilities.formatDate(today, tz, "yyyy-MM-dd");
+  const docTitle   = datePrefix + " " + CLUB_NAME + " Newsletter";
+  const doc        = DocumentApp.create(docTitle);
+  const docFile    = DriveApp.getFileById(doc.getId());
+
+  // Move to "Rotary" folder (create if it doesn't exist)
+  const folders = DriveApp.getFoldersByName("Rotary");
+  const folder  = folders.hasNext() ? folders.next() : DriveApp.createFolder("Rotary");
+  folder.addFile(docFile);
+  DriveApp.getRootFolder().removeFile(docFile); // remove from root
+
+  const body = doc.getBody();
+  body.clear();
+  body.setMarginLeft(54).setMarginRight(54).setMarginTop(54).setMarginBottom(54);
+
+  // ── Doc helpers ──────────────────────────────────────────────
+
+  // The correct way to set heading style in Apps Script Docs API
+  const H1 = DocumentApp.ParagraphHeading.HEADING1;
+  const H2 = DocumentApp.ParagraphHeading.HEADING2;
+  const H3 = DocumentApp.ParagraphHeading.HEADING3;
+  const NORMAL = DocumentApp.ParagraphHeading.NORMAL;
+
+  function addHeading(text, level, color) {
+    const p = body.appendParagraph(text);
+    p.setHeading(level);
+    p.editAsText().setForegroundColor(color || "#1a3a6b");
+    return p;
+  }
+
+  function addParagraph(text, opts) {
+    opts = opts || {};
+    const p = body.appendParagraph(text || "");
+    if (opts.heading) p.setHeading(opts.heading);
+    const t = p.editAsText();
+    if (opts.color)   t.setForegroundColor(opts.color);
+    if (opts.bold)    t.setBold(true);
+    if (opts.italic)  t.setItalic(true);
+    if (opts.size)    t.setFontSize(opts.size);
+    if (opts.center)  p.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+    return p;
+  }
+
+  function addBoldLine(label, text) {
+    // "Label: text" with label bolded — use setAttribute approach to avoid index errors
+    const fullText = label + ": " + (text || "");
+    const p = body.appendParagraph(fullText);
+    p.editAsText().setFontSize(11);
+    // Bold just the label portion (0 to label.length - 1 inclusive)
+    if (label.length > 0) {
+      p.editAsText().setBold(0, label.length - 1, true);
+      // Un-bold the rest
+      if (fullText.length > label.length) {
+        p.editAsText().setBold(label.length, fullText.length - 1, false);
+      }
+    }
+    p.setIndentStart(18);
+    return p;
+  }
+
+  function addRule() {
+    const p = body.appendParagraph("──────────────────────────────────────────");
+    p.editAsText().setForegroundColor("#cccccc").setFontSize(7);
+    p.setSpacingBefore(6).setSpacingAfter(6);
+  }
+
+  function fmtDateTime(dateVal, timeVal) {
+    const d = Utilities.formatDate(dateVal, tz, "EEEE, MMMM d");
+    if (!timeVal) return d;
+    const t = timeVal instanceof Date
+      ? Utilities.formatDate(timeVal, tz, "h:mm a") : String(timeVal);
+    return d + " at " + t;
+  }
+
+  function embedPhoto(photo) {
+    if (!photo || !photo.startsWith("http")) return;
+    try {
+      const blob = UrlFetchApp.fetch(photo).getBlob();
+      const img  = body.appendImage(blob);
+      const ow   = img.getWidth(), oh = img.getHeight();
+      img.setWidth(300);
+      if (ow > 0) img.setHeight(Math.round(oh * 300 / ow));
+      body.appendParagraph("");
+    } catch(e) {
+      const lp = body.appendParagraph("📷 Photo: " + photo);
+      lp.editAsText().setFontSize(9).setForegroundColor("#888888");
+    }
+  }
+
+  // ── MASTHEAD ─────────────────────────────────────────────────
+  const titleP = body.appendParagraph(CLUB_NAME);
+  titleP.setHeading(H1);
+  titleP.editAsText().setForegroundColor("#1a3a6b").setBold(true).setFontSize(26);
+  titleP.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  titleP.setSpacingAfter(4);
+
+  const subP = body.appendParagraph("Weekly Newsletter  ·  " + dateStr);
+  subP.editAsText().setFontSize(10).setForegroundColor("#666666").setItalic(true);
+  subP.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  subP.setSpacingAfter(12);
+
+  // ── COMING UP — DETAIL BLOCKS ─────────────────────────────────
+  if (detailRows.length > 0) {
+    const h = body.appendParagraph("Coming Up");
+    h.setHeading(H2);
+    h.editAsText().setForegroundColor("#1a3a6b").setFontSize(18);
+    h.setSpacingAfter(8);
+
+    detailRows.forEach(row => {
+      const dateVal  = row[COL.DATE - 1];
+      const timeVal  = row[COL.TIME - 1];
+      const type     = val(row, COL.EVENT_TYPE) || "Meeting";
+      const location = val(row, COL.LOCATION);
+      const speaker  = val(row, COL.MAIN_SPEAKER);
+      const topic    = val(row, COL.MAIN_TOPIC);
+      const opening  = val(row, COL.OPENING_SPEAKER);
+      const summary  = val(row, COL.SUMMARY);
+      const desc     = val(row, COL.DESCRIPTION);
+      const photo    = val(row, COL.PHOTO);
+      const meet     = val(row, COL.GOOGLE_MEET);
+
+      // Event heading: "Jun 3: Meeting — Jane Smith: Water Conservation"
+      const dayLabel = Utilities.formatDate(dateVal, tz, "MMM d");
+      let hText = dayLabel + ": " + type;
+      if (speaker && topic)  hText += " — " + speaker + ": " + topic;
+      else if (speaker)      hText += " — " + speaker;
+      else if (topic)        hText += " — " + topic;
+
+      const eh = body.appendParagraph(hText);
+      eh.setHeading(H3);
+      eh.editAsText().setForegroundColor("#1a56db").setFontSize(14);
+      eh.setSpacingBefore(10).setSpacingAfter(2);
+
+      // Date / location meta line
+      let meta = fmtDateTime(dateVal, timeVal);
+      if (location) meta += "  ·  " + location;
+      const mp = body.appendParagraph(meta);
+      mp.editAsText().setFontSize(10).setForegroundColor("#555555").setItalic(true);
+      mp.setSpacingAfter(6);
+
+      // Photo
+      embedPhoto(photo);
+
+      // Opening speaker
+      if (opening) addBoldLine("Opening", opening);
+
+      // Summary or description paragraph
+      if (summary) {
+        body.appendParagraph("").setSpacingAfter(0);
+        body.appendParagraph(summary).editAsText().setFontSize(11);
+      } else if (desc) {
+        body.appendParagraph("").setSpacingAfter(0);
+        body.appendParagraph(desc).editAsText().setFontSize(11);
+      }
+
+      // Google Meet link
+      if (meet) {
+        const lp = body.appendParagraph("Join online: ");
+        lp.editAsText().setFontSize(10);
+        lp.appendText(meet).editAsText().setLinkUrl(meet).setForegroundColor("#1a56db");
+      }
+
+      // Duty roster — always show all roles (filled or TBD)
+      body.appendParagraph("").setSpacingAfter(0);
+      const dh = body.appendParagraph("Meeting Duties");
+      dh.editAsText().setBold(true).setFontSize(10).setForegroundColor("#333333");
+      dh.setSpacingAfter(2);
+
+      const filled = ROLE_FIELDS.filter(f => val(row, f.col));
+      const tbd    = ROLE_FIELDS.filter(f => !val(row, f.col));
+
+      filled.forEach(f => addBoldLine(f.label, val(row, f.col)));
+
+      if (tbd.length > 0) {
+        const p = body.appendParagraph("  " + tbd.map(f => f.label).join(", ") + ": TBD");
+        p.editAsText().setFontSize(9).setForegroundColor("#999999");
+        p.setIndentStart(18);
+      }
+
+      body.appendParagraph("").setSpacingAfter(0);
+      addRule();
+    });
+  }
+
+  // ── LOOKING AHEAD — SKIM LIST ────────────────────────────────
+  if (skimRows.length > 0) {
+    body.appendParagraph("").setSpacingAfter(0);
+    const lh = body.appendParagraph("Looking Ahead");
+    lh.setHeading(H2);
+    lh.editAsText().setForegroundColor("#1a3a6b").setFontSize(18);
+    lh.setSpacingAfter(4);
+
+    const note = body.appendParagraph("Speakers are subject to change — more to be announced soon!");
+    note.editAsText().setFontSize(9).setForegroundColor("#888888").setItalic(true);
+    note.setSpacingAfter(8);
+
+    let curMonth = "";
+    skimRows.forEach(row => {
+      const dateVal   = row[COL.DATE - 1];
+      const timeVal   = row[COL.TIME - 1];
+      const type      = val(row, COL.EVENT_TYPE) || "Meeting";
+      const typeLower = type.toLowerCase();
+      const speaker   = val(row, COL.MAIN_SPEAKER);
+      const topic     = val(row, COL.MAIN_TOPIC);
+      const location  = val(row, COL.LOCATION);
+      const cancelled = row[COL.CANCELLED - 1];
+      const isMeeting = DETAIL_TYPES.includes(typeLower);
+
+      const mo = Utilities.formatDate(dateVal, tz, "MMMM yyyy");
+      if (mo !== curMonth) {
+        curMonth = mo;
+        body.appendParagraph("").setSpacingAfter(0);
+        const mh = body.appendParagraph(mo);
+        mh.editAsText().setBold(true).setFontSize(12).setForegroundColor("#1a3a6b");
+        mh.setSpacingBefore(6).setSpacingAfter(2);
+      }
+
+      const day = Utilities.formatDate(dateVal, tz, "EEE MMM d");
+
+      // Abbreviated time: "7a", "7:15a", "5:30p"
+      let tAbbrev = "";
+      if (timeVal) {
+        const td = timeVal instanceof Date ? timeVal : new Date("1970-01-01 " + timeVal);
+        if (!isNaN(td)) {
+          const h   = td.getHours();
+          const m   = td.getMinutes();
+          const ampm = h >= 12 ? "p" : "a";
+          const h12  = h % 12 || 12;
+          tAbbrev = m === 0 ? h12 + ampm : h12 + ":" + String(m).padStart(2,"0") + ampm;
+        }
+      }
+
+      // Build the main line
+      let line = cancelled ? "❌ CANCELLED  " : "";
+      line += day + (tAbbrev ? " " + tAbbrev : "") + "  " + type;
+
+      if (cancelled) {
+        // nothing more needed
+      } else if (isMeeting) {
+        // Meetings: always show speaker/topic or TBD
+        if (speaker && topic)       line += "  ·  " + speaker + ": " + topic;
+        else if (speaker)           line += "  ·  " + speaker;
+        else if (topic)             line += "  ·  " + topic;
+        else                        line += "  ·  TBD";
+      } else {
+        // Other types: show speaker/topic if available
+        if (speaker && topic)       line += "  ·  " + speaker + ": " + topic;
+        else if (speaker)           line += "  ·  " + speaker;
+        else if (topic)             line += "  ·  " + topic;
+      }
+
+      const p = body.appendParagraph(line);
+      p.editAsText().setFontSize(10);
+      p.setSpacingBefore(1).setSpacingAfter(1);
+      if (cancelled) {
+        p.editAsText().setForegroundColor("#999999");
+      } else {
+        p.editAsText().setForegroundColor("#000000");
+      }
+
+      // Append venue name as a small map link at the end of the line
+      if (location && !cancelled) {
+        const venueName = location.split(",")[0].trim();
+        const mapUrl    = "https://maps.google.com/?q=" + encodeURIComponent(location);
+        const spacer    = "  📍 ";
+        const startIdx  = p.getText().length;
+        p.appendText(spacer + venueName);
+        const linkStart = startIdx + spacer.length;
+        const linkEnd   = linkStart + venueName.length - 1;
+        p.editAsText().setFontSize(startIdx, linkEnd, 9);
+        p.editAsText().setForegroundColor(startIdx, startIdx + spacer.length - 1, "#555555");
+        p.editAsText().setForegroundColor(linkStart, linkEnd, "#1a56db");
+        p.editAsText().setLinkUrl(linkStart, linkEnd, mapUrl);
+      }
+    });
+  }
+
+  // ── RECENT MEETINGS ──────────────────────────────────────────
+  if (recentRows.length > 0) {
+    body.appendParagraph("").setSpacingAfter(0);
+    addRule();
+    body.appendParagraph("").setSpacingAfter(0);
+    const rh = body.appendParagraph("Recent Meetings");
+    rh.setHeading(H2);
+    rh.editAsText().setForegroundColor("#1a3a6b").setFontSize(18);
+    rh.setSpacingAfter(8);
+
+    recentRows.forEach(row => {
+      const dateVal = row[COL.DATE - 1];
+      const speaker = val(row, COL.MAIN_SPEAKER);
+      const topic   = val(row, COL.MAIN_TOPIC);
+      const summary = val(row, COL.SUMMARY);
+      const desc    = val(row, COL.DESCRIPTION);
+      const photo   = val(row, COL.PHOTO);
+
+      let label = Utilities.formatDate(dateVal, tz, "MMM d");
+      if (speaker) label += ": " + speaker;
+      if (topic)   label += (speaker ? " — " : ": ") + topic;
+
+      const eh = body.appendParagraph(label);
+      eh.setHeading(H3);
+      eh.editAsText().setForegroundColor("#555555").setFontSize(13);
+      eh.setSpacingBefore(8).setSpacingAfter(4);
+
+      embedPhoto(photo);
+
+      if (summary)   body.appendParagraph(summary).editAsText().setFontSize(11);
+      else if (desc) body.appendParagraph(desc).editAsText().setFontSize(11);
+      body.appendParagraph("").setSpacingAfter(0);
+    });
+  }
+
+  // ── CALENDAR GRID — 4 months ─────────────────────────────────
+  body.appendParagraph("").setSpacingAfter(0);
+  addRule();
+  body.appendParagraph("").setSpacingAfter(0);
+  const calH = body.appendParagraph("Calendar");
+  calH.setHeading(H2);
+  calH.editAsText().setForegroundColor("#1a3a6b").setFontSize(18);
+  calH.setSpacingAfter(4);
+
+  // Legend
+  const legP = body.appendParagraph("Mtg = Meeting  ·  Brd = Board Mtg  ·  Soc = Social  ·  Svc = Service  ·  Com = Committee");
+  legP.editAsText().setFontSize(8).setForegroundColor("#666666").setItalic(true);
+  legP.setSpacingAfter(6);
+
+  // Helper to abbreviate a time value as "7a", "7:15a", "5:30p"
+  function timeAbbrev(timeVal) {
+    if (!timeVal) return "";
+    const td = timeVal instanceof Date ? timeVal : new Date("1970-01-01 " + timeVal);
+    if (isNaN(td)) return "";
+    const h    = td.getHours();
+    const m    = td.getMinutes();
+    const ampm = h >= 12 ? "p" : "a";
+    const h12  = h % 12 || 12;
+    return m === 0 ? h12 + ampm : h12 + ":" + String(m).padStart(2, "0") + ampm;
+  }
+
+  // Build event date map — store type, cancelled, and time abbreviation
+  const eventMap = {};
+  data.forEach(row => {
+    const dv = row[COL.DATE - 1];
+    if (!dv || !(dv instanceof Date)) return;
+    const key = Utilities.formatDate(dv, tz, "yyyy-MM-dd");
+    if (!eventMap[key]) eventMap[key] = [];
+    eventMap[key].push({
+      type:      val(row, COL.EVENT_TYPE).toLowerCase() || "meeting",
+      cancelled: row[COL.CANCELLED - 1],
+      timeAbbrev: timeAbbrev(row[COL.TIME - 1])
+    });
+  });
+
+  const GRID_BG = {
+    "meeting":       "#c7d7fb",
+    "board meeting": "#e9d5ff",
+    "social":        "#bbf7d0",
+    "service":       "#fed7aa",
+    "committee":     "#f3f4f6",
+    "other":         "#f3f4f6"
+  };
+  const TYPE_ABBREV = {
+    "meeting":       "Mtg",
+    "board meeting": "Brd",
+    "social":        "Soc",
+    "service":       "Svc",
+    "committee":     "Com",
+    "other":         "Oth"
+  };
+
+  for (let m = 0; m < 4; m++) {
+    const ms = new Date(today.getFullYear(), today.getMonth() + m, 1);
+    body.appendParagraph("").setSpacingAfter(0);
+    const mLabel = body.appendParagraph(Utilities.formatDate(ms, tz, "MMMM yyyy"));
+    mLabel.editAsText().setBold(true).setFontSize(11).setForegroundColor("#1a3a6b");
+    mLabel.setSpacingBefore(10).setSpacingAfter(2);
+
+    const tbl = body.appendTable();
+    tbl.setBorderWidth(1);
+
+    // Header
+    const hrow = tbl.appendTableRow();
+    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d => {
+      const c = hrow.appendTableCell(d);
+      c.editAsText().setBold(true).setFontSize(8).setForegroundColor("#ffffff");
+      c.setBackgroundColor("#1a3a6b");
+      c.setPaddingTop(2).setPaddingBottom(2);
+    });
+
+    const daysInMonth = new Date(ms.getFullYear(), ms.getMonth() + 1, 0).getDate();
+    let dayNum = 1 - ms.getDay();
+
+    while (dayNum <= daysInMonth) {
+      const wr = tbl.appendTableRow();
+      for (let dow = 0; dow < 7; dow++, dayNum++) {
+        if (dayNum < 1 || dayNum > daysInMonth) {
+          const c = wr.appendTableCell("");
+          c.setBackgroundColor("#f0f0f0");
+          c.editAsText().setFontSize(8);
+          c.setPaddingTop(2).setPaddingBottom(2);
+        } else {
+          const cd  = new Date(ms.getFullYear(), ms.getMonth(), dayNum);
+          const key = Utilities.formatDate(cd, tz, "yyyy-MM-dd");
+          const evs = eventMap[key] || [];
+
+          let bg   = "#ffffff";
+          let text = String(dayNum);
+
+          if (evs.length > 0) {
+            // Background from first non-cancelled event
+            const firstActive = evs.find(e => !e.cancelled) || evs[0];
+            bg = firstActive.cancelled ? "#e5e7eb" : (GRID_BG[firstActive.type] || "#f3f4f6");
+
+            // One line per event: abbreviation + time, with ❌ prefix if cancelled
+            const lines = evs.map(e => {
+              const abbr   = TYPE_ABBREV[e.type] || "Evt";
+              const tAbbr  = e.timeAbbrev ? " " + e.timeAbbrev : "";
+              return (e.cancelled ? "❌ " : "") + abbr + tAbbr;
+            }).filter(Boolean);
+
+            text = dayNum + (lines.length > 0 ? "\n" + lines.join("\n") : "");
+          }
+
+          const c = wr.appendTableCell(text);
+          c.setBackgroundColor(bg);
+          c.editAsText().setFontSize(8);
+          c.setPaddingTop(2).setPaddingBottom(2);
+        }
+      }
+    }
+  }
+
+  // ── Footer ────────────────────────────────────────────────────
+  body.appendParagraph("").setSpacingAfter(0);
+  const ft = body.appendParagraph("Generated " + dateStr + " · " + CLUB_NAME + " Calendar Sync");
+  ft.editAsText().setFontSize(8).setForegroundColor("#aaaaaa").setItalic(true);
+  ft.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+
+  doc.saveAndClose();
+
+  const url = docFile.getUrl();
+  const html = HtmlService.createHtmlOutput(
+    '<p style="font-family:sans-serif;font-size:14px">Newsletter created!</p>' +
+    '<p style="font-family:sans-serif"><a href="' + url + '" target="_blank">' +
+    '📄 ' + docTitle + '</a></p>' +
+    '<p style="font-family:sans-serif;font-size:11px;color:#666">Saved to your Rotary folder in Google Drive.</p>'
+  ).setWidth(400).setHeight(140);
+  SpreadsheetApp.getUi().showModalDialog(html, "Newsletter Ready");
+}
