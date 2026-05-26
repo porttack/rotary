@@ -187,7 +187,12 @@ const fv          = (row, col) => (row[col] || '').trim();
 const isCancelled = row => fv(row, COL.cancelled).toUpperCase() === 'TRUE';
 
 function to24h(t) {
-  const m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!t) return '00:00:00';
+  // 24-hour "H:MM:SS" — zero-pad hour (Sheets time-value export without AM/PM)
+  const hms = t.match(/^(\d{1,2}):(\d{2}):\d{2}$/);
+  if (hms) return `${String(parseInt(hms[1])).padStart(2,'0')}:${hms[2]}:00`;
+  // 12-hour "H:MM AM/PM" or "H:MM:SS AM/PM" (Sheets may append :SS to time values)
+  const m = t.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
   if (!m) return t;
   let h = parseInt(m[1]);
   if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
@@ -212,12 +217,19 @@ function parseRowDate(row) {
 
 function abbrevTime(ts) {
   if (!ts) return '';
-  const m = ts.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!m) return '';
-  let h = parseInt(m[1]);
-  const min = parseInt(m[2]);
-  if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
-  if (m[3].toUpperCase() === 'AM' && h === 12)  h = 0;
+  let h, min;
+  // 24-hour "H:MM:SS"
+  const hms = ts.match(/^(\d{1,2}):(\d{2}):\d{2}$/);
+  if (hms) {
+    h = parseInt(hms[1]); min = parseInt(hms[2]);
+  } else {
+    // 12-hour "H:MM AM/PM" or "H:MM:SS AM/PM"
+    const m = ts.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
+    if (!m) return '';
+    h = parseInt(m[1]); min = parseInt(m[2]);
+    if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
+    if (m[3].toUpperCase() === 'AM' && h === 12)  h = 0;
+  }
   const h12  = h % 12 || 12;
   const ampm = h >= 12 ? 'p' : 'a';
   return min === 0 ? `${h12}${ampm}` : `${h12}${String(min).padStart(2,'0')}${ampm}`;
