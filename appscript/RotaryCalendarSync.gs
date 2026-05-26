@@ -752,14 +752,13 @@ function generateNewsletter() {
     const d = new Date(dateVal); d.setHours(0,0,0,0);
     const cancelled = row[COL.CANCELLED - 1];
     const type      = val(row, COL.EVENT_TYPE).toLowerCase() || "meeting";
-    const hasSummary = val(row, COL.SUMMARY);
 
     if (d >= today && d <= cutoff) {
       upcomingSkim.push(row);  // all future events for skim + grid
       if (!cancelled && DETAIL_TYPES.includes(type)) {
         upcomingDetail.push(row);
       }
-    } else if (d < today && DETAIL_TYPES.includes(type) && hasSummary) {
+    } else if (d < today && DETAIL_TYPES.includes(type)) {
       recentMeetings.push(row);
     }
   });
@@ -774,7 +773,7 @@ function generateNewsletter() {
   // Skim = ALL upcoming events within the cutoff (already filtered by date above)
   // Board meetings, socials, service — everything appears here
   const skimRows = upcomingSkim; // no slice — use full 12-week window
-  const recentRows = recentMeetings.slice(0, 3);
+  const recentRows = recentMeetings.slice(0, 2);
 
   // ── Create Doc ───────────────────────────────────────────────
   const dateStr    = Utilities.formatDate(today, tz, "MMMM d, yyyy");

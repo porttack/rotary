@@ -506,7 +506,7 @@ function renderNewsletter(allRows) {
           detailRows.push(row);
         }
       }
-    } else if (isDetail && fv(row, COL.summary)) {
+    } else if (isDetail) {
       recentRows.push(row);
     }
   });
@@ -518,7 +518,7 @@ function renderNewsletter(allRows) {
   const parts = [masthead(today)];
   if (detailRows.length) parts.push(comingUp(detailRows.slice(0, DETAIL_COUNT)));
   if (skimRows.length)   parts.push(lookingAhead(skimRows));
-  if (recentRows.length) parts.push(recentMeetings(recentRows.slice(0, 3)));
+  if (recentRows.length) parts.push(recentMeetings(recentRows.slice(0, 2)));
   parts.push(calendarGrid(allRows, today));
   parts.push(bulletinFooter(today));
 
