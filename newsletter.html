@@ -195,11 +195,18 @@ function to24h(t) {
   return `${String(h).padStart(2,'0')}:${m[2]}:00`;
 }
 
+// Normalize "3/18/2026" (locale export from date-value cells) → "2026-03-18"
+function normDateStr(ds) {
+  const mdy = ds.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return mdy ? `${mdy[3]}-${String(mdy[1]).padStart(2,'0')}-${String(mdy[2]).padStart(2,'0')}` : ds;
+}
+
 function parseRowDate(row) {
   const ds = fv(row, COL.date);
   if (!ds) return null;
-  const ts = fv(row, COL.time);
-  const d  = new Date(ts ? `${ds}T${to24h(ts)}` : `${ds}T00:00:00`);
+  const ts  = fv(row, COL.time);
+  const iso = normDateStr(ds);
+  const d   = new Date(ts ? `${iso}T${to24h(ts)}` : `${iso}T00:00:00`);
   return isNaN(d) ? null : d;
 }
 
@@ -423,7 +430,7 @@ function calendarGrid(allRows, today) {
   // Build event map keyed by 'YYYY-MM-DD'
   const evMap = {};
   allRows.forEach(row => {
-    const ds = fv(row, COL.date);
+    const ds = normDateStr(fv(row, COL.date));
     if (!ds) return;
     if (isCancelled(row)) return;
     if (!evMap[ds]) evMap[ds] = [];
