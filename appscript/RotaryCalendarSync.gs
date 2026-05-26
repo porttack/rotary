@@ -1009,7 +1009,7 @@ function generateNewsletter() {
 
       const day = Utilities.formatDate(dateVal, tz, "EEE MMM d");
 
-      // Abbreviated time: "7a", "7:15a", "5:30p"
+      // Abbreviated time: "7a", "715a", "530p"
       let tAbbrev = "";
       if (timeVal) {
         const td = timeVal instanceof Date ? timeVal : new Date("1970-01-01 " + timeVal);
@@ -1018,28 +1018,26 @@ function generateNewsletter() {
           const m   = td.getMinutes();
           const ampm = h >= 12 ? "p" : "a";
           const h12  = h % 12 || 12;
-          tAbbrev = m === 0 ? h12 + ampm : h12 + ":" + String(m).padStart(2,"0") + ampm;
+          tAbbrev = m === 0 ? h12 + ampm : h12 + String(m).padStart(2,"0") + ampm;
         }
       }
 
       // Build the main line
-      let line = cancelled ? "❌ CANCELLED  " : "";
-      line += day + (tAbbrev ? " " + tAbbrev : "") + "  " + type;
+      let line = day + (tAbbrev ? " " + tAbbrev : "") + "  " + type;
 
-      if (cancelled) {
-        // nothing more needed
-      } else if (isMeeting) {
+      if (isMeeting && !cancelled) {
         // Meetings: always show speaker/topic or TBD
         if (speaker && topic)       line += "  ·  " + speaker + ": " + topic;
         else if (speaker)           line += "  ·  " + speaker;
         else if (topic)             line += "  ·  " + topic;
         else                        line += "  ·  TBD";
-      } else {
+      } else if (!cancelled) {
         // Other types: show speaker/topic if available
         if (speaker && topic)       line += "  ·  " + speaker + ": " + topic;
         else if (speaker)           line += "  ·  " + speaker;
         else if (topic)             line += "  ·  " + topic;
       }
+      if (cancelled)                line += "  ❌ CANCELLED";
 
       const p = body.appendParagraph(line);
       p.editAsText().setFontSize(10);
@@ -1124,7 +1122,7 @@ function generateNewsletter() {
   calH.setSpacingAfter(4);
 
   // Legend
-  const legP = body.appendParagraph("Mtg = Meeting  ·  Brd = Board Mtg  ·  Soc = Social  ·  Svc = Service  ·  Com = Committee");
+  const legP = body.appendParagraph("Mtg = Meeting  ·  Brd Mtg = Board Meeting  ·  Com = Committee");
   legP.editAsText().setFontSize(8).setForegroundColor("#666666").setItalic(true);
   legP.setSpacingAfter(6);
 
@@ -1137,19 +1135,19 @@ function generateNewsletter() {
     const m    = td.getMinutes();
     const ampm = h >= 12 ? "p" : "a";
     const h12  = h % 12 || 12;
-    return m === 0 ? h12 + ampm : h12 + ":" + String(m).padStart(2, "0") + ampm;
+    return m === 0 ? h12 + ampm : h12 + String(m).padStart(2, "0") + ampm;
   }
 
-  // Build event date map — store type, cancelled, and time abbreviation
+  // Build event date map — store type and time abbreviation (cancelled events excluded)
   const eventMap = {};
   data.forEach(row => {
     const dv = row[COL.DATE - 1];
     if (!dv || !(dv instanceof Date)) return;
+    if (row[COL.CANCELLED - 1]) return;
     const key = Utilities.formatDate(dv, tz, "yyyy-MM-dd");
     if (!eventMap[key]) eventMap[key] = [];
     eventMap[key].push({
       type:      val(row, COL.EVENT_TYPE).toLowerCase() || "meeting",
-      cancelled: row[COL.CANCELLED - 1],
       timeAbbrev: timeAbbrev(row[COL.TIME - 1])
     });
   });
@@ -1164,9 +1162,9 @@ function generateNewsletter() {
   };
   const TYPE_ABBREV = {
     "meeting":       "Mtg",
-    "board meeting": "Brd",
-    "social":        "Soc",
-    "service":       "Svc",
+    "board meeting": "Brd Mtg",
+    "social":        "Social",
+    "service":       "Service",
     "committee":     "Com",
     "other":         "Oth"
   };
@@ -1210,18 +1208,12 @@ function generateNewsletter() {
           let text = String(dayNum);
 
           if (evs.length > 0) {
-            // Background from first non-cancelled event
-            const firstActive = evs.find(e => !e.cancelled) || evs[0];
-            bg = firstActive.cancelled ? "#e5e7eb" : (GRID_BG[firstActive.type] || "#f3f4f6");
-
-            // One line per event: abbreviation + time, with ❌ prefix if cancelled
+            bg = GRID_BG[evs[0].type] || "#f3f4f6";
             const lines = evs.map(e => {
-              const abbr   = TYPE_ABBREV[e.type] || "Evt";
-              const tAbbr  = e.timeAbbrev ? " " + e.timeAbbrev : "";
-              return (e.cancelled ? "❌ " : "") + abbr + tAbbr;
-            }).filter(Boolean);
-
-            text = dayNum + (lines.length > 0 ? "\n" + lines.join("\n") : "");
+              const tPfx = e.timeAbbrev ? e.timeAbbrev + " " : "";
+              return tPfx + (TYPE_ABBREV[e.type] || "Evt");
+            });
+            text = dayNum + "\n" + lines.join("\n");
           }
 
           const c = wr.appendTableCell(text);

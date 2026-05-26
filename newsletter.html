@@ -157,8 +157,8 @@ const TYPE_BG = {
   'committee':'bg-other', 'other':'bg-other',
 };
 const TYPE_ABBREV = {
-  'meeting':'Mtg', 'board meeting':'Brd', 'social':'Soc',
-  'service':'Svc', 'committee':'Com',     'other':'Oth',
+  'meeting':'Mtg', 'board meeting':'Brd Mtg', 'social':'Social',
+  'service':'Service', 'committee':'Com',     'other':'Oth',
 };
 const DETAIL_TYPES = ['meeting', 'board meeting'];
 
@@ -213,7 +213,7 @@ function abbrevTime(ts) {
   if (m[3].toUpperCase() === 'AM' && h === 12)  h = 0;
   const h12  = h % 12 || 12;
   const ampm = h >= 12 ? 'p' : 'a';
-  return min === 0 ? `${h12}${ampm}` : `${h12}:${String(min).padStart(2,'0')}${ampm}`;
+  return min === 0 ? `${h12}${ampm}` : `${h12}${String(min).padStart(2,'0')}${ampm}`;
 }
 
 // ── HTML helpers ──────────────────────────────────────────────────────────
@@ -351,8 +351,7 @@ function lookingAhead(rows) {
       inner += `<div class="month-group"><h3>${esc(mo)}</h3><ul class="skim-list">`;
     }
 
-    let line = cancelled ? '&#x274C; CANCELLED &nbsp; ' : '';
-    line += `${esc(fmtDayDate(d))}${tAbb ? ' ' + esc(tAbb) : ''} &nbsp; ${esc(type)}`;
+    let line = `${esc(fmtDayDate(d))}${tAbb ? ' ' + esc(tAbb) : ''} &nbsp; ${esc(type)}`;
 
     if (!cancelled) {
       if (isMeeting) {
@@ -366,6 +365,7 @@ function lookingAhead(rows) {
         else if (topic)        line += ` &nbsp;&middot;&nbsp; ${linkWrap(topic, speakerUrl)}`;
       }
     }
+    if (cancelled) line += ' &nbsp; &#x274C; CANCELLED';
 
     const venue = (location && !cancelled)
       ? ` <span class="skim-venue">&nbsp;&#x1F4CD; ${mapLink(location, location.split(',')[0].trim())}</span>`
@@ -425,11 +425,11 @@ function calendarGrid(allRows, today) {
   allRows.forEach(row => {
     const ds = fv(row, COL.date);
     if (!ds) return;
+    if (isCancelled(row)) return;
     if (!evMap[ds]) evMap[ds] = [];
     evMap[ds].push({
-      type:      fv(row, COL.eventType).toLowerCase() || 'meeting',
-      cancelled: isCancelled(row),
-      time:      abbrevTime(fv(row, COL.time)),
+      type: fv(row, COL.eventType).toLowerCase() || 'meeting',
+      time: abbrevTime(fv(row, COL.time)),
     });
   });
 
@@ -437,7 +437,7 @@ function calendarGrid(allRows, today) {
   let html = `<hr class="section-rule">
 <section class="bulletin-section">
 <h2>Calendar</h2>
-<p class="calendar-legend">Mtg = Meeting &nbsp;&middot;&nbsp; Brd = Board Mtg &nbsp;&middot;&nbsp; Soc = Social &nbsp;&middot;&nbsp; Svc = Service &nbsp;&middot;&nbsp; Com = Committee</p>`;
+<p class="calendar-legend">Mtg = Meeting &nbsp;&middot;&nbsp; Brd Mtg = Board Meeting &nbsp;&middot;&nbsp; Com = Committee</p>`;
 
   for (let mo = 0; mo < 4; mo++) {
     const ms       = new Date(today.getFullYear(), today.getMonth() + mo, 1);
@@ -459,13 +459,12 @@ function calendarGrid(allRows, today) {
         } else {
           const key  = `${yr}-${String(moNum).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
           const evs  = evMap[key] || [];
-          const first = evs.find(e => !e.cancelled) || evs[0];
-          const bgCls = evs.length === 0 ? '' : (first.cancelled ? 'bg-cancelled' : (TYPE_BG[first.type] || 'bg-other'));
+          const bgCls = evs.length === 0 ? '' : (TYPE_BG[evs[0].type] || 'bg-other');
 
           html += `<td${bgCls ? ` class="${bgCls}"` : ''}><span class="cal-date">${dayNum}</span>`;
           evs.forEach(ev => {
-            const abbr = TYPE_ABBREV[ev.type] || 'Evt';
-            html += `<span class="cal-event${ev.cancelled ? ' cancelled' : ''}">${ev.cancelled ? '&#x274C; ' : ''}${abbr}${ev.time ? ' ' + esc(ev.time) : ''}</span>`;
+            const tPfx = ev.time ? esc(ev.time) + ' ' : '';
+            html += `<span class="cal-event">${tPfx}${esc(TYPE_ABBREV[ev.type] || 'Evt')}</span>`;
           });
           html += '</td>';
         }
