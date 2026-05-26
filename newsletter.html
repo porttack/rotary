@@ -506,7 +506,7 @@ function renderNewsletter(allRows) {
           detailRows.push(row);
         }
       }
-    } else if (isDetail) {
+    } else if (type === 'meeting') {
       recentRows.push(row);
     }
   });

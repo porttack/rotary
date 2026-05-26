@@ -758,7 +758,7 @@ function generateNewsletter() {
       if (!cancelled && DETAIL_TYPES.includes(type)) {
         upcomingDetail.push(row);
       }
-    } else if (d < today && DETAIL_TYPES.includes(type)) {
+    } else if (d < today && type === "meeting") {
       recentMeetings.push(row);
     }
   });
