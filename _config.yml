@@ -18,6 +18,7 @@ minima:
 header_pages:
   - calendar.html
   - newsletter.html
+  - past.html
   - speak.md
   - request.md
 

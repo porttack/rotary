@@ -1,0 +1,94 @@
+---
+layout: page
+title: Past Meetings
+permalink: /past/
+---
+
+<style>
+  #past-meetings {
+    max-width: 760px;
+    margin: 0 auto;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 11pt;
+    color: #222;
+    line-height: 1.55;
+  }
+
+  .event-block { margin-bottom: 1.8em; }
+  .event-heading { color: #1a56db; font-size: 1.05em; margin: 0.8em 0 0.15em; }
+  .event-heading.past { color: #555; }
+  .event-photo {
+    display: block; max-width: 300px; height: auto;
+    margin: 0.6em 0; border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  }
+  .event-narrative { margin: 0.5em 0; }
+
+  .section-rule { border: none; border-top: 1px solid #e0e0e0; margin: 1.2em 0; }
+
+  .month-group h3 {
+    color: #17458F; font-size: 1.05em; margin: 1.8em 0 0.5em;
+    font-family: Arial, sans-serif; font-weight: bold;
+    border-bottom: 1px solid #ccc; padding-bottom: 0.2em;
+  }
+
+  a { color: #1a56db; }
+
+  @media (max-width: 600px) {
+    #past-meetings { font-size: 10pt; }
+    .event-photo { max-width: 100%; }
+  }
+</style>
+
+<div id="past-loading" style="text-align:center;padding:2em;color:#666;">
+  Loading past meetings&hellip;
+</div>
+<div id="past-meetings" style="display:none;"></div>
+
+<script src="{{ '/assets/js/rotary-common.js' | relative_url }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  fetch(CSV_URL)
+    .then(r => r.text())
+    .then(text => {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const rows  = parseCSV(text).slice(1).filter(r => r.length > COL.time);
+
+      const past = rows.filter(row => {
+        const d = parseRowDate(row);
+        if (!d) return false;
+        const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        return dateOnly < today
+          && fv(row, COL.eventType).toLowerCase() === 'meeting'
+          && !isCancelled(row);
+      });
+
+      past.sort((a, b) => parseRowDate(b) - parseRowDate(a));
+
+      let html = '';
+      let curMonth = '';
+      past.forEach(row => {
+        const d  = parseRowDate(row);
+        const mo = d.toLocaleDateString('en-US', {month:'long', year:'numeric'});
+        if (mo !== curMonth) {
+          if (curMonth) html += '</div>\n';
+          curMonth = mo;
+          html += `<div class="month-group"><h3>${mo}</h3>`;
+        }
+        html += renderMeetingEntry(row);
+      });
+      if (curMonth) html += '</div>';
+
+      if (!html) html = '<p style="color:#888;">No past meetings recorded yet.</p>';
+
+      document.getElementById('past-loading').style.display = 'none';
+      const el = document.getElementById('past-meetings');
+      el.innerHTML = html;
+      el.style.display = 'block';
+    })
+    .catch(() => {
+      document.getElementById('past-loading').textContent =
+        'Could not load meeting data. Make sure the sheet is published to the web.';
+    });
+});
+</script>
