@@ -1462,9 +1462,31 @@ function syncPhotos() {
       }
 
       if (url) {
+        // If the URL is not already a public Drive link, copy the image to
+        // Drive/Rotary/Photos so the browser can load it without authentication.
         const current = String(sheet.getRange(i + 2, dst).getValue() || "");
-        if (url !== current) {
-          sheet.getRange(i + 2, dst).setValue(url);
+        let publicUrl = url;
+        if (!url.startsWith("https://drive.google.com/uc?")) {
+          if (current.startsWith("https://drive.google.com/uc?")) {
+            // Already exported to Drive on a previous sync — reuse it.
+            publicUrl = current;
+          } else {
+            try {
+              const blob     = UrlFetchApp.fetch(url, { muteHttpExceptions: true }).getBlob();
+              const which    = src === COL.PHOTO_TOP ? "top" : "bottom";
+              const fileName = SHEET_NAME + "_row" + (i + 2) + "_" + which;
+              blob.setName(fileName);
+              const file = getRotaryPhotosFolder_().createFile(blob);
+              file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+              publicUrl = "https://drive.google.com/uc?export=view&id=" + file.getId();
+            } catch (fetchErr) {
+              Logger.log("Could not copy image to Drive (row " + (i + 2) + "): " + fetchErr.message);
+              // Fall back to the raw URL — may not be publicly accessible
+            }
+          }
+        }
+        if (publicUrl !== current) {
+          sheet.getRange(i + 2, dst).setValue(publicUrl);
           synced++;
         }
       } else {
@@ -1477,9 +1499,18 @@ function syncPhotos() {
     "Photo sync complete!\n" +
     "✅ " + synced + " URL" + (synced !== 1 ? "s" : "") + " written to companion columns\n" +
     "⏭️ " + skipped + " cells skipped (empty, plain text URL, or no extractable image)\n\n" +
-    "Note: plain-text URLs in the photo cells are used directly by the\n" +
-    "newsletter — no sync needed for those."
+    "Embedded images are exported to Drive → Rotary → Photos and made\n" +
+    "publicly accessible. Plain-text URLs in the photo cells are used\n" +
+    "directly by the newsletter — no sync needed for those."
   );
+}
+
+/** Returns the Drive folder at Rotary/Photos, creating it if needed. */
+function getRotaryPhotosFolder_() {
+  const rotaryFolders = DriveApp.getFoldersByName("Rotary");
+  const rotary = rotaryFolders.hasNext() ? rotaryFolders.next() : DriveApp.createFolder("Rotary");
+  const photoFolders = rotary.getFoldersByName("Photos");
+  return photoFolders.hasNext() ? photoFolders.next() : rotary.createFolder("Photos");
 }
 
 /** Convert 1-based column number to sheet letter (e.g. 28 → "AB") */
