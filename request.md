@@ -284,19 +284,6 @@ document.getElementById('rq-form').addEventListener('submit', async function (e)
   const iframe = document.createElement('iframe');
   iframe.name  = iframeName;
   iframe.style.display = 'none';
-
-  // Skip the initial about:blank onload; show success on the second fire
-  // (the actual Apps Script response).
-  let iframeLoads = 0;
-  iframe.onload = function () {
-    iframeLoads++;
-    if (iframeLoads < 2) return;
-    form.style.display = 'none';
-    status.className   = 'ok';
-    status.textContent = '✓ Request submitted! The speaker organizer will be in touch.';
-    document.body.removeChild(iframe);
-    document.body.removeChild(hiddenForm);
-  };
   document.body.appendChild(iframe);
 
   const hiddenForm = document.createElement('form');
@@ -314,5 +301,17 @@ document.getElementById('rq-form').addEventListener('submit', async function (e)
   });
   document.body.appendChild(hiddenForm);
   hiddenForm.submit();
+
+  // Set onload AFTER submitting so any synchronous about:blank event is
+  // already past. The next fire will be the actual Apps Script response.
+  setTimeout(function () {
+    iframe.onload = function () {
+      form.style.display = 'none';
+      status.className   = 'ok';
+      status.textContent = '✓ Request submitted! The speaker organizer will be in touch.';
+      document.body.removeChild(iframe);
+      document.body.removeChild(hiddenForm);
+    };
+  }, 0);
 });
 </script>
