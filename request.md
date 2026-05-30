@@ -204,27 +204,24 @@ document.getElementById('rq-form').addEventListener('submit', function (e) {
     otherSuggestions: form.otherSuggestions.checked,
   };
 
-  // Use text/plain to avoid CORS preflight — Apps Script parses the JSON body regardless
+  // no-cors bypasses the CORS redirect issue with Apps Script's googleusercontent.com endpoint.
+  // The response is opaque so we can't read it — show success optimistically on resolve.
   fetch(RQ_URL, {
     method:  'POST',
+    mode:    'no-cors',
     headers: { 'Content-Type': 'text/plain' },
     body:    JSON.stringify(data),
   })
-  .then(r => r.json())
-  .then(function (res) {
-    if (res.ok) {
-      form.style.display  = 'none';
-      status.className    = 'ok';
-      status.textContent  = '✓ Request submitted! The speaker organizer will be in touch.';
-    } else {
-      throw new Error(res.error || 'Unknown error');
-    }
+  .then(function () {
+    form.style.display = 'none';
+    status.className   = 'ok';
+    status.textContent = '✓ Request submitted! The speaker organizer will be in touch.';
   })
-  .catch(function (err) {
+  .catch(function () {
     btn.disabled    = false;
     btn.textContent = 'Submit Request';
-    status.className    = 'err';
-    status.textContent  = 'Something went wrong — please try again or email us directly. (' + err.message + ')';
+    status.className   = 'err';
+    status.textContent = 'Something went wrong — please try again or email us directly.';
   });
 });
 </script>
