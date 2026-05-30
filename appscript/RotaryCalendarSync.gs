@@ -1256,9 +1256,14 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+// Maximum form submissions accepted per calendar day across all form types.
+const DAILY_SUBMISSION_LIMIT = 20;
+
 /** Entry point for form submissions from the website (POST) */
 function doPost(e) {
   try {
+    if (isRateLimited_()) return jsonOut_({ ok: false, error: "rate_limited" });
+
     // Data arrives as URL-encoded form fields (hidden iframe submission).
     const p      = e.parameter || {};
     const action = String(p.action || "");
@@ -1274,6 +1279,33 @@ function doPost(e) {
     return jsonOut_({ ok: false, error: "Unknown action: " + action });
   } catch (err) {
     return jsonOut_({ ok: false, error: err.toString() });
+  }
+}
+
+/**
+ * Returns true and logs a warning if today's submission count is at or above
+ * DAILY_SUBMISSION_LIMIT. Uses a script lock so concurrent requests can't
+ * both read the same count and both slip through.
+ */
+function isRateLimited_() {
+  const lock  = LockService.getScriptLock();
+  const props = PropertiesService.getScriptProperties();
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const key   = "sub_" + today;
+  try {
+    lock.waitLock(3000);
+    const count = parseInt(props.getProperty(key) || "0");
+    if (count >= DAILY_SUBMISSION_LIMIT) {
+      Logger.log("Rate limit hit: " + count + " submissions today");
+      return true;
+    }
+    props.setProperty(key, String(count + 1));
+    return false;
+  } catch (e) {
+    Logger.log("Lock timeout in isRateLimited_: " + e.toString());
+    return false; // fail open — let the submission through
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
   }
 }
 
