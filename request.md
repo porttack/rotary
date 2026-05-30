@@ -61,6 +61,7 @@ permalink: /request/
   @media (max-width: 520px) { .rq-form .two-col { grid-template-columns: 1fr; } }
 </style>
 
+<div id="rq-wrap">
 <p>Know someone who would make a great speaker, or have a topic you'd like the club to explore?
 Fill out the form below — the speaker organizer will follow up with you.</p>
 <p style="font-size:0.9em;color:#555;">Fields marked <span style="color:#c00;">*</span> are required.</p>
@@ -177,6 +178,16 @@ Fill out the form below — the speaker organizer will follow up with you.</p>
   <button type="submit" class="rq-submit">Submit Request</button>
   <div id="rq-status"></div>
 </form>
+</div>
+
+<div id="rq-success" style="display:none; max-width:640px;">
+  <p style="color:#166534; font-size:1.1em; font-weight:bold; font-family:Arial,sans-serif;">
+    ✓ Request submitted!
+  </p>
+  <p style="font-family:Arial,sans-serif; color:#333;">
+    The speaker organizer will be in touch. Thank you for helping build our program!
+  </p>
+</div>
 
 <script>
 const RQ_URL = '{{ site.apps_script_url }}';
@@ -306,9 +317,8 @@ document.getElementById('rq-form').addEventListener('submit', async function (e)
   // already past. The next fire will be the actual Apps Script response.
   setTimeout(function () {
     iframe.onload = function () {
-      form.style.display = 'none';
-      status.className   = 'ok';
-      status.textContent = '✓ Request submitted! The speaker organizer will be in touch.';
+      document.getElementById('rq-wrap').style.display    = 'none';
+      document.getElementById('rq-success').style.display = 'block';
       document.body.removeChild(iframe);
       document.body.removeChild(hiddenForm);
     };
