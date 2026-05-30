@@ -1263,7 +1263,7 @@ function openDutyEditor() {
     url = ScriptApp.getService().getUrl();
   } catch(e) { url = null; }
 
-  if (!url || url.includes("AKfycb") === false) {
+  if (!url || !url.startsWith("https://script.google.com/macros/s/")) {
     SpreadsheetApp.getUi().alert(
       "Duty Editor is not yet deployed as a web app.\n\n" +
       "Steps:\n" +
