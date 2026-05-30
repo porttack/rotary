@@ -276,24 +276,43 @@ document.getElementById('rq-form').addEventListener('submit', async function (e)
     photoName,
   };
 
-  // no-cors bypasses the CORS redirect issue with Apps Script's googleusercontent.com endpoint.
-  // The response is opaque so we can't read it — show success optimistically on resolve.
-  fetch(RQ_URL, {
-    method:  'POST',
-    mode:    'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body:    JSON.stringify(data),
-  })
-  .then(function () {
+  // Submit via a hidden iframe + programmatic form to avoid CORS entirely.
+  // fetch (even with no-cors) never delivers the POST to Apps Script due to
+  // how Google redirects script.google.com → googleusercontent.com.
+  // Traditional form submission follows redirects without CORS restrictions.
+  const iframeName = 'rq-iframe-' + Date.now();
+  const iframe = document.createElement('iframe');
+  iframe.name  = iframeName;
+  iframe.style.display = 'none';
+
+  // Skip the initial about:blank onload; show success on the second fire
+  // (the actual Apps Script response).
+  let iframeLoads = 0;
+  iframe.onload = function () {
+    iframeLoads++;
+    if (iframeLoads < 2) return;
     form.style.display = 'none';
     status.className   = 'ok';
     status.textContent = '✓ Request submitted! The speaker organizer will be in touch.';
-  })
-  .catch(function () {
-    btn.disabled    = false;
-    btn.textContent = 'Submit Request';
-    status.className   = 'err';
-    status.textContent = 'Something went wrong — please try again or email us directly.';
+    document.body.removeChild(iframe);
+    document.body.removeChild(hiddenForm);
+  };
+  document.body.appendChild(iframe);
+
+  const hiddenForm = document.createElement('form');
+  hiddenForm.method = 'POST';
+  hiddenForm.action = RQ_URL;
+  hiddenForm.target = iframeName;
+  hiddenForm.style.display = 'none';
+
+  Object.entries(data).forEach(function (kv) {
+    const input = document.createElement('input');
+    input.type  = 'hidden';
+    input.name  = kv[0];
+    input.value = String(kv[1]);
+    hiddenForm.appendChild(input);
   });
+  document.body.appendChild(hiddenForm);
+  hiddenForm.submit();
 });
 </script>

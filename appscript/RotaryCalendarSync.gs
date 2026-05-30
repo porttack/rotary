@@ -1259,9 +1259,18 @@ function doGet() {
 /** Entry point for form submissions from the website (POST) */
 function doPost(e) {
   try {
-    const data   = JSON.parse(e.postData.contents);
-    const action = String(data.action || "");
-    if (action === "speakerRequest") return handleSpeakerRequest_(data);
+    // Data arrives as URL-encoded form fields (hidden iframe submission).
+    const p      = e.parameter || {};
+    const action = String(p.action || "");
+
+    // Checkboxes arrive as the string "true" or are absent — normalise to boolean.
+    const boolFields = [
+      "spokeToOrganizer", "spokeToPresident",
+      "availMorning", "availEvening", "zoomOnly", "otherSuggestions",
+    ];
+    boolFields.forEach(function (k) { p[k] = p[k] === "true"; });
+
+    if (action === "speakerRequest") return handleSpeakerRequest_(p);
     return jsonOut_({ ok: false, error: "Unknown action: " + action });
   } catch (err) {
     return jsonOut_({ ok: false, error: err.toString() });
