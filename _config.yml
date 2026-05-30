@@ -39,6 +39,9 @@ exclude:
   - LICENSE
   - "*.sh"
 
+# Apps Script web app URL — update here whenever you redeploy
+apps_script_url: "https://script.google.com/macros/s/AKfycbzJUnhSnRKTjA-JwHa07El5kVnpwa7AKYIkk2ivY3PGIUiwsr7LXYP0Ls7SceyUuCEU/exec"
+
 # Social / SEO (optional — fill in as desired)
 # twitter_username: slvrotary
 # github_username:  ebrown

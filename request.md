@@ -153,7 +153,7 @@ Fill out the form below — the speaker organizer will follow up with you.</p>
 </form>
 
 <script>
-const RQ_URL = 'https://script.google.com/macros/s/AKfycbzJUnhSnRKTjA-JwHa07El5kVnpwa7AKYIkk2ivY3PGIUiwsr7LXYP0Ls7SceyUuCEU/exec';
+const RQ_URL = '{{ site.apps_script_url }}';
 
 document.getElementById('rq-form').addEventListener('submit', function (e) {
   e.preventDefault();

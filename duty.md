@@ -32,13 +32,13 @@ permalink: /duty/
 </style>
 
 <iframe id="duty-frame"
-  src="https://script.google.com/macros/s/AKfycbzJUnhSnRKTjA-JwHa07El5kVnpwa7AKYIkk2ivY3PGIUiwsr7LXYP0Ls7SceyUuCEU/exec"
+  src="{{ site.apps_script_url }}"
   title="SLV Rotary Duty Editor">
 </iframe>
 
 <div id="duty-fallback">
   <p>The Duty Editor could not be embedded here (browser security policy).</p>
-  <a href="https://script.google.com/macros/s/AKfycbzJUnhSnRKTjA-JwHa07El5kVnpwa7AKYIkk2ivY3PGIUiwsr7LXYP0Ls7SceyUuCEU/exec"
+  <a href="{{ site.apps_script_url }}"
      target="_blank">Open Duty Editor in new tab &rarr;</a>
 </div>
 
