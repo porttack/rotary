@@ -97,6 +97,14 @@ Fill out the form below — the speaker organizer will follow up with you.</p>
     <input type="text" name="topic" required placeholder="What would they speak about?">
   </div>
   <div class="field">
+    <label>Speaker Role</label>
+    <div class="radio-group">
+      <label><input type="radio" name="speakerRole" value="Opening Speaker" checked> Opening Speaker <span class="hint">(5–10 min)</span></label>
+      <label><input type="radio" name="speakerRole" value="Main Speaker"> Main Speaker <span class="hint">(~20 min)</span></label>
+      <label><input type="radio" name="speakerRole" value="Either"> Either</label>
+    </div>
+  </div>
+  <div class="field">
     <label>Brief Bio <span class="hint">(who are they and why would members enjoy this?)</span></label>
     <textarea name="bio" rows="3"></textarea>
   </div>
@@ -189,6 +197,7 @@ document.getElementById('rq-form').addEventListener('submit', function (e) {
     speakerPhone:     form.speakerPhone.value.trim(),
     speakerCity:      form.speakerCity.value.trim(),
     topic:            form.topic.value.trim(),
+    speakerRole:      [...form.querySelectorAll('[name=speakerRole]')].find(r => r.checked)?.value || '',
     bio:              form.bio.value.trim(),
     suggestedDates:   form.suggestedDates.value.trim(),
     timePreference:   (form.timePreference
