@@ -1249,11 +1249,29 @@ function generateNewsletter() {
 //  Type: Web app | Execute as: Me | Who has access: Anyone (or org)
 // ═══════════════════════════════════════════════════════════════
 
-/** Entry point for the deployed web app */
+/** Entry point for the deployed web app (GET → Duty Editor) */
 function doGet() {
   return HtmlService.createHtmlOutput(getDutyEditorHtml())
     .setTitle("SLV Rotary — Duty Editor")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** Entry point for form submissions from the website (POST) */
+function doPost(e) {
+  try {
+    const data   = JSON.parse(e.postData.contents);
+    const action = String(data.action || "");
+    if (action === "speakerRequest") return handleSpeakerRequest_(data);
+    return jsonOut_({ ok: false, error: "Unknown action: " + action });
+  } catch (err) {
+    return jsonOut_({ ok: false, error: err.toString() });
+  }
+}
+
+function jsonOut_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /** Open the deployed web app URL from the sheet menu */
@@ -1693,4 +1711,65 @@ google.script.run
 </script>
 </body>
 </html>`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  WEBSITE FORM SUBMISSIONS  (handled by doPost)
+// ═══════════════════════════════════════════════════════════════
+
+function handleSpeakerRequest_(data) {
+  const sheet = getOrCreateTab_(
+    "Speaker Requests",
+    [
+      "Submitted At",
+      "Requestor Name", "Requestor Email", "Requestor Phone",
+      "Speaker Name", "Speaker Email", "Speaker Phone", "Speaker City",
+      "Topic", "Brief Bio", "Suggested Dates", "Time Preference",
+      "Comments",
+      "Spoke to Organizer", "Spoke to President",
+      "Avail: Morning", "Avail: Evening", "Zoom Only", "Other Suggestions",
+    ]
+  );
+
+  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "M/d/yyyy h:mm a");
+
+  sheet.appendRow([
+    ts,
+    data.requestorName    || "",
+    data.requestorEmail   || "",
+    data.requestorPhone   || "",
+    data.speakerName      || "",
+    data.speakerEmail     || "",
+    data.speakerPhone     || "",
+    data.speakerCity      || "",
+    data.topic            || "",
+    data.bio              || "",
+    data.suggestedDates   || "",
+    data.timePreference   || "",
+    data.comments         || "",
+    data.spokeToOrganizer ? "Yes" : "",
+    data.spokeToPresident ? "Yes" : "",
+    data.availMorning     ? "Yes" : "",
+    data.availEvening     ? "Yes" : "",
+    data.zoomOnly         ? "Yes" : "",
+    data.otherSuggestions ? "Yes" : "",
+  ]);
+
+  return jsonOut_({ ok: true });
+}
+
+/** Find or create a sheet tab with a header row. */
+function getOrCreateTab_(name, headers) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    const hdr = sheet.getRange(1, 1, 1, headers.length);
+    hdr.setValues([headers]);
+    hdr.setBackground("#1a3a6b").setFontColor("#ffffff").setFontWeight("bold").setFontSize(11);
+    sheet.setFrozenRows(1);
+    headers.forEach((_, i) => sheet.setColumnWidth(i + 1, 160));
+  }
+  return sheet;
 }
