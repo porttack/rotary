@@ -1729,8 +1729,29 @@ function handleSpeakerRequest_(data) {
       "Comments",
       "Spoke to Organizer", "Spoke to President",
       "Avail: Morning", "Avail: Evening", "Zoom Only", "Other Suggestions",
+      "Photo URL",
     ]
   );
+
+  // Save photo to Drive and get a public URL
+  let photoUrl = "";
+  if (data.photoBase64) {
+    try {
+      const base64 = data.photoBase64.includes(",")
+        ? data.photoBase64.split(",")[1]
+        : data.photoBase64;
+      const mime = data.photoMime || "image/jpeg";
+      const ext  = (data.photoName || "photo.jpg").split(".").pop() || "jpg";
+      const safeName = (data.speakerName || "speaker")
+        .replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_") || "speaker";
+      const blob = Utilities.newBlob(Utilities.base64Decode(base64), mime, safeName + "." + ext);
+      const file = getRotaryPhotosFolder_().createFile(blob);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      photoUrl = "https://drive.google.com/uc?export=view&id=" + file.getId();
+    } catch (photoErr) {
+      Logger.log("Photo save error: " + photoErr.toString());
+    }
+  }
 
   const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "M/d/yyyy h:mm a");
 
@@ -1755,6 +1776,7 @@ function handleSpeakerRequest_(data) {
     data.availEvening     ? "Yes" : "",
     data.zoomOnly         ? "Yes" : "",
     data.otherSuggestions ? "Yes" : "",
+    photoUrl,
   ]);
 
   return jsonOut_({ ok: true });

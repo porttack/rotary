@@ -45,6 +45,18 @@ permalink: /request/
   #rq-status.ok  { color: #166534; font-weight: bold; }
   #rq-status.err { color: #b91c1c; }
   /* honeypot */
+  input[type=file] {
+    width: 100%; box-sizing: border-box;
+    padding: 5px 0; font-size: 0.95em; font-family: inherit;
+    border: none; color: #444;
+  }
+  #photo-preview { margin-top: 0.5em; }
+  #photo-preview img {
+    max-width: 200px; max-height: 200px;
+    border-radius: 4px; border: 1px solid #ddd;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  }
+  #photo-size-warn { color: #b91c1c; font-size: 0.88em; margin-top: 0.3em; display: none; }
   .rq-pot { display: none; }
   @media (max-width: 520px) { .rq-form .two-col { grid-template-columns: 1fr; } }
 </style>
@@ -105,6 +117,12 @@ Fill out the form below — the speaker organizer will follow up with you.</p>
     </div>
   </div>
   <div class="field">
+    <label>Speaker Photo <span class="hint">(optional — JPEG or PNG, max 4 MB)</span></label>
+    <input type="file" name="speakerPhoto" accept="image/jpeg,image/png,image/webp">
+    <div id="photo-preview" style="display:none;"><img id="photo-thumb" alt="preview"></div>
+    <div id="photo-size-warn">Image is too large — please choose a file under 4 MB.</div>
+  </div>
+  <div class="field">
     <label>Brief Bio <span class="hint">(who are they and why would members enjoy this?)</span></label>
     <textarea name="bio" rows="3"></textarea>
   </div>
@@ -163,7 +181,28 @@ Fill out the form below — the speaker organizer will follow up with you.</p>
 <script>
 const RQ_URL = '{{ site.apps_script_url }}';
 
-document.getElementById('rq-form').addEventListener('submit', function (e) {
+// Show thumbnail preview when a photo is chosen
+document.getElementById('rq-form').speakerPhoto.addEventListener('change', function () {
+  const file    = this.files[0];
+  const preview = document.getElementById('photo-preview');
+  const warn    = document.getElementById('photo-size-warn');
+  const thumb   = document.getElementById('photo-thumb');
+  warn.style.display = 'none';
+  if (!file) { preview.style.display = 'none'; return; }
+  if (file.size > 4 * 1024 * 1024) {
+    warn.style.display = 'block';
+    preview.style.display = 'none';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function (ev) {
+    thumb.src = ev.target.result;
+    preview.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('rq-form').addEventListener('submit', async function (e) {
   e.preventDefault();
   const form   = e.target;
   const status = document.getElementById('rq-status');
@@ -181,9 +220,30 @@ document.getElementById('rq-form').addEventListener('submit', function (e) {
     return;
   }
 
+  // Photo: read as base64 if provided and within size limit
+  let photoBase64 = '', photoMime = '', photoName = '';
+  const photoFile = form.speakerPhoto.files[0];
+  if (photoFile) {
+    if (photoFile.size > 4 * 1024 * 1024) {
+      status.className = 'err';
+      status.textContent = 'Photo must be under 4 MB — please choose a smaller image.';
+      return;
+    }
+    try {
+      photoBase64 = await new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onload  = function (ev) { resolve(ev.target.result); };
+        reader.onerror = reject;
+        reader.readAsDataURL(photoFile);
+      });
+      photoMime = photoFile.type;
+      photoName = photoFile.name;
+    } catch (_) { /* non-fatal — submit without photo */ }
+  }
+
   const btn = form.querySelector('button[type=submit]');
   btn.disabled    = true;
-  btn.textContent = 'Submitting…';
+  btn.textContent = photoFile ? 'Uploading photo…' : 'Submitting…';
   status.className = '';
   status.textContent = '';
 
@@ -211,6 +271,9 @@ document.getElementById('rq-form').addEventListener('submit', function (e) {
     availEvening:     form.availEvening.checked,
     zoomOnly:         form.zoomOnly.checked,
     otherSuggestions: form.otherSuggestions.checked,
+    photoBase64,
+    photoMime,
+    photoName,
   };
 
   // no-cors bypasses the CORS redirect issue with Apps Script's googleusercontent.com endpoint.
