@@ -55,6 +55,7 @@ permalink: /year/
   }
   .month-cal td:empty { background: none; }
   .month-cal td.ev-cancelled { background: #e5e7eb; color: #aaa; }
+  .month-cal td.today { outline: 2px solid #dc2626; outline-offset: -1px; font-weight: bold; }
 
   #year-tip {
     display: none; position: fixed; z-index: 9999;
@@ -318,22 +319,23 @@ document.addEventListener('DOMContentLoaded', () => {
             if (dayNum < 1 || dayNum > daysInMo) {
               html += '<td></td>';
             } else {
-              const key  = `${yr}-${String(moIdx + 1).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
-              const info = dayInfo[key];
+              const key      = `${yr}-${String(moIdx + 1).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
+              const info     = dayInfo[key];
+              const tCls     = key === todayKey ? ' today' : '';
               if (!info) {
-                html += `<td>${dayNum}</td>`;
+                html += `<td${tCls ? ' class="today"' : ''}>${dayNum}</td>`;
               } else if (info.allCancelled) {
-                html += `<td class="ev-cancelled" data-date="${key}">${dayNum}</td>`;
+                html += `<td class="ev-cancelled${tCls}" data-date="${key}">${dayNum}</td>`;
               } else if (info.types.length === 1) {
                 const bg  = TYPE_COLOR[info.types[0]] || '#f3f4f6';
                 const bdr = borderStyle(info.timeOfDay);
-                html += `<td data-date="${key}" style="background:${bg};${bdr}">${dayNum}</td>`;
+                html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${bg};${bdr}">${dayNum}</td>`;
               } else {
-                const c1  = TYPE_COLOR[info.types[0]] || '#f3f4f6';
-                const c2  = TYPE_COLOR[info.types[1]] || '#f3f4f6';
+                const c1   = TYPE_COLOR[info.types[0]] || '#f3f4f6';
+                const c2   = TYPE_COLOR[info.types[1]] || '#f3f4f6';
                 const grad = `linear-gradient(135deg,${c1} 50%,${c2} 50%)`;
-                const bdr = borderStyle(info.timeOfDay);
-                html += `<td data-date="${key}" style="background:${grad};${bdr}">${dayNum}</td>`;
+                const bdr  = borderStyle(info.timeOfDay);
+                html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${grad};${bdr}">${dayNum}</td>`;
               }
             }
           }
@@ -344,6 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Rotary year runs July–June; same logic as school year
       const now       = new Date();
+      const todayKey  = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
       const startYear = now.getMonth() <= 4 ? now.getFullYear() - 1 : now.getFullYear();
 
       // If it's currently June, show it above the main grid as a transition month
