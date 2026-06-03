@@ -112,7 +112,7 @@ permalink: /year/
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
 
-const COL = { eventType: 1, cancelled: 2, date: 4, time: 5, location: 7, mainSpeaker: 11, mainTopic: 12, summary: 14 };
+const COL = { eventType: 1, cancelled: 2, date: 4, time: 5, location: 7, openingSpeaker: 10, mainSpeaker: 11, mainTopic: 12, summary: 14 };
 
 // Map raw event type string → canonical key
 function canonicalType(raw) {
@@ -241,14 +241,15 @@ function loadYear() {
         if (!evsByDate[iso]) evsByDate[iso] = [];
         evsByDate[iso].push({
           type,
-          rawType:     fv(row, COL.eventType),
+          rawType:        fv(row, COL.eventType),
           cancelled,
           hour,
-          timeStr:     fv(row, COL.time),
-          location:    fv(row, COL.location),
-          mainSpeaker: fv(row, COL.mainSpeaker),
-          mainTopic:   fv(row, COL.mainTopic),
-          summary:     fv(row, COL.summary),
+          timeStr:        fv(row, COL.time),
+          location:       fv(row, COL.location),
+          openingSpeaker: fv(row, COL.openingSpeaker),
+          mainSpeaker:    fv(row, COL.mainSpeaker),
+          mainTopic:      fv(row, COL.mainTopic),
+          summary:        fv(row, COL.summary),
         });
       });
 
@@ -262,12 +263,13 @@ function loadYear() {
 
         function makeDet(e, isCancelled) {
           return {
-            timeStr:     e.timeStr,
-            rawType:     e.rawType,
-            speaker:     e.mainSpeaker,
-            topic:       e.mainTopic,
-            location:    e.location,
-            summary:     e.summary,
+            timeStr:        e.timeStr,
+            rawType:        e.rawType,
+            openingSpeaker: e.openingSpeaker,
+            speaker:        e.mainSpeaker,
+            topic:          e.mainTopic,
+            location:       e.location,
+            summary:        e.summary,
             isCancelled,
           };
         }
@@ -392,7 +394,7 @@ function loadYear() {
 
 document.addEventListener('DOMContentLoaded', loadYear);
 
-// ── Hover tooltip ─────────────────────────────────────────────
+// ── Hover / tap tooltip ────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function () {
   const tip = document.createElement('div');
   tip.id = 'year-tip';
@@ -405,11 +407,12 @@ document.addEventListener('DOMContentLoaded', function () {
         h += '<div style="color:#b91c1c;font-size:0.82em;font-weight:bold;margin-bottom:0.15em">❌ CANCELLED</div>';
         h += '<div style="opacity:0.55">';
       }
-      if (ev.timeStr)  h += '<div class="tip-time">'    + esc(ev.timeStr)    + '</div>';
-      if (ev.rawType)  h += '<div class="tip-type">'    + esc(ev.rawType)    + '</div>';
-      if (ev.speaker)  h += '<div class="tip-field">🎤 ' + esc(ev.speaker)  + '</div>';
-      if (ev.topic)    h += '<div class="tip-field">📋 ' + esc(ev.topic)    + '</div>';
-      if (ev.location) h += '<div class="tip-field">📍 ' + esc(ev.location) + '</div>';
+      if (ev.timeStr)        h += '<div class="tip-time">'    + esc(ev.timeStr)        + '</div>';
+      if (ev.rawType)        h += '<div class="tip-type">'    + esc(ev.rawType)        + '</div>';
+      if (ev.openingSpeaker) h += '<div class="tip-field">🎙️ ' + esc(ev.openingSpeaker) + '</div>';
+      if (ev.speaker)        h += '<div class="tip-field">🎤 ' + esc(ev.speaker)        + '</div>';
+      if (ev.topic)          h += '<div class="tip-field">📋 ' + esc(ev.topic)          + '</div>';
+      if (ev.location)       h += '<div class="tip-field">📍 ' + esc(ev.location)       + '</div>';
       if (ev.summary) {
         const s = ev.summary.length > 220 ? ev.summary.slice(0, 220) + '…' : ev.summary;
         h += '<div class="tip-summary">' + esc(s) + '</div>';
@@ -419,7 +422,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }).join('');
   }
 
-  function place(e) {
+  // Position near cursor (desktop hover)
+  function placeAtCursor(e) {
     const pad = 14;
     const tw = tip.offsetWidth, th = tip.offsetHeight;
     const vw = window.innerWidth,  vh = window.innerHeight;
@@ -431,24 +435,67 @@ document.addEventListener('DOMContentLoaded', function () {
       : Math.max(4, e.clientY - pad - th) + 'px';
   }
 
-  let cur = null;
+  // Position below (or above) a cell element (mobile tap)
+  function placeNearEl(el) {
+    const r   = el.getBoundingClientRect();
+    const tw  = tip.offsetWidth, th = tip.offsetHeight;
+    const vw  = window.innerWidth, vh = window.innerHeight;
+    const pad = 8;
+    let top  = r.bottom + pad;
+    if (top + th > vh - 4) top = Math.max(4, r.top - th - pad);
+    let left = r.left + r.width / 2 - tw / 2;
+    left = Math.max(4, Math.min(vw - tw - 4, left));
+    tip.style.top  = top  + 'px';
+    tip.style.left = left + 'px';
+  }
+
+  function showForCell(td) {
+    const info = window._yearTipData && window._yearTipData[td.dataset.date];
+    if (!info || !info.details || !info.details.length) return false;
+    tip.innerHTML = tipHtml(info.details);
+    tip.style.display = 'block';
+    return true;
+  }
+
+  // pinned = cell locked open by tap/click; hover is suppressed while pinned
+  let cur = null, pinned = null;
+
+  // ── Desktop hover ────────────────────────────────────────────
   document.addEventListener('mouseover', function (e) {
+    if (pinned) return;
     const td = e.target.closest && e.target.closest('td[data-date]');
     if (!td || td === cur) return;
     cur = td;
-    const info = window._yearTipData && window._yearTipData[td.dataset.date];
-    if (!info || !info.details || !info.details.length) { tip.style.display = 'none'; return; }
-    tip.innerHTML = tipHtml(info.details);
-    tip.style.display = 'block';
-    place(e);
+    if (showForCell(td)) placeAtCursor(e);
+    else tip.style.display = 'none';
   });
 
   document.addEventListener('mousemove', function (e) {
-    if (tip.style.display !== 'none') place(e);
+    if (pinned || tip.style.display === 'none') return;
+    placeAtCursor(e);
   });
 
   document.addEventListener('mouseout', function (e) {
+    if (pinned) return;
     if (e.target === cur) { tip.style.display = 'none'; cur = null; }
+  });
+
+  // ── Tap / click — works on both mobile and desktop ───────────
+  document.addEventListener('click', function (e) {
+    const td = e.target.closest && e.target.closest('td[data-date]');
+    if (td) {
+      if (td === pinned) {
+        // Second tap on same cell → dismiss
+        tip.style.display = 'none';
+        pinned = null;
+      } else {
+        if (showForCell(td)) { pinned = td; cur = null; placeNearEl(td); }
+      }
+      e.stopPropagation();
+    } else if (pinned) {
+      tip.style.display = 'none';
+      pinned = null;
+    }
   });
 });
 </script>
