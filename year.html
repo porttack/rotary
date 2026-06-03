@@ -180,15 +180,22 @@ function parseCSV(text) {
 function fv(row, idx) { return (row[idx] || '').trim(); }
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-// Parse "H:MM AM/PM" → hour 0-23, or null if unparseable
+// Parse time string → hour 0-23, or null if unparseable.
+// Handles "H:MM AM/PM", "H:MM:SS AM/PM" (Google Sheets may include seconds),
+// and bare 24-hour "H:MM" / "H:MM:SS".
 function timeHour(raw) {
-  const m = (raw || '').match(/^(\d{1,2}):\d{2}\s*(AM|PM)$/i);
-  if (!m) return null;
-  let h = parseInt(m[1]);
-  const ampm = m[2].toUpperCase();
-  if (ampm === 'PM' && h !== 12) h += 12;
-  if (ampm === 'AM' && h === 12) h = 0;
-  return h;
+  const s = (raw || '').trim();
+  const m12 = s.match(/^(\d{1,2}):\d{2}(?::\d{2})?\s*(AM|PM)$/i);
+  if (m12) {
+    let h = parseInt(m12[1]);
+    const ampm = m12[2].toUpperCase();
+    if (ampm === 'PM' && h !== 12) h += 12;
+    if (ampm === 'AM' && h === 12) h = 0;
+    return h;
+  }
+  const m24 = s.match(/^(\d{1,2}):\d{2}(?::\d{2})?$/);
+  if (m24) return parseInt(m24[1]);
+  return null;
 }
 
 // Returns inline border CSS for a cell based on time-of-day
@@ -230,11 +237,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // For each date, produce up to 2 distinct active types (sorted by priority),
       // or 'cancelled' if all events on that day are cancelled.
+      // Cancelled events are always included in details for the tooltip.
       const dayInfo = {};
       Object.entries(evsByDate).forEach(([iso, evs]) => {
-        const active = evs.filter(e => !e.cancelled);
+        const active    = evs.filter(e => !e.cancelled);
+        const cancelled = evs.filter(e =>  e.cancelled);
+
+        function makeDet(e, isCancelled) {
+          return {
+            timeStr:     e.timeStr,
+            rawType:     e.rawType,
+            speaker:     e.mainSpeaker,
+            topic:       e.mainTopic,
+            location:    e.location,
+            summary:     e.summary,
+            isCancelled,
+          };
+        }
+        function byTime(arr) {
+          return [...arr].sort((a, b) => (a.hour ?? 99) - (b.hour ?? 99));
+        }
+
         if (active.length === 0) {
-          dayInfo[iso] = { types: [], allCancelled: true };
+          dayInfo[iso] = {
+            types: [], allCancelled: true,
+            details: byTime(cancelled).map(e => makeDet(e, true)),
+          };
           return;
         }
         const seen = new Set();
@@ -252,16 +280,11 @@ document.addEventListener('DOMContentLoaded', () => {
           const hasPM = hours.some(h => h >= 12);
           timeOfDay = (hasAM && hasPM) ? 'both' : hasAM ? 'am' : 'pm';
         }
-        const details = [...active]
-          .sort((a, b) => (a.hour ?? 99) - (b.hour ?? 99))
-          .map(e => ({
-            timeStr:     e.timeStr,
-            rawType:     e.rawType,
-            speaker:     e.mainSpeaker,
-            topic:       e.mainTopic,
-            location:    e.location,
-            summary:     e.summary,
-          }));
+        // Active events first (time-sorted), cancelled appended at end
+        const details = [
+          ...byTime(active).map(e => makeDet(e, false)),
+          ...byTime(cancelled).map(e => makeDet(e, true)),
+        ];
         dayInfo[iso] = { types, allCancelled: false, timeOfDay, details };
       });
 
@@ -298,7 +321,7 @@ document.addEventListener('DOMContentLoaded', () => {
               if (!info) {
                 html += `<td>${dayNum}</td>`;
               } else if (info.allCancelled) {
-                html += `<td class="ev-cancelled">${dayNum}</td>`;
+                html += `<td class="ev-cancelled" data-date="${key}">${dayNum}</td>`;
               } else if (info.types.length === 1) {
                 const bg  = TYPE_COLOR[info.types[0]] || '#f3f4f6';
                 const bdr = borderStyle(info.timeOfDay);
@@ -354,6 +377,10 @@ document.addEventListener('DOMContentLoaded', function () {
   function tipHtml(details) {
     return details.map(function (ev, i) {
       let h = (i > 0 ? '<hr>' : '');
+      if (ev.isCancelled) {
+        h += '<div style="color:#b91c1c;font-size:0.82em;font-weight:bold;margin-bottom:0.15em">❌ CANCELLED</div>';
+        h += '<div style="opacity:0.55">';
+      }
       if (ev.timeStr)  h += '<div class="tip-time">'    + esc(ev.timeStr)    + '</div>';
       if (ev.rawType)  h += '<div class="tip-type">'    + esc(ev.rawType)    + '</div>';
       if (ev.speaker)  h += '<div class="tip-field">🎤 ' + esc(ev.speaker)  + '</div>';
@@ -363,6 +390,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const s = ev.summary.length > 220 ? ev.summary.slice(0, 220) + '…' : ev.summary;
         h += '<div class="tip-summary">' + esc(s) + '</div>';
       }
+      if (ev.isCancelled) h += '</div>';
       return h;
     }).join('');
   }
