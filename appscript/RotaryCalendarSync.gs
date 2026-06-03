@@ -1160,8 +1160,8 @@ function generateNewsletter() {
 
   const GRID_BG = {
     "meeting":        "#c7d7fb",
-    "assembly":       "#dbeafe",
-    "board meeting":  "#e9d5ff",
+    "assembly":       "#a5f3fc",
+    "board meeting":  "#93c5fd",
     "social":         "#bbf7d0",
     "service":        "#fed7aa",
     "fundraiser":     "#e9d5ff",
