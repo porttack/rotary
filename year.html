@@ -85,6 +85,7 @@ permalink: /year/
     <span class="leg-item"><span class="leg-swatch" style="background:#a5f3fc"></span>Assembly</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#fde68a"></span>Social / Fellowship</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#fed7aa"></span>Service Project</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#fdba74"></span>Grey Bears</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#e9d5ff"></span>Fundraiser</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#86efac"></span>District Event</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#fce7f3; border:1px solid #ccc"></span>Committee</span>
@@ -122,6 +123,7 @@ function canonicalType(raw) {
       t.includes('convention') || t.includes('institute'))     return 'district';
   if (t.includes('fundrais') || t.includes('fund-rais') ||
       t.includes('gala') || t.includes('auction'))             return 'fundraiser';
+  if (t.includes('grey bears') || t.includes('gray bears'))    return 'greybears';
   if (t.includes('service') || t.includes('project') ||
       t.includes('volunteer'))                                  return 'service';
   if (t.includes('social') || t.includes('fellowship') ||
@@ -141,6 +143,7 @@ const TYPE_COLOR = {
   board:      '#93c5fd',
   social:     '#fde68a',
   service:    '#fed7aa',
+  greybears:  '#fdba74',
   fundraiser: '#e9d5ff',
   district:   '#86efac',
   committee:  '#fce7f3',
@@ -152,6 +155,7 @@ const TYPE_PRIORITY = {
   district:   0,
   fundraiser: 1,
   service:    2,
+  greybears:  3,
   social:     3,
   board:      4,
   committee:  5,

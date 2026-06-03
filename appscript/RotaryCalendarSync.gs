@@ -57,7 +57,7 @@ const DUTY_COLS = {
 };
 
 // Event type options
-const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service", "Fundraiser", "District Event", "Committee", "Other"];
+const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service", "Grey Bears", "Fundraiser", "District Event", "Committee", "Other"];
 
 // Text color and bold per event type (row background stays white/grey for cancelled)
 // Each entry: { color, bold }
@@ -67,6 +67,7 @@ const TYPE_STYLES = {
   "board meeting":  { color: "#7e22ce", bold: true  },  // purple
   "social":         { color: "#166534", bold: false },  // green
   "service":        { color: "#c2410c", bold: false },  // orange
+  "grey bears":     { color: "#92400e", bold: false },  // dark amber
   "fundraiser":     { color: "#7c3aed", bold: true  },  // violet
   "district event": { color: "#14532d", bold: true  },  // dark green
   "committee":      { color: "#000000", bold: false },  // black
@@ -596,6 +597,7 @@ function guessType(title) {
   if (t.includes("district"))  return "District Event";
   if (t.includes("fundrais"))  return "Fundraiser";
   if (t.includes("social"))    return "Social";
+  if (t.includes("grey bears") || t.includes("gray bears")) return "Grey Bears";
   if (t.includes("service"))   return "Service";
   if (t.includes("assembly"))  return "Assembly";
   if (t.includes("committee")) return "Committee";
@@ -1164,6 +1166,7 @@ function generateNewsletter() {
     "board meeting":  "#93c5fd",
     "social":         "#bbf7d0",
     "service":        "#fed7aa",
+    "grey bears":     "#fdba74",
     "fundraiser":     "#e9d5ff",
     "district event": "#86efac",
     "committee":      "#fce7f3",
@@ -1175,6 +1178,7 @@ function generateNewsletter() {
     "board meeting":  "Brd",
     "social":         "Social",
     "service":        "Service",
+    "grey bears":     "GryBrs",
     "fundraiser":     "Fund",
     "district event": "Dist",
     "committee":      "Com",
