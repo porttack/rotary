@@ -57,17 +57,20 @@ const DUTY_COLS = {
 };
 
 // Event type options
-const EVENT_TYPES = ["Meeting", "Board Meeting", "Social", "Service", "Committee", "Other"];
+const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service", "Fundraiser", "District Event", "Committee", "Other"];
 
 // Text color and bold per event type (row background stays white/grey for cancelled)
 // Each entry: { color, bold }
 const TYPE_STYLES = {
-  "meeting":       { color: "#1a56db", bold: true  },  // bold blue
-  "board meeting": { color: "#7e22ce", bold: true  },  // purple
-  "social":        { color: "#166534", bold: false },  // green
-  "service":       { color: "#c2410c", bold: false },  // orange
-  "committee":     { color: "#000000", bold: false },  // black
-  "other":         { color: "#000000", bold: false },  // black
+  "meeting":        { color: "#1a56db", bold: true  },  // bold blue
+  "assembly":       { color: "#1d4ed8", bold: false },  // blue
+  "board meeting":  { color: "#7e22ce", bold: true  },  // purple
+  "social":         { color: "#166534", bold: false },  // green
+  "service":        { color: "#c2410c", bold: false },  // orange
+  "fundraiser":     { color: "#7c3aed", bold: true  },  // violet
+  "district event": { color: "#0369a1", bold: true  },  // cyan-blue
+  "committee":      { color: "#000000", bold: false },  // black
+  "other":          { color: "#000000", bold: false },  // black
 };
 const DEFAULT_STYLE = { color: "#000000", bold: false };
 
@@ -590,7 +593,11 @@ function buildEventOptions(row) {
 function guessType(title) {
   const t = title.toLowerCase().replace(/^cancelled\s*-\s*/i, "");
   if (t.includes("board"))     return "Board Meeting";
+  if (t.includes("district"))  return "District Event";
+  if (t.includes("fundrais"))  return "Fundraiser";
   if (t.includes("social"))    return "Social";
+  if (t.includes("service"))   return "Service";
+  if (t.includes("assembly"))  return "Assembly";
   if (t.includes("committee")) return "Committee";
   if (t.includes("meeting"))   return "Meeting";
   return "Other";
@@ -1152,20 +1159,26 @@ function generateNewsletter() {
   });
 
   const GRID_BG = {
-    "meeting":       "#c7d7fb",
-    "board meeting": "#e9d5ff",
-    "social":        "#bbf7d0",
-    "service":       "#fed7aa",
-    "committee":     "#f3f4f6",
-    "other":         "#f3f4f6"
+    "meeting":        "#c7d7fb",
+    "assembly":       "#dbeafe",
+    "board meeting":  "#e9d5ff",
+    "social":         "#bbf7d0",
+    "service":        "#fed7aa",
+    "fundraiser":     "#e9d5ff",
+    "district event": "#bae6fd",
+    "committee":      "#fce7f3",
+    "other":          "#f3f4f6"
   };
   const TYPE_ABBREV = {
-    "meeting":       "Mtg",
-    "board meeting": "Brd Mtg",
-    "social":        "Social",
-    "service":       "Service",
-    "committee":     "Com",
-    "other":         "Oth"
+    "meeting":        "Mtg",
+    "assembly":       "Asm",
+    "board meeting":  "Brd",
+    "social":         "Social",
+    "service":        "Service",
+    "fundraiser":     "Fund",
+    "district event": "Dist",
+    "committee":      "Com",
+    "other":          "Oth"
   };
 
   for (let m = 0; m < 4; m++) {
