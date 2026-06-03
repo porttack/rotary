@@ -52,6 +52,9 @@ permalink: /year/
   .month-cal td {
     text-align: center; padding: 2px 1px; line-height: 1.55;
     border-radius: 2px;
+    box-sizing: border-box;
+    border-top: 2px solid transparent;
+    border-bottom: 2px solid transparent;
   }
   .month-cal td:empty { background: none; }
   .month-cal td.ev-cancelled { background: #e5e7eb; color: #aaa; }
@@ -71,6 +74,8 @@ permalink: /year/
     <span class="leg-item"><span class="leg-swatch" style="background:#f3f4f6; border:1px solid #ccc"></span>Other</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#e5e7eb"></span>Cancelled</span>
     <span class="leg-item"><span class="leg-swatch-split"></span>Two events</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#e2e8f0; border:none; border-top:2px solid rgba(0,0,0,0.35); box-sizing:border-box"></span>Morning</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#e2e8f0; border:none; border-bottom:2px solid rgba(0,0,0,0.35); box-sizing:border-box"></span>Evening</span>
   </div>
 
   <!-- June special row: visible only when current month is June -->
@@ -89,7 +94,7 @@ permalink: /year/
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
 
-const COL = { eventType: 1, cancelled: 2, date: 4 };
+const COL = { eventType: 1, cancelled: 2, date: 4, time: 5 };
 
 // Map raw event type string → canonical key
 function canonicalType(raw) {
@@ -157,6 +162,26 @@ function parseCSV(text) {
 function fv(row, idx) { return (row[idx] || '').trim(); }
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+// Parse "H:MM AM/PM" → hour 0-23, or null if unparseable
+function timeHour(raw) {
+  const m = (raw || '').match(/^(\d{1,2}):\d{2}\s*(AM|PM)$/i);
+  if (!m) return null;
+  let h = parseInt(m[1]);
+  const ampm = m[2].toUpperCase();
+  if (ampm === 'PM' && h !== 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return h;
+}
+
+// Returns inline border CSS for a cell based on time-of-day
+function borderStyle(tod) {
+  const c = 'rgba(0,0,0,0.3)';
+  if (tod === 'am')   return `border-top:2px solid ${c};`;
+  if (tod === 'pm')   return `border-bottom:2px solid ${c};`;
+  if (tod === 'both') return `border-top:2px solid ${c};border-bottom:2px solid ${c};`;
+  return '';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   fetch(CSV_URL)
     .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
@@ -170,8 +195,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
         const type      = canonicalType(fv(row, COL.eventType));
         const cancelled = fv(row, COL.cancelled).toUpperCase() === 'TRUE';
+        const hour      = timeHour(fv(row, COL.time));
         if (!evsByDate[iso]) evsByDate[iso] = [];
-        evsByDate[iso].push({ type, cancelled });
+        evsByDate[iso].push({ type, cancelled, hour });
       });
 
       // For each date, produce up to 2 distinct active types (sorted by priority),
@@ -191,7 +217,14 @@ document.addEventListener('DOMContentLoaded', () => {
           if (!seen.has(e.type)) { seen.add(e.type); types.push(e.type); }
           if (types.length === 2) break;
         }
-        dayInfo[iso] = { types, allCancelled: false };
+        const hours = active.map(e => e.hour).filter(h => h !== null);
+        let timeOfDay = null;
+        if (hours.length) {
+          const hasAM = hours.some(h => h < 12);
+          const hasPM = hours.some(h => h >= 12);
+          timeOfDay = (hasAM && hasPM) ? 'both' : hasAM ? 'am' : 'pm';
+        }
+        dayInfo[iso] = { types, allCancelled: false, timeOfDay };
       });
 
       if (!Object.keys(dayInfo).length) {
@@ -227,14 +260,16 @@ document.addEventListener('DOMContentLoaded', () => {
               } else if (info.allCancelled) {
                 html += `<td class="ev-cancelled">${dayNum}</td>`;
               } else if (info.types.length === 1) {
-                const bg = TYPE_COLOR[info.types[0]] || '#f3f4f6';
-                html += `<td style="background:${bg}">${dayNum}</td>`;
+                const bg  = TYPE_COLOR[info.types[0]] || '#f3f4f6';
+                const bdr = borderStyle(info.timeOfDay);
+                html += `<td style="background:${bg};${bdr}">${dayNum}</td>`;
               } else {
                 // Two distinct event types on the same day — diagonal split
-                const c1 = TYPE_COLOR[info.types[0]] || '#f3f4f6';
-                const c2 = TYPE_COLOR[info.types[1]] || '#f3f4f6';
+                const c1  = TYPE_COLOR[info.types[0]] || '#f3f4f6';
+                const c2  = TYPE_COLOR[info.types[1]] || '#f3f4f6';
                 const grad = `linear-gradient(135deg,${c1} 50%,${c2} 50%)`;
-                html += `<td style="background:${grad}" title="${info.types.join(' + ')}">${dayNum}</td>`;
+                const bdr = borderStyle(info.timeOfDay);
+                html += `<td style="background:${grad};${bdr}" title="${info.types.join(' + ')}">${dayNum}</td>`;
               }
             }
           }
