@@ -71,6 +71,7 @@ permalink: /year/
     <span class="leg-item"><span class="leg-swatch" style="background:#fed7aa"></span>Service Project</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#e9d5ff"></span>Fundraiser</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#bae6fd"></span>District Event</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#fce7f3; border:1px solid #ccc"></span>Committee</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#f3f4f6; border:1px solid #ccc"></span>Other</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#e5e7eb"></span>Cancelled</span>
     <span class="leg-item"><span class="leg-swatch-split"></span>Two events</span>
@@ -109,6 +110,7 @@ function canonicalType(raw) {
   if (t.includes('social') || t.includes('fellowship') ||
       t.includes('party') || t.includes('picnic') ||
       t.includes('celebration') || t.includes('banquet'))      return 'social';
+  if (t.includes('committee'))                                  return 'committee';
   if (t.includes('assembly'))                                   return 'assembly';
   if (t.includes('meeting') || t.includes('breakfast') ||
       t.includes('lunch') || t.includes('dinner') ||
@@ -124,6 +126,7 @@ const TYPE_COLOR = {
   service:    '#fed7aa',
   fundraiser: '#e9d5ff',
   district:   '#bae6fd',
+  committee:  '#fce7f3',
   other:      '#f3f4f6',
 };
 
@@ -134,9 +137,10 @@ const TYPE_PRIORITY = {
   service:    2,
   social:     3,
   board:      4,
-  meeting:    5,
-  assembly:   6,
-  other:      7,
+  committee:  5,
+  meeting:    6,
+  assembly:   7,
+  other:      8,
 };
 
 function parseCSV(text) {
