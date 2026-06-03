@@ -52,9 +52,6 @@ permalink: /year/
   .month-cal td {
     text-align: center; padding: 2px 1px; line-height: 1.55;
     border-radius: 2px;
-    box-sizing: border-box;
-    border-top: 2px solid transparent;
-    border-bottom: 2px solid transparent;
   }
   .month-cal td:empty { background: none; }
   .month-cal td.ev-cancelled { background: #e5e7eb; color: #aaa; }
@@ -89,8 +86,8 @@ permalink: /year/
     <span class="leg-item"><span class="leg-swatch" style="background:#f3f4f6; border:1px solid #ccc"></span>Other</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#e5e7eb"></span>Cancelled</span>
     <span class="leg-item"><span class="leg-swatch-split"></span>Two events</span>
-    <span class="leg-item"><span class="leg-swatch" style="background:#e2e8f0; border:none; border-top:2px solid rgba(0,0,0,0.35); box-sizing:border-box"></span>Morning</span>
-    <span class="leg-item"><span class="leg-swatch" style="background:#e2e8f0; border:none; border-bottom:2px solid rgba(0,0,0,0.35); box-sizing:border-box"></span>Evening</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#e2e8f0; box-shadow:inset 0 2px 0 rgba(0,0,0,0.35)"></span>Morning</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#e2e8f0; box-shadow:inset 0 -2px 0 rgba(0,0,0,0.35)"></span>Evening</span>
   </div>
 
   <!-- June special row: visible only when current month is June -->
@@ -198,12 +195,17 @@ function timeHour(raw) {
   return null;
 }
 
-// Returns inline border CSS for a cell based on time-of-day
+// Returns inline box-shadow CSS for a cell based on time-of-day.
+// Uses inset box-shadow instead of border so border-collapse: collapse
+// can't suppress it (collapsed borders obey document-order priority,
+// so the cell above always wins on a tie — box-shadow bypasses that entirely).
 function borderStyle(tod) {
   const c = 'rgba(0,0,0,0.3)';
-  if (tod === 'am')   return `border-top:2px solid ${c};`;
-  if (tod === 'pm')   return `border-bottom:2px solid ${c};`;
-  if (tod === 'both') return `border-top:2px solid ${c};border-bottom:2px solid ${c};`;
+  const top = `inset 0 2px 0 ${c}`;
+  const bot = `inset 0 -2px 0 ${c}`;
+  if (tod === 'am')   return `box-shadow:${top};`;
+  if (tod === 'pm')   return `box-shadow:${bot};`;
+  if (tod === 'both') return `box-shadow:${top},${bot};`;
   return '';
 }
 
