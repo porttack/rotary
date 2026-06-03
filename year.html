@@ -1,0 +1,273 @@
+---
+layout: page
+title: Year
+permalink: /year/
+---
+
+<style>
+  #year-wrap { max-width: 860px; margin: 0 auto; }
+
+  .year-legend {
+    display: flex; flex-wrap: wrap; gap: 0.4em 1.2em;
+    margin-bottom: 1.2em;
+    font-size: 0.78em; font-family: Arial, sans-serif; color: #444;
+  }
+  .leg-item { display: flex; align-items: center; gap: 0.35em; }
+  .leg-swatch {
+    width: 11px; height: 11px; border-radius: 2px;
+    display: inline-block; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.1);
+  }
+  .leg-swatch-split {
+    width: 11px; height: 11px; border-radius: 2px;
+    display: inline-block; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.1);
+    background: linear-gradient(135deg, #c7d8f7 50%, #d1fae5 50%);
+  }
+
+  .year-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 2.8em;
+  }
+  @media (max-width: 560px) {
+    .year-columns { grid-template-columns: 1fr; }
+  }
+  .year-col { display: flex; flex-direction: column; gap: 1em; }
+
+  .month-title {
+    font-family: Arial, sans-serif; font-weight: bold;
+    font-size: 0.82em; color: #17458F;
+    margin-bottom: 0.2em; letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .month-cal {
+    width: 100%; border-collapse: collapse;
+    font-family: Arial, sans-serif; font-size: 0.72em;
+    table-layout: fixed;
+  }
+  .month-cal th {
+    text-align: center; padding: 1px 0;
+    color: #888; font-weight: bold; font-size: 0.82em;
+  }
+  .month-cal td {
+    text-align: center; padding: 2px 1px; line-height: 1.55;
+    border-radius: 2px;
+  }
+  .month-cal td:empty { background: none; }
+  .month-cal td.ev-cancelled { background: #e5e7eb; color: #aaa; }
+</style>
+
+<div id="year-loading" style="text-align:center;padding:2em;color:#666;">Loading&hellip;</div>
+<div id="year-wrap" style="display:none">
+
+  <div class="year-legend">
+    <span class="leg-item"><span class="leg-swatch" style="background:#c7d8f7"></span>Meeting</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#dbeafe"></span>Assembly</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#d1fae5"></span>Board Meeting</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#fde68a"></span>Social / Fellowship</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#fed7aa"></span>Service Project</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#e9d5ff"></span>Fundraiser</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#bae6fd"></span>District Event</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#f3f4f6; border:1px solid #ccc"></span>Other</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#e5e7eb"></span>Cancelled</span>
+    <span class="leg-item"><span class="leg-swatch-split"></span>Two events</span>
+  </div>
+
+  <!-- June special row: visible only when current month is June -->
+  <div class="year-columns" id="june-row" style="display:none">
+    <div class="year-col" id="col-june"></div>
+    <div class="year-col"></div>
+  </div>
+  <hr id="june-divider" style="display:none; border:none; border-top:1px solid #e0e0e0; margin:0.2em 0 1em;">
+
+  <div class="year-columns">
+    <div class="year-col" id="col-left"></div>
+    <div class="year-col" id="col-right"></div>
+  </div>
+</div>
+
+<script>
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
+
+const COL = { eventType: 1, cancelled: 2, date: 4 };
+
+// Map raw event type string → canonical key
+function canonicalType(raw) {
+  const t = (raw || '').toLowerCase().trim();
+  if (t.includes('board'))                                      return 'board';
+  if (t.includes('district') || t.includes('conference') ||
+      t.includes('convention') || t.includes('institute'))     return 'district';
+  if (t.includes('fundrais') || t.includes('fund-rais') ||
+      t.includes('gala') || t.includes('auction'))             return 'fundraiser';
+  if (t.includes('service') || t.includes('project') ||
+      t.includes('volunteer'))                                  return 'service';
+  if (t.includes('social') || t.includes('fellowship') ||
+      t.includes('party') || t.includes('picnic') ||
+      t.includes('celebration') || t.includes('banquet'))      return 'social';
+  if (t.includes('assembly'))                                   return 'assembly';
+  if (t.includes('meeting') || t.includes('breakfast') ||
+      t.includes('lunch') || t.includes('dinner') ||
+      t.length === 0)                                           return 'meeting';
+  return 'other';
+}
+
+const TYPE_COLOR = {
+  meeting:    '#c7d8f7',
+  assembly:   '#dbeafe',
+  board:      '#d1fae5',
+  social:     '#fde68a',
+  service:    '#fed7aa',
+  fundraiser: '#e9d5ff',
+  district:   '#bae6fd',
+  other:      '#f3f4f6',
+};
+
+// Lower number = shown first (top-left triangle on split days)
+const TYPE_PRIORITY = {
+  district:   0,
+  fundraiser: 1,
+  service:    2,
+  social:     3,
+  board:      4,
+  meeting:    5,
+  assembly:   6,
+  other:      7,
+};
+
+function parseCSV(text) {
+  const rows = [];
+  let cur = [], field = '', inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuote) {
+      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') { inQuote = false; }
+      else { field += ch; }
+    } else {
+      if (ch === '"') { inQuote = true; }
+      else if (ch === ',') { cur.push(field); field = ''; }
+      else if (ch === '\n') { cur.push(field); rows.push(cur); cur = []; field = ''; }
+      else if (ch !== '\r') { field += ch; }
+    }
+  }
+  if (field || cur.length) { cur.push(field); rows.push(cur); }
+  return rows;
+}
+
+function fv(row, idx) { return (row[idx] || '').trim(); }
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  fetch(CSV_URL)
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then(text => {
+      const rows = parseCSV(text).slice(1).filter(r => r.length > COL.date);
+
+      // Collect events by date
+      const evsByDate = {};
+      rows.forEach(row => {
+        const iso = fv(row, COL.date);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+        const type      = canonicalType(fv(row, COL.eventType));
+        const cancelled = fv(row, COL.cancelled).toUpperCase() === 'TRUE';
+        if (!evsByDate[iso]) evsByDate[iso] = [];
+        evsByDate[iso].push({ type, cancelled });
+      });
+
+      // For each date, produce up to 2 distinct active types (sorted by priority),
+      // or 'cancelled' if all events on that day are cancelled.
+      const dayInfo = {};
+      Object.entries(evsByDate).forEach(([iso, evs]) => {
+        const active = evs.filter(e => !e.cancelled);
+        if (active.length === 0) {
+          dayInfo[iso] = { types: [], allCancelled: true };
+          return;
+        }
+        const seen = new Set();
+        const sorted = active
+          .sort((a, b) => (TYPE_PRIORITY[a.type] ?? 99) - (TYPE_PRIORITY[b.type] ?? 99));
+        const types = [];
+        for (const e of sorted) {
+          if (!seen.has(e.type)) { seen.add(e.type); types.push(e.type); }
+          if (types.length === 2) break;
+        }
+        dayInfo[iso] = { types, allCancelled: false };
+      });
+
+      if (!Object.keys(dayInfo).length) {
+        document.getElementById('year-loading').textContent = 'No events found.';
+        return;
+      }
+
+      const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+      function buildMonthHtml(ms) {
+        const yr       = ms.getFullYear();
+        const moIdx    = ms.getMonth();
+        const daysInMo = new Date(yr, moIdx + 1, 0).getDate();
+        const moLabel  = ms.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+        let html = `<div class="month-block">
+<div class="month-title">${esc(moLabel)}</div>
+<table class="month-cal" role="presentation">
+<thead><tr>${DOW.map(d => `<th>${d}</th>`).join('')}</tr></thead>
+<tbody>`;
+
+        let dayNum = 1 - ms.getDay();
+        while (dayNum <= daysInMo) {
+          html += '<tr>';
+          for (let dow = 0; dow < 7; dow++, dayNum++) {
+            if (dayNum < 1 || dayNum > daysInMo) {
+              html += '<td></td>';
+            } else {
+              const key  = `${yr}-${String(moIdx + 1).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
+              const info = dayInfo[key];
+              if (!info) {
+                html += `<td>${dayNum}</td>`;
+              } else if (info.allCancelled) {
+                html += `<td class="ev-cancelled">${dayNum}</td>`;
+              } else if (info.types.length === 1) {
+                const bg = TYPE_COLOR[info.types[0]] || '#f3f4f6';
+                html += `<td style="background:${bg}">${dayNum}</td>`;
+              } else {
+                // Two distinct event types on the same day — diagonal split
+                const c1 = TYPE_COLOR[info.types[0]] || '#f3f4f6';
+                const c2 = TYPE_COLOR[info.types[1]] || '#f3f4f6';
+                const grad = `linear-gradient(135deg,${c1} 50%,${c2} 50%)`;
+                html += `<td style="background:${grad}" title="${info.types.join(' + ')}">${dayNum}</td>`;
+              }
+            }
+          }
+          html += '</tr>';
+        }
+        return html + '</tbody></table></div>';
+      }
+
+      // Rotary year runs July–June; same logic as school year
+      const now       = new Date();
+      const startYear = now.getMonth() <= 4 ? now.getFullYear() - 1 : now.getFullYear();
+
+      // If it's currently June, show it above the main grid as a transition month
+      if (now.getMonth() === 5) {
+        document.getElementById('col-june').insertAdjacentHTML('beforeend',
+          buildMonthHtml(new Date(now.getFullYear(), 5, 1)));
+        document.getElementById('june-row').style.display     = '';
+        document.getElementById('june-divider').style.display = '';
+      }
+
+      const leftCol  = document.getElementById('col-left');
+      const rightCol = document.getElementById('col-right');
+      for (let mo = 0; mo < 12; mo++) {
+        const ms = new Date(startYear, 6 + mo, 1); // July = month 6
+        (mo < 6 ? leftCol : rightCol).insertAdjacentHTML('beforeend', buildMonthHtml(ms));
+      }
+
+      document.getElementById('year-loading').style.display = 'none';
+      document.getElementById('year-wrap').style.display    = 'block';
+    })
+    .catch(() => {
+      document.getElementById('year-loading').textContent =
+        'Could not load calendar data.';
+    });
+});
+</script>

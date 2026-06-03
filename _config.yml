@@ -17,6 +17,7 @@ minima:
 # Navigation — order controls header menu
 header_pages:
   - calendar.html
+  - year.html
   - newsletter.html
   - past.html
   - duty.md
