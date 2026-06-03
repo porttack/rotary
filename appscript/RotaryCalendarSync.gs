@@ -68,7 +68,7 @@ const TYPE_STYLES = {
   "social":         { color: "#166534", bold: false },  // green
   "service":        { color: "#c2410c", bold: false },  // orange
   "fundraiser":     { color: "#7c3aed", bold: true  },  // violet
-  "district event": { color: "#0369a1", bold: true  },  // cyan-blue
+  "district event": { color: "#14532d", bold: true  },  // dark green
   "committee":      { color: "#000000", bold: false },  // black
   "other":          { color: "#000000", bold: false },  // black
 };
@@ -1165,7 +1165,7 @@ function generateNewsletter() {
     "social":         "#bbf7d0",
     "service":        "#fed7aa",
     "fundraiser":     "#e9d5ff",
-    "district event": "#bae6fd",
+    "district event": "#86efac",
     "committee":      "#fce7f3",
     "other":          "#f3f4f6"
   };

@@ -58,6 +58,20 @@ permalink: /year/
   }
   .month-cal td:empty { background: none; }
   .month-cal td.ev-cancelled { background: #e5e7eb; color: #aaa; }
+
+  #year-tip {
+    display: none; position: fixed; z-index: 9999;
+    background: #fff; border: 1px solid #c5cae9; border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+    padding: 0.55em 0.85em; max-width: 260px; min-width: 130px;
+    font-family: Arial, sans-serif; font-size: 0.8em; line-height: 1.5;
+    pointer-events: none; color: #222;
+  }
+  #year-tip .tip-time    { font-weight: bold; color: #17458F; }
+  #year-tip .tip-type    { font-style: italic; color: #444; }
+  #year-tip .tip-field   { margin-top: 0.15em; }
+  #year-tip .tip-summary { color: #555; margin-top: 0.3em; font-size: 0.95em; }
+  #year-tip hr           { border: none; border-top: 1px solid #e0e0e0; margin: 0.4em 0; }
 </style>
 
 <div id="year-loading" style="text-align:center;padding:2em;color:#666;">Loading&hellip;</div>
@@ -70,7 +84,7 @@ permalink: /year/
     <span class="leg-item"><span class="leg-swatch" style="background:#fde68a"></span>Social / Fellowship</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#fed7aa"></span>Service Project</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#e9d5ff"></span>Fundraiser</span>
-    <span class="leg-item"><span class="leg-swatch" style="background:#bae6fd"></span>District Event</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#86efac"></span>District Event</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#fce7f3; border:1px solid #ccc"></span>Committee</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#f3f4f6; border:1px solid #ccc"></span>Other</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#e5e7eb"></span>Cancelled</span>
@@ -95,7 +109,7 @@ permalink: /year/
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
 
-const COL = { eventType: 1, cancelled: 2, date: 4, time: 5 };
+const COL = { eventType: 1, cancelled: 2, date: 4, time: 5, location: 7, mainSpeaker: 11, mainTopic: 12, summary: 14 };
 
 // Map raw event type string → canonical key
 function canonicalType(raw) {
@@ -125,7 +139,7 @@ const TYPE_COLOR = {
   social:     '#fde68a',
   service:    '#fed7aa',
   fundraiser: '#e9d5ff',
-  district:   '#bae6fd',
+  district:   '#86efac',
   committee:  '#fce7f3',
   other:      '#f3f4f6',
 };
@@ -201,7 +215,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const cancelled = fv(row, COL.cancelled).toUpperCase() === 'TRUE';
         const hour      = timeHour(fv(row, COL.time));
         if (!evsByDate[iso]) evsByDate[iso] = [];
-        evsByDate[iso].push({ type, cancelled, hour });
+        evsByDate[iso].push({
+          type,
+          rawType:     fv(row, COL.eventType),
+          cancelled,
+          hour,
+          timeStr:     fv(row, COL.time),
+          location:    fv(row, COL.location),
+          mainSpeaker: fv(row, COL.mainSpeaker),
+          mainTopic:   fv(row, COL.mainTopic),
+          summary:     fv(row, COL.summary),
+        });
       });
 
       // For each date, produce up to 2 distinct active types (sorted by priority),
@@ -228,8 +252,20 @@ document.addEventListener('DOMContentLoaded', () => {
           const hasPM = hours.some(h => h >= 12);
           timeOfDay = (hasAM && hasPM) ? 'both' : hasAM ? 'am' : 'pm';
         }
-        dayInfo[iso] = { types, allCancelled: false, timeOfDay };
+        const details = [...active]
+          .sort((a, b) => (a.hour ?? 99) - (b.hour ?? 99))
+          .map(e => ({
+            timeStr:     e.timeStr,
+            rawType:     e.rawType,
+            speaker:     e.mainSpeaker,
+            topic:       e.mainTopic,
+            location:    e.location,
+            summary:     e.summary,
+          }));
+        dayInfo[iso] = { types, allCancelled: false, timeOfDay, details };
       });
+
+      window._yearTipData = dayInfo;
 
       if (!Object.keys(dayInfo).length) {
         document.getElementById('year-loading').textContent = 'No events found.';
@@ -266,14 +302,13 @@ document.addEventListener('DOMContentLoaded', () => {
               } else if (info.types.length === 1) {
                 const bg  = TYPE_COLOR[info.types[0]] || '#f3f4f6';
                 const bdr = borderStyle(info.timeOfDay);
-                html += `<td style="background:${bg};${bdr}">${dayNum}</td>`;
+                html += `<td data-date="${key}" style="background:${bg};${bdr}">${dayNum}</td>`;
               } else {
-                // Two distinct event types on the same day — diagonal split
                 const c1  = TYPE_COLOR[info.types[0]] || '#f3f4f6';
                 const c2  = TYPE_COLOR[info.types[1]] || '#f3f4f6';
                 const grad = `linear-gradient(135deg,${c1} 50%,${c2} 50%)`;
                 const bdr = borderStyle(info.timeOfDay);
-                html += `<td style="background:${grad};${bdr}" title="${info.types.join(' + ')}">${dayNum}</td>`;
+                html += `<td data-date="${key}" style="background:${grad};${bdr}">${dayNum}</td>`;
               }
             }
           }
@@ -308,5 +343,60 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('year-loading').textContent =
         'Could not load calendar data.';
     });
+});
+
+// ── Hover tooltip ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function () {
+  const tip = document.createElement('div');
+  tip.id = 'year-tip';
+  document.body.appendChild(tip);
+
+  function tipHtml(details) {
+    return details.map(function (ev, i) {
+      let h = (i > 0 ? '<hr>' : '');
+      if (ev.timeStr)  h += '<div class="tip-time">'    + esc(ev.timeStr)    + '</div>';
+      if (ev.rawType)  h += '<div class="tip-type">'    + esc(ev.rawType)    + '</div>';
+      if (ev.speaker)  h += '<div class="tip-field">🎤 ' + esc(ev.speaker)  + '</div>';
+      if (ev.topic)    h += '<div class="tip-field">📋 ' + esc(ev.topic)    + '</div>';
+      if (ev.location) h += '<div class="tip-field">📍 ' + esc(ev.location) + '</div>';
+      if (ev.summary) {
+        const s = ev.summary.length > 220 ? ev.summary.slice(0, 220) + '…' : ev.summary;
+        h += '<div class="tip-summary">' + esc(s) + '</div>';
+      }
+      return h;
+    }).join('');
+  }
+
+  function place(e) {
+    const pad = 14;
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    const vw = window.innerWidth,  vh = window.innerHeight;
+    tip.style.left = (e.clientX + pad + tw < vw)
+      ? (e.clientX + pad) + 'px'
+      : Math.max(4, e.clientX - pad - tw) + 'px';
+    tip.style.top  = (e.clientY + pad + th < vh)
+      ? (e.clientY + pad) + 'px'
+      : Math.max(4, e.clientY - pad - th) + 'px';
+  }
+
+  let cur = null;
+  document.addEventListener('mouseover', function (e) {
+    const td = e.target.closest && e.target.closest('td[data-date]');
+    if (!td || td === cur) return;
+    cur = td;
+    const info = window._yearTipData && window._yearTipData[td.dataset.date];
+    if (!info || !info.details || !info.details.length) { tip.style.display = 'none'; return; }
+    tip.innerHTML = tipHtml(info.details);
+    tip.style.display = 'block';
+    place(e);
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    if (tip.style.display !== 'none') place(e);
+  });
+
+  document.addEventListener('mouseout', function (e) {
+    if (e.target === cur) { tip.style.display = 'none'; cur = null; }
+  });
 });
 </script>
