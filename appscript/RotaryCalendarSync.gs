@@ -2291,7 +2291,7 @@ function getCalendarAssistantHtml() {
 '<div id="proposal"><h3>📋 Proposed changes — please review before applying</h3><div id="prop-list"></div><div class="pbtns"><button id="apply-btn" onclick="applyChanges()">✅ Apply changes</button><button id="discard-btn" onclick="discardChanges()">✗ Discard</button></div></div>\n' +
 '<div id="input-row"><textarea id="user-input" placeholder="e.g. Add board meeting every first Thursday at 7pm at Scopazzis, July through June…"></textarea><button id="send-btn" onclick="sendMessage()">➤</button></div>\n' +
 '<script>\n' +
-'var history = [], pending = null, busy = false;\n' +
+'var chatHistory = [], pending = null, busy = false;\n' +
 '\n' +
 'function addMsg(cls, text) {\n' +
 '  var c = document.getElementById("chat");\n' +
@@ -2337,14 +2337,14 @@ function getCalendarAssistantHtml() {
 '  inp.value = ""; busy = true;\n' +
 '  document.getElementById("send-btn").disabled = true;\n' +
 '  addMsg("user", txt);\n' +
-'  history.push({ role: "user", content: txt });\n' +
+'  chatHistory.push({ role: "user", content: txt });\n' +
 '  setTyping(true);\n' +
 '  try {\n' +
-'    var res = await gs("processMessage", history);\n' +
+'    var res = await gs("processMessage", chatHistory);\n' +
 '    setTyping(false);\n' +
 '    if (res.error) { addMsg("err", "⚠️ " + res.error); }\n' +
 '    else {\n' +
-'      history = res.updatedHistory;\n' +
+'      chatHistory = res.updatedHistory;\n' +
 '      if (res.text) addMsg("assistant", res.text);\n' +
 '      if (res.type === "proposal" && res.pending && res.pending.length) showProposal(res.pending);\n' +
 '    }\n' +
@@ -2366,8 +2366,8 @@ function getCalendarAssistantHtml() {
 '      ", cancelled " + res.cancelled + ", deleted " + res.deleted + "." +\n' +
 '      (res.backupName ? " Backup: " + res.backupName : "");\n' +
 '    addMsg("note", msg);\n' +
-'    history.push({ role: "user", content: "Changes were applied successfully." });\n' +
-'    history.push({ role: "assistant", content: [{ type: "text", text: msg }] });\n' +
+'    chatHistory.push({ role: "user", content: "Changes were applied successfully." });\n' +
+'    chatHistory.push({ role: "assistant", content: [{ type: "text", text: msg }] });\n' +
 '  } catch(e) { setTyping(false); addMsg("err", "⚠️ Apply failed: " + (e.message || String(e))); }\n' +
 '  busy = false;\n' +
 '  document.getElementById("send-btn").disabled = false;\n' +
