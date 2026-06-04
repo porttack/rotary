@@ -1175,7 +1175,7 @@ function generateNewsletter() {
     "district event": "#86efac",
     "committee":      "#fce7f3",
     "holiday":        "#fca5a5",
-    "other":          "#f3f4f6"
+    "other":          "#d1d5db"
   };
   const TYPE_ABBREV = {
     "meeting":        "Mtg",
