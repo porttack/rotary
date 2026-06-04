@@ -57,7 +57,7 @@ const DUTY_COLS = {
 };
 
 // Event type options
-const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service", "Grey Bears", "Fundraiser", "District Event", "Committee", "Other"];
+const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service", "Grey Bears", "Fundraiser", "District Event", "Committee", "Holiday", "Other"];
 
 // Text color and bold per event type (row background stays white/grey for cancelled)
 // Each entry: { color, bold }
@@ -71,6 +71,7 @@ const TYPE_STYLES = {
   "fundraiser":     { color: "#7c3aed", bold: true  },  // violet
   "district event": { color: "#14532d", bold: true  },  // dark green
   "committee":      { color: "#000000", bold: false },  // black
+  "holiday":        { color: "#b91c1c", bold: true  },  // red
   "other":          { color: "#000000", bold: false },  // black
 };
 const DEFAULT_STYLE = { color: "#000000", bold: false };
@@ -374,6 +375,8 @@ function pushToCalendar() {
     const sheetRow = i + 2;
     const dateVal  = row[COL.DATE - 1];
     if (!dateVal) { skipped++; return; }
+    // Holidays are display-only — never push to Google Calendar
+    if (String(row[COL.EVENT_TYPE - 1] || "").toLowerCase() === "holiday") { skipped++; return; }
 
     // Skip rows that haven't changed since the last push
     const currentHash = rowHash(row);
@@ -600,6 +603,7 @@ function guessType(title) {
   if (t.includes("grey bears") || t.includes("gray bears")) return "Grey Bears";
   if (t.includes("service"))   return "Service";
   if (t.includes("assembly"))  return "Assembly";
+  if (t.includes("holiday"))   return "Holiday";
   if (t.includes("committee")) return "Committee";
   if (t.includes("meeting"))   return "Meeting";
   return "Other";
@@ -1170,6 +1174,7 @@ function generateNewsletter() {
     "fundraiser":     "#e9d5ff",
     "district event": "#86efac",
     "committee":      "#fce7f3",
+    "holiday":        "#fca5a5",
     "other":          "#f3f4f6"
   };
   const TYPE_ABBREV = {
@@ -1182,6 +1187,7 @@ function generateNewsletter() {
     "fundraiser":     "Fund",
     "district event": "Dist",
     "committee":      "Com",
+    "holiday":        "Holiday",
     "other":          "Oth"
   };
 
