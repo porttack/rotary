@@ -1272,8 +1272,13 @@ function generateNewsletter() {
 //  Type: Web app | Execute as: Me | Who has access: Anyone (or org)
 // ═══════════════════════════════════════════════════════════════
 
-/** Entry point for the deployed web app (GET → Duty Editor) */
-function doGet() {
+/** Entry point for the deployed web app. Routes based on ?app= parameter. */
+function doGet(e) {
+  if (e && e.parameter && e.parameter.app === 'assistant') {
+    return HtmlService.createHtmlOutput(getCalendarAssistantHtml())
+      .setTitle("SLV Rotary — Calendar Assistant")
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
   return HtmlService.createHtmlOutput(getDutyEditorHtml())
     .setTitle("SLV Rotary — Duty Editor")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -1859,4 +1864,527 @@ function getOrCreateTab_(name, headers) {
     headers.forEach((_, i) => sheet.setColumnWidth(i + 1, 160));
   }
   return sheet;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CALENDAR ASSISTANT
+//  Second deployment: Execute as Me | Who has access: Only myself
+//  URL: ...exec?app=assistant
+//  Requires: Script Properties → ANTHROPIC_API_KEY
+// ═══════════════════════════════════════════════════════════════
+
+const ASSISTANT_MODEL = 'claude-sonnet-4-6';
+
+const ASSISTANT_SYSTEM_PROMPT = [
+  'You are the Calendar Assistant for San Lorenzo Valley (SLV) Rotary Club.',
+  'You help Eric (the club president and a CS/robotics teacher at SLV High School)',
+  'manage the club event spreadsheet via natural language.',
+  '',
+  '## Club context',
+  '- Rotary year: July 1 – June 30',
+  '- Regular meetings: weekly, typically 7:00 PM evenings or 8:00 AM mornings',
+  '- Common venues: Scopazzi\'s (Boulder Creek, CA), School Board Room (325 Marion Ave)',
+  '- Grey Bears: weekly service at Grey Bears food bank, every Friday at 9:30 AM',
+  '',
+  '## Event types',
+  'Meeting | Assembly (meeting without a speaker) | Board Meeting | Social | Service |',
+  'Grey Bears | Fundraiser | District Event | Committee | Holiday | Other',
+  '',
+  'Holiday events are display-only and are NEVER synced to Google Calendar.',
+  'Grey Bears events never need speakers, topics, or duty assignments.',
+  '',
+  '## Fields available when adding or updating an event',
+  'eventType, date (YYYY-MM-DD), time (H:MM AM/PM), duration (minutes, default 60),',
+  'location, openingSpeaker, mainSpeaker, mainTopic, speakerUrl, summary,',
+  'mc, setupTeardown, avZoom, greeter, fourWayTest, thought, detective, bagPerson, comments',
+  '',
+  '## How to work',
+  '1. Call read_events first to understand what already exists before adding anything.',
+  '2. Queue changes with add_event / update_event / cancel_event / delete_event.',
+  '   Changes are shown to the user for confirmation — nothing is written until they approve.',
+  '3. Use update_event to move or modify existing rows; avoid delete + re-add.',
+  '4. Use cancel_event to cancel an event; reserve delete_event for true duplicates.',
+  '5. For recurring events (e.g. every Tuesday for 6 months) generate each date individually.',
+  '6. Ask clarifying questions if a request is ambiguous before queuing changes.',
+  '7. Dates: YYYY-MM-DD. Times: H:MM AM/PM (e.g. "7:00 PM", "9:30 AM").',
+].join('\n');
+
+const ASSISTANT_TOOLS = [
+  {
+    name: 'read_events',
+    description: 'Read events from the Events sheet. Always call this before making changes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        filter: {
+          type: 'string',
+          description: 'Optional. Date range like "2026-07 to 2027-06", an event type, or a keyword.',
+        },
+      },
+    },
+  },
+  {
+    name: 'read_members',
+    description: 'Read the member name list from the Members tab.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'add_event',
+    description: 'Queue a new event row to be added (pending user confirmation).',
+    input_schema: {
+      type: 'object',
+      required: ['eventType', 'date'],
+      properties: {
+        eventType:      { type: 'string' },
+        date:           { type: 'string', description: 'YYYY-MM-DD' },
+        time:           { type: 'string', description: 'H:MM AM/PM' },
+        duration:       { type: 'number', description: 'Minutes' },
+        location:       { type: 'string' },
+        openingSpeaker: { type: 'string' },
+        mainSpeaker:    { type: 'string' },
+        mainTopic:      { type: 'string' },
+        speakerUrl:     { type: 'string' },
+        summary:        { type: 'string' },
+        mc:             { type: 'string' },
+        setupTeardown:  { type: 'string' },
+        avZoom:         { type: 'string' },
+        greeter:        { type: 'string' },
+        fourWayTest:    { type: 'string' },
+        thought:        { type: 'string' },
+        detective:      { type: 'string' },
+        bagPerson:      { type: 'string' },
+        comments:       { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'update_event',
+    description: 'Queue an update to an existing event row (pending user confirmation). Use rowIndex from read_events.',
+    input_schema: {
+      type: 'object',
+      required: ['rowIndex', 'changes'],
+      properties: {
+        rowIndex: { type: 'number', description: '1-based sheet row number from read_events' },
+        changes:  { type: 'object', description: 'Fields to change. Same names as add_event fields.' },
+        reason:   { type: 'string', description: 'Brief reason shown in the confirmation list.' },
+      },
+    },
+  },
+  {
+    name: 'cancel_event',
+    description: 'Queue cancellation of an event (sets Cancelled checkbox). Safer than delete.',
+    input_schema: {
+      type: 'object',
+      required: ['rowIndex'],
+      properties: {
+        rowIndex: { type: 'number' },
+        reason:   { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'delete_event',
+    description: 'Queue deletion of an event row. Use only for true duplicates; prefer cancel_event.',
+    input_schema: {
+      type: 'object',
+      required: ['rowIndex'],
+      properties: {
+        rowIndex: { type: 'number' },
+        reason:   { type: 'string' },
+      },
+    },
+  },
+];
+
+/**
+ * Main AI function. Runs the tool-use loop and returns either a plain message
+ * or a proposal (pending changes for the user to confirm).
+ * Called from the client via google.script.run.
+ */
+function processMessage(history) {
+  try {
+    const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+    if (!apiKey) return { error: 'ANTHROPIC_API_KEY not set. Add it in Apps Script → Project Settings → Script Properties.' };
+
+    const messages = history.slice();
+    const pending  = [];
+
+    for (let iter = 0; iter < 20; iter++) {
+      const resp = callAssistantApi_(messages);
+      messages.push({ role: 'assistant', content: resp.content });
+
+      if (resp.stop_reason === 'end_turn') {
+        const text = resp.content
+          .filter(function(b) { return b.type === 'text'; })
+          .map(function(b) { return b.text; })
+          .join('\n').trim();
+        return { type: pending.length ? 'proposal' : 'message', text: text, pending: pending, updatedHistory: messages };
+      }
+
+      // Process tool calls
+      const toolResults = [];
+      for (var ti = 0; ti < resp.content.length; ti++) {
+        const block = resp.content[ti];
+        if (block.type !== 'tool_use') continue;
+        const inp = block.input;
+        let result;
+
+        if (block.name === 'read_events') {
+          result = assistantReadEvents_(inp.filter);
+        } else if (block.name === 'read_members') {
+          result = assistantReadMembers_();
+        } else if (block.name === 'add_event') {
+          pending.push({ action: 'add', data: inp,
+            description: '➕ Add ' + (inp.eventType || 'event') + ' on ' + inp.date + (inp.time ? ' at ' + inp.time : '') });
+          result = { queued: true, index: pending.length - 1 };
+        } else if (block.name === 'update_event') {
+          const fields = Object.keys(inp.changes || {}).join(', ');
+          pending.push({ action: 'update', rowIndex: inp.rowIndex, changes: inp.changes,
+            description: '✏️ ' + (inp.reason || 'Update row ' + inp.rowIndex) + (fields ? ' (' + fields + ')' : '') });
+          result = { queued: true, index: pending.length - 1 };
+        } else if (block.name === 'cancel_event') {
+          pending.push({ action: 'cancel', rowIndex: inp.rowIndex,
+            description: '🚫 Cancel event at row ' + inp.rowIndex + (inp.reason ? ' — ' + inp.reason : '') });
+          result = { queued: true, index: pending.length - 1 };
+        } else if (block.name === 'delete_event') {
+          pending.push({ action: 'delete', rowIndex: inp.rowIndex,
+            description: '🗑️ Delete row ' + inp.rowIndex + (inp.reason ? ' — ' + inp.reason : '') });
+          result = { queued: true, index: pending.length - 1 };
+        } else {
+          result = { error: 'Unknown tool: ' + block.name };
+        }
+
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) });
+      }
+      messages.push({ role: 'user', content: toolResults });
+    }
+    return { error: 'Reached maximum iterations without completing.' };
+  } catch (err) {
+    return { error: String(err) };
+  }
+}
+
+/**
+ * Write queued changes to the sheet after user confirmation.
+ * Called from the client via google.script.run.
+ */
+function applyAssistantChanges(changes) {
+  const backupName = createEventsBackup();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  let added = 0, updated = 0, cancelled = 0, deleted = 0;
+
+  // Apply non-deletes first, then deletes in reverse row order (to keep indices stable)
+  const deletes = changes.filter(function(c) { return c.action === 'delete'; })
+                         .sort(function(a, b) { return b.rowIndex - a.rowIndex; });
+  const others  = changes.filter(function(c) { return c.action !== 'delete'; });
+
+  others.forEach(function(change) {
+    if (change.action === 'add') {
+      sheet.appendRow(assistantBuildRow_(change.data));
+      added++;
+    } else if (change.action === 'update') {
+      assistantApplyUpdates_(sheet, change.rowIndex, change.changes);
+      updated++;
+    } else if (change.action === 'cancel') {
+      sheet.getRange(change.rowIndex, COL.CANCELLED).setValue(true);
+      recolorRow(sheet, change.rowIndex);
+      cancelled++;
+    }
+  });
+  deletes.forEach(function(change) {
+    sheet.deleteRow(change.rowIndex);
+    deleted++;
+  });
+
+  sortByDate(sheet);
+  applyRowColors(sheet);
+  return { ok: true, added: added, updated: updated, cancelled: cancelled, deleted: deleted, backupName: backupName };
+}
+
+/**
+ * Copy the Events sheet to a timestamped backup tab (keeps last 5 backups).
+ * Public so the client can call it directly via google.script.run.
+ */
+function createEventsBackup() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const tz    = Session.getScriptTimeZone();
+  const label = 'Backup ' + Utilities.formatDate(new Date(), tz, 'MM-dd HH:mm');
+
+  const old = ss.getSheets()
+    .filter(function(s) { return s.getName().startsWith('Backup '); })
+    .sort(function(a, b) { return a.getName().localeCompare(b.getName()); });
+  while (old.length >= 5) ss.deleteSheet(old.shift());
+
+  sheet.copyTo(ss).setName(label);
+  return label;
+}
+
+// ── Private helpers ───────────────────────────────────────────
+
+function assistantReadEvents_(filter) {
+  const ss      = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet   = ss.getSheetByName(SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { events: [], count: 0 };
+
+  const tz   = Session.getScriptTimeZone();
+  const data = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+
+  let events = data.map(function(row, i) {
+    const dv = row[COL.DATE - 1];
+    const tv = row[COL.TIME - 1];
+    return {
+      rowIndex:       i + 2,
+      eventType:      String(row[COL.EVENT_TYPE - 1]       || ''),
+      cancelled:      !!row[COL.CANCELLED - 1],
+      date:           dv instanceof Date ? Utilities.formatDate(dv, tz, 'yyyy-MM-dd') : String(dv || ''),
+      time:           tv instanceof Date ? Utilities.formatDate(tv, tz, 'h:mm a')    : String(tv || ''),
+      duration:       row[COL.DURATION - 1]        || 60,
+      location:       String(row[COL.LOCATION - 1]         || ''),
+      openingSpeaker: String(row[COL.OPENING_SPEAKER - 1]  || ''),
+      mainSpeaker:    String(row[COL.MAIN_SPEAKER - 1]     || ''),
+      mainTopic:      String(row[COL.MAIN_TOPIC - 1]       || ''),
+      mc:             String(row[COL.MC - 1]               || ''),
+      comments:       String(row[COL.COMMENTS - 1]         || ''),
+    };
+  }).filter(function(e) { return e.date; });
+
+  if (filter) {
+    const f = filter.toLowerCase();
+    const rangeM = f.match(/(\d{4}-\d{2})\s+to\s+(\d{4}-\d{2})/);
+    if (rangeM) {
+      events = events.filter(function(e) { return e.date >= rangeM[1] && e.date <= rangeM[2] + '-31'; });
+    } else {
+      events = events.filter(function(e) {
+        return e.eventType.toLowerCase().includes(f) || e.date.includes(f) ||
+               e.mainSpeaker.toLowerCase().includes(f) || e.mainTopic.toLowerCase().includes(f);
+      });
+    }
+  }
+  return { events: events, count: events.length };
+}
+
+function assistantReadMembers_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ms = ss.getSheetByName('Members');
+  if (!ms || ms.getLastRow() < 2) return { members: [] };
+  const members = ms.getRange(2, 1, ms.getLastRow() - 1, 1)
+    .getValues().map(function(r) { return String(r[0] || '').trim(); }).filter(Boolean);
+  return { members: members };
+}
+
+function assistantBuildRow_(data) {
+  const row = Array(NUM_COLS).fill('');
+  row[COL.EVENT_TYPE - 1]      = data.eventType      || 'Other';
+  row[COL.CANCELLED - 1]       = false;
+  row[COL.DATE - 1]            = data.date            || '';
+  row[COL.TIME - 1]            = data.time            || '';
+  row[COL.DURATION - 1]        = data.duration        || 60;
+  row[COL.LOCATION - 1]        = data.location        || '';
+  row[COL.OPENING_SPEAKER - 1] = data.openingSpeaker  || '';
+  row[COL.MAIN_SPEAKER - 1]    = data.mainSpeaker     || '';
+  row[COL.MAIN_TOPIC - 1]      = data.mainTopic       || '';
+  row[COL.SPEAKER_URL - 1]     = data.speakerUrl      || '';
+  row[COL.SUMMARY - 1]         = data.summary         || '';
+  row[COL.MC - 1]              = data.mc              || '';
+  row[COL.SETUP_TEARDOWN - 1]  = data.setupTeardown   || '';
+  row[COL.AV_ZOOM - 1]         = data.avZoom          || '';
+  row[COL.GREETER - 1]         = data.greeter         || '';
+  row[COL.FOUR_WAY_TEST - 1]   = data.fourWayTest     || '';
+  row[COL.THOUGHT - 1]         = data.thought         || '';
+  row[COL.DETECTIVE - 1]       = data.detective       || '';
+  row[COL.BAG_PERSON - 1]      = data.bagPerson       || '';
+  row[COL.COMMENTS - 1]        = data.comments        || '';
+  row[COL.STATUS - 1]          = 'Added by AI ' + timestamp();
+  return row;
+}
+
+function assistantApplyUpdates_(sheet, rowIndex, changes) {
+  const colMap = {
+    eventType:      COL.EVENT_TYPE,      date:           COL.DATE,
+    time:           COL.TIME,            duration:       COL.DURATION,
+    location:       COL.LOCATION,        openingSpeaker: COL.OPENING_SPEAKER,
+    mainSpeaker:    COL.MAIN_SPEAKER,    mainTopic:      COL.MAIN_TOPIC,
+    speakerUrl:     COL.SPEAKER_URL,     summary:        COL.SUMMARY,
+    mc:             COL.MC,              setupTeardown:  COL.SETUP_TEARDOWN,
+    avZoom:         COL.AV_ZOOM,         greeter:        COL.GREETER,
+    fourWayTest:    COL.FOUR_WAY_TEST,   thought:        COL.THOUGHT,
+    detective:      COL.DETECTIVE,       bagPerson:      COL.BAG_PERSON,
+    comments:       COL.COMMENTS,
+  };
+  Object.entries(changes).forEach(function(entry) {
+    const col = colMap[entry[0]];
+    if (col) sheet.getRange(rowIndex, col).setValue(entry[1]);
+  });
+  sheet.getRange(rowIndex, COL.STATUS).setValue('Updated by AI ' + timestamp());
+  recolorRow(sheet, rowIndex);
+}
+
+function callAssistantApi_(messages) {
+  const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const resp   = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+    method: 'post',
+    muteHttpExceptions: true,
+    headers: {
+      'x-api-key':         apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type':      'application/json',
+    },
+    payload: JSON.stringify({
+      model:      ASSISTANT_MODEL,
+      max_tokens: 4096,
+      system:     ASSISTANT_SYSTEM_PROMPT,
+      tools:      ASSISTANT_TOOLS,
+      messages:   messages,
+    }),
+  });
+  const body = JSON.parse(resp.getContentText());
+  if (body.error) throw new Error(body.error.message || JSON.stringify(body.error));
+  return body;
+}
+
+// ── Calendar Assistant HTML ───────────────────────────────────
+
+function getCalendarAssistantHtml() {
+  return '<!DOCTYPE html>\n' +
+'<html>\n' +
+'<head>\n' +
+'<meta charset="utf-8">\n' +
+'<meta name="viewport" content="width=device-width,initial-scale=1">\n' +
+'<title>SLV Rotary — Calendar Assistant</title>\n' +
+'<style>\n' +
+'*{box-sizing:border-box;margin:0;padding:0}\n' +
+'body{font-family:Arial,sans-serif;background:#f0f2f5;height:100vh;display:flex;flex-direction:column;overflow:hidden}\n' +
+'header{background:#17458F;color:#fff;padding:0.7em 1em;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}\n' +
+'header h1{font-size:1.05em;font-weight:bold}\n' +
+'#snap-btn{font-size:0.8em;padding:3px 10px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;cursor:pointer}\n' +
+'#snap-btn:hover{background:rgba(255,255,255,0.28)}\n' +
+'#chat{flex:1;overflow-y:auto;padding:1em;display:flex;flex-direction:column;gap:0.7em}\n' +
+'.msg{max-width:82%;padding:0.6em 0.85em;border-radius:14px;line-height:1.55;font-size:0.9em;word-break:break-word;white-space:pre-wrap}\n' +
+'.user{align-self:flex-end;background:#17458F;color:#fff;border-bottom-right-radius:3px}\n' +
+'.assistant{align-self:flex-start;background:#fff;color:#222;border:1px solid #dde;border-bottom-left-radius:3px}\n' +
+'.note{align-self:center;background:#e8f0fe;color:#1a3a6b;font-size:0.8em;border-radius:8px;padding:0.35em 0.8em;max-width:95%;text-align:center}\n' +
+'.err{align-self:flex-start;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;border-radius:10px}\n' +
+'.typing{align-self:flex-start;background:#fff;border:1px solid #dde;border-radius:14px;border-bottom-left-radius:3px;padding:0.6em 1em;color:#999;font-size:0.85em;font-style:italic}\n' +
+'#proposal{background:#fff;border-top:3px solid #17458F;padding:0.85em 1em;flex-shrink:0;display:none}\n' +
+'#proposal h3{color:#17458F;font-size:0.9em;margin-bottom:0.45em}\n' +
+'#prop-list{font-size:0.82em;color:#333;max-height:140px;overflow-y:auto;margin-bottom:0.65em;line-height:1.7}\n' +
+'#prop-list div{border-bottom:1px solid #f0f0f0;padding:1px 0}\n' +
+'.pbtns{display:flex;gap:0.5em}\n' +
+'#apply-btn{background:#17458F;color:#fff;border:none;padding:7px 18px;border-radius:4px;cursor:pointer;font-weight:bold;font-size:0.88em}\n' +
+'#apply-btn:hover{background:#1a56db}\n' +
+'#discard-btn{background:#f4f4f4;color:#444;border:1px solid #ccc;padding:7px 14px;border-radius:4px;cursor:pointer;font-size:0.88em}\n' +
+'#discard-btn:hover{background:#e8e8e8}\n' +
+'#input-row{display:flex;gap:0.5em;padding:0.65em;background:#fff;border-top:1px solid #e0e0e0;flex-shrink:0}\n' +
+'#user-input{flex:1;padding:0.55em 0.75em;border:1px solid #ccc;border-radius:6px;font-size:0.9em;font-family:Arial,sans-serif;resize:none;height:58px}\n' +
+'#user-input:focus{outline:none;border-color:#17458F}\n' +
+'#send-btn{background:#17458F;color:#fff;border:none;padding:0 1.1em;border-radius:6px;cursor:pointer;font-size:1.15em}\n' +
+'#send-btn:disabled{background:#aaa;cursor:default}\n' +
+'</style>\n' +
+'</head>\n' +
+'<body>\n' +
+'<header><h1>📅 SLV Rotary — Calendar Assistant</h1><button id="snap-btn" onclick="takeSnapshot()">📸 Snapshot</button></header>\n' +
+'<div id="chat"><div class="msg note">Hi Eric! Describe what you\'d like to add, move, update, or cancel. I\'ll show you a plan before changing anything.  <em>Ctrl+Enter to send</em></div></div>\n' +
+'<div id="proposal"><h3>📋 Proposed changes — please review before applying</h3><div id="prop-list"></div><div class="pbtns"><button id="apply-btn" onclick="applyChanges()">✅ Apply changes</button><button id="discard-btn" onclick="discardChanges()">✗ Discard</button></div></div>\n' +
+'<div id="input-row"><textarea id="user-input" placeholder="e.g. Add board meeting every first Thursday at 7pm at Scopazzis, July through June…"></textarea><button id="send-btn" onclick="sendMessage()">➤</button></div>\n' +
+'<script>\n' +
+'var history = [], pending = null, busy = false;\n' +
+'\n' +
+'function addMsg(cls, text) {\n' +
+'  var c = document.getElementById("chat");\n' +
+'  var d = document.createElement("div");\n' +
+'  d.className = "msg " + cls;\n' +
+'  d.textContent = text;\n' +
+'  c.appendChild(d);\n' +
+'  c.scrollTop = c.scrollHeight;\n' +
+'}\n' +
+'\n' +
+'function setTyping(on) {\n' +
+'  var el = document.getElementById("typing-dot");\n' +
+'  if (on && !el) {\n' +
+'    var d = document.createElement("div");\n' +
+'    d.id = "typing-dot"; d.className = "typing";\n' +
+'    d.textContent = "Thinking…";\n' +
+'    var c = document.getElementById("chat");\n' +
+'    c.appendChild(d); c.scrollTop = c.scrollHeight;\n' +
+'  } else if (!on && el) el.remove();\n' +
+'}\n' +
+'\n' +
+'function showProposal(p) {\n' +
+'  pending = p;\n' +
+'  var list = document.getElementById("prop-list");\n' +
+'  list.innerHTML = "";\n' +
+'  p.forEach(function(c) { var d = document.createElement("div"); d.textContent = c.description; list.appendChild(d); });\n' +
+'  document.getElementById("proposal").style.display = "block";\n' +
+'}\n' +
+'function hideProposal() { document.getElementById("proposal").style.display = "none"; pending = null; }\n' +
+'\n' +
+'function gs(fn, arg) {\n' +
+'  return new Promise(function(ok, fail) {\n' +
+'    google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](arg);\n' +
+'  });\n' +
+'}\n' +
+'\n' +
+'async function sendMessage() {\n' +
+'  if (busy) return;\n' +
+'  var inp = document.getElementById("user-input");\n' +
+'  var txt = inp.value.trim();\n' +
+'  if (!txt) return;\n' +
+'  hideProposal();\n' +
+'  inp.value = ""; busy = true;\n' +
+'  document.getElementById("send-btn").disabled = true;\n' +
+'  addMsg("user", txt);\n' +
+'  history.push({ role: "user", content: txt });\n' +
+'  setTyping(true);\n' +
+'  try {\n' +
+'    var res = await gs("processMessage", history);\n' +
+'    setTyping(false);\n' +
+'    if (res.error) { addMsg("err", "⚠️ " + res.error); }\n' +
+'    else {\n' +
+'      history = res.updatedHistory;\n' +
+'      if (res.text) addMsg("assistant", res.text);\n' +
+'      if (res.type === "proposal" && res.pending && res.pending.length) showProposal(res.pending);\n' +
+'    }\n' +
+'  } catch(e) { setTyping(false); addMsg("err", "⚠️ " + (e.message || String(e))); }\n' +
+'  busy = false;\n' +
+'  document.getElementById("send-btn").disabled = false;\n' +
+'  inp.focus();\n' +
+'}\n' +
+'\n' +
+'async function applyChanges() {\n' +
+'  if (!pending) return;\n' +
+'  var ch = pending; hideProposal(); busy = true;\n' +
+'  document.getElementById("send-btn").disabled = true;\n' +
+'  setTyping(true);\n' +
+'  try {\n' +
+'    var res = await gs("applyAssistantChanges", ch);\n' +
+'    setTyping(false);\n' +
+'    var msg = "✅ Done — added " + res.added + ", updated " + res.updated +\n' +
+'      ", cancelled " + res.cancelled + ", deleted " + res.deleted + "." +\n' +
+'      (res.backupName ? " Backup: " + res.backupName : "");\n' +
+'    addMsg("note", msg);\n' +
+'    history.push({ role: "user", content: "Changes were applied successfully." });\n' +
+'    history.push({ role: "assistant", content: [{ type: "text", text: msg }] });\n' +
+'  } catch(e) { setTyping(false); addMsg("err", "⚠️ Apply failed: " + (e.message || String(e))); }\n' +
+'  busy = false;\n' +
+'  document.getElementById("send-btn").disabled = false;\n' +
+'}\n' +
+'\n' +
+'function discardChanges() {\n' +
+'  hideProposal();\n' +
+'  addMsg("note", "Changes discarded. What would you like to do differently?");\n' +
+'}\n' +
+'\n' +
+'async function takeSnapshot() {\n' +
+'  try { var n = await gs("createEventsBackup", null); addMsg("note", "📸 Snapshot saved: " + n); }\n' +
+'  catch(e) { addMsg("err", "⚠️ Snapshot failed: " + (e.message || String(e))); }\n' +
+'}\n' +
+'\n' +
+'document.getElementById("user-input").addEventListener("keydown", function(e) {\n' +
+'  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); sendMessage(); }\n' +
+'});\n' +
+'</script>\n' +
+'</body>\n' +
+'</html>';
 }
