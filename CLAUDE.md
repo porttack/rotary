@@ -2,23 +2,21 @@
 
 ## Project overview
 
-This is a **GitHub Pages / Jekyll (Minima theme)** prototype website for the
-San Lorenzo Valley Rotary Club. It is **not** a replacement for ClubRunner —
-the club treasurer will continue to maintain that. This site prototypes
-better tooling for a few pain points:
+GitHub Pages / Jekyll prototype for the San Lorenzo Valley Rotary Club.
+Not a ClubRunner replacement — the treasurer's workflow is untouched.
+Eric Brown (club president, CS/robotics teacher at SLV High School) owns
+this project and is comfortable reading/editing code.
 
-- **Speaker pipeline** — forms to request a speaker slot or offer to speak,
-  fed by a Google Sheet so the speaker organizer, secretary, and president
-  don't need to coordinate via email threads.
-- **Calendar** — a FullCalendar.js page that reads from a Google Sheet /
-  Google Calendar to display upcoming meetings and events.
-- **Newsletter generator** — a JavaScript page that dynamically renders the
-  weekly bulletin by parsing the club's Google Sheet (mirrors the Apps Script
-  workflow that generates the Google Doc newsletter).
+Core tools built so far:
 
-The site owner (Eric Brown) is becoming club president and is a CS/robotics
-teacher at SLV High School — he has an engineering background and is
-comfortable reading/editing code, but values clarity and maintainability.
+- **Year view** — mini-calendar grid (July–June Rotary year) with color-coded
+  event types, morning/evening border stripes, hover/tap tooltips, today highlight.
+- **Calendar** — FullCalendar.js view reading the same Google Sheet CSV.
+- **Newsletter generator** — Apps Script that builds a Google Doc bulletin.
+- **Duty Editor** — web app (Apps Script) for assigning meeting roles.
+- **Calendar Assistant** — AI chat interface (Apps Script + Anthropic API)
+  for adding/updating/cancelling events via natural language.
+- **Speaker pipeline** — Google Forms linked from `speak.md` / `request.md`.
 
 ---
 
@@ -28,72 +26,198 @@ comfortable reading/editing code, but values clarity and maintainability.
 |---|---|
 | Static site | Jekyll via `github-pages ~> 232` gem |
 | Theme | Minima 2.5.1 (classic skin) |
-| Hosting | GitHub Pages |
-| Dynamic data | Google Sheets (published CSV or JSON feed) |
-| Calendar widget | FullCalendar.js (CDN, no build step) |
+| Hosting | GitHub Pages at rotary.porttack.com |
+| Dynamic data | Google Sheets published CSV (no auth needed) |
+| Calendar widget | FullCalendar.js 6.x (CDN) |
 | Forms | Google Forms (linked, not embedded) |
-| Newsletter logic | Vanilla JS parsing Google Sheets feed |
+| Apps Script | `appscript/RotaryCalendarSync.gs` — calendar sync, newsletter, duty editor, AI assistant |
 
-**Do not** introduce npm build steps, React, or bundlers — this must deploy
-cleanly via GitHub Pages with zero CI pipeline.
+**Do not** introduce npm build steps, React, or bundlers — GitHub Pages,
+zero CI pipeline.
 
 ---
 
-## Key pages
+## Key files
 
 | File | Purpose |
 |---|---|
-| `index.md` | Homepage with quick links |
-| `calendar.html` | FullCalendar view of upcoming meetings (reads Sheet CSV) |
-| `newsletter.html` | Auto-generated weekly bulletin (reads Sheet CSV) |
+| `index.md` | Homepage |
+| `calendar.html` | FullCalendar view (reads Sheet CSV) |
+| `year.html` | Mini year-at-a-glance grid (reads Sheet CSV) |
+| `newsletter.html` | Auto-rendered bulletin (reads Sheet CSV) |
+| `past.html` | Past events view |
+| `duty.md` | Link/redirect to Duty Editor web app |
 | `speak.md` | Link to Google Form: offer to speak |
 | `request.md` | Link to Google Form: request a speaker |
-| `_config.yml` | Site config — title, header_pages, theme |
-| `Gemfile` | GitHub Pages gem pin |
+| `_config.yml` | Site config, nav order, Apps Script URL |
+| `appscript/RotaryCalendarSync.gs` | All Apps Script logic (single file) |
+
+---
+
+## Google Sheet
+
+**Published CSV URL:**
+```
+https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv
+```
+
+Google's server-side cache refreshes every ~5–15 minutes after a sheet edit.
+The year.html page adds `&t=Date.now()` on each fetch to bust the browser cache.
+
+**Column order (0-based index in CSV / JS; 1-based COL.* in Apps Script):**
+
+| Index | Apps Script COL | Header | Notes |
+|---|---|---|---|
+| 0 | EVENT_ID | Event ID | Google Calendar event ID; hidden |
+| 1 | EVENT_TYPE | Event Type | Dropdown — see Event types below |
+| 2 | CANCELLED | Cancelled | Checkbox; TRUE/FALSE in CSV |
+| 3 | DAY_LABEL | Day | Computed ARRAYFORMULA — do not write |
+| 4 | DATE | Date | YYYY-MM-DD |
+| 5 | TIME | Time | H:MM AM/PM |
+| 6 | DURATION | Duration (min) | Integer minutes, default 60 |
+| 7 | LOCATION | Location | Full venue name + city |
+| 8 | GOOGLE_MEET | Google Meet Link | URL |
+| 9 | SPEAKER_ORGANIZER | Speaker(s) Organizer | Who is booking this speaker |
+| 10 | OPENING_SPEAKER | Opening Speaker | Invocation / opening thought |
+| 11 | MAIN_SPEAKER | Main Speaker | Program speaker |
+| 12 | MAIN_TOPIC | Main Topic | Program title |
+| 13 | SPEAKER_URL | Speaker URL | Optional link for speaker/topic |
+| 14 | SUMMARY | Summary (newsletter) | Rich narrative paragraph |
+| 15 | PHOTO_TOP | Speaker Top Photo URL | Displayed above narrative |
+| 16 | PHOTO_BOTTOM | Speaker Bottom Photo URL | Displayed below narrative |
+| 17 | MC | MC | Meeting chair if not president |
+| 18 | SETUP_TEARDOWN | Setup/Teardown | |
+| 19 | AV_ZOOM | AV/Zoom | |
+| 20 | GREETER | Greeter | |
+| 21 | FOUR_WAY_TEST | 4-Way-Test | |
+| 22 | THOUGHT | Thought | Thought of the day |
+| 23 | DETECTIVE | Detective | |
+| 24 | BAG_PERSON | Bag Person | Collects fines |
+| 25 | COMMENTS | Comments | Internal only, not pushed to Calendar |
+| 26 | STATUS | Sync Status | Written by sync functions |
+| 27 | HASH | Hash | Last-push hash; hidden, do not edit |
+| 28 | PHOTO_TOP_URL | Photo Top URL (auto) | Written by Sync Photos; hidden |
+| 29 | PHOTO_BOTTOM_URL | Photo Bottom URL (auto) | Written by Sync Photos; hidden |
+
+---
+
+## Event types
+
+All event types are defined in `EVENT_TYPES` in RotaryCalendarSync.gs and
+must be kept in sync between `year.html` (`TYPE_COLOR`, `canonicalType`) and
+the Apps Script (`GRID_BG`, `TYPE_ABBREV`, `TYPE_STYLES`). When adding a new
+type, update all four places plus the year.html legend.
+
+| Type | year.html color | Meaning |
+|---|---|---|
+| Meeting | `#c7d8f7` | Regular weekly meeting |
+| Assembly | `#a5f3fc` | Meeting without a speaker |
+| Board Meeting | `#93c5fd` | Monthly board meeting |
+| Social | `#fde68a` | Social / fellowship event |
+| Service | `#fdba74` | Service project (other than Grey Bears) |
+| Grey Bears | `#fde8d0` | Weekly Friday food bank service, 9:30 AM — never needs speaker/duties |
+| Fundraiser | `#e9d5ff` | Fundraising event |
+| District Event | `#86efac` | Rotary District 5170 events |
+| Committee | `#fce7f3` | Committee meetings |
+| Holiday | `#fca5a5` | Public holiday — display only, **never synced to Google Calendar** |
+| Other | `#d1d5db` | Anything that doesn't fit above |
+| *(cancelled)* | `#e5e7eb` | Any event with Cancelled = TRUE |
+
+The **border stripe** on year view cells signals time of day:
+- Top border = morning (before noon)
+- Bottom border = evening (noon or later)
+- Both borders = events at both times on the same day
+
+Uses `box-shadow: inset` (not `border-top/bottom`) to avoid CSS
+`border-collapse` conflict resolution suppressing AM stripes in rows 2+.
+
+---
+
+## Apps Script deployments
+
+The single file `appscript/RotaryCalendarSync.gs` is deployed **twice**
+from the same Apps Script project. Both point to the same `doGet(e)` which
+routes by the `?app=` URL parameter.
+
+| Deployment | Access | URL pattern | Serves |
+|---|---|---|---|
+| Duty Editor | Anyone | `...exec` (no param) | `getDutyEditorHtml()` |
+| Calendar Assistant | Only myself (Eric) | `...exec?app=assistant` | `getCalendarAssistantHtml()` |
+
+The Duty Editor deployment URL is stored in `_config.yml` as `apps_script_url`
+and used by `duty.md` as a redirect.
+
+After editing the .gs file, go to **Deploy → Manage deployments**, select
+the relevant deployment, bump to **New version**, and redeploy. The Duty
+Editor and Calendar Assistant deployments are versioned independently.
+
+---
+
+## Calendar Assistant
+
+An AI chat interface for managing the Events sheet via natural language.
+Built into RotaryCalendarSync.gs; served at the "Only myself" deployment.
+
+**API key:** Stored in Apps Script → Project Settings → Script Properties
+as `ANTHROPIC_API_KEY`. Never committed to the repo.
+
+**Model:** `claude-sonnet-4-6` (defined as `ASSISTANT_MODEL` constant).
+
+**System prompt:** `ASSISTANT_SYSTEM_PROMPT` at the top of RotaryCalendarSync.gs,
+near the other configuration constants. Edit it there to update club context.
+
+**How it works:**
+1. Client sends `chatHistory` (full conversation) to `processMessage()`.
+2. Server runs an agentic tool-use loop (max 20 iterations).
+3. Tools: `read_events`, `read_members`, `add_event`, `update_event`,
+   `cancel_event`, `delete_event`. Write tools queue changes; nothing is
+   written until the user clicks Apply.
+4. Returns `{type: 'proposal', pending: [...]}` if changes were queued,
+   or `{type: 'message', text}` for informational responses.
+5. On Apply: `applyAssistantChanges(changes)` backs up the Events tab
+   first (keeps last 5 backups as sheet tabs named "Backup MM-dd HH:mm"),
+   then writes, sorts, and recolors.
+
+**Known browser gotcha:** In the HTML, the conversation array must be named
+`chatHistory` — not `history`, which conflicts with `window.history`.
+
+---
+
+## RotaryCalendarSync.gs — function summary
+
+| Function | Called from | Purpose |
+|---|---|---|
+| `onOpen()` | Sheets trigger | Adds "🔄 Rotary Sync" menu |
+| `setupSheet()` | Menu | Creates/resets headers, formats, dropdowns |
+| `pullFromCalendar()` | Menu | Google Calendar → Sheet |
+| `pushToCalendar()` | Menu | Sheet → Google Calendar (skips Holiday rows) |
+| `generateNewsletter()` | Menu | Creates Google Doc bulletin |
+| `syncPhotos()` | Menu | Extracts photo URLs to hidden columns |
+| `openDutyEditor()` | Menu | Opens Duty Editor in a new tab |
+| `setupMembers()` | Menu | Creates/resets Members tab |
+| `installEditTrigger()` | Menu | Installs onEdit trigger for row recoloring |
+| `doGet(e)` | Web request | Routes to Duty Editor or Calendar Assistant |
+| `doPost(e)` | Web request | Handles speaker request form submissions |
+| `getPageData()` | Duty Editor client | Returns upcoming meetings + member list |
+| `saveDuties(rowIndex, duties)` | Duty Editor client | Writes duty assignments |
+| `processMessage(chatHistory)` | AI Assistant client | Runs AI tool-use loop |
+| `applyAssistantChanges(changes)` | AI Assistant client | Writes queued changes |
+| `createEventsBackup()` | AI Assistant client | Snapshots Events tab |
 
 ---
 
 ## Constraints & conventions
 
-- **No dark themes** — Rotary brand is blue (`#17458F`). Keep light/neutral.
-- **Minima skin** — use `classic` or `solarized`; do not switch themes.
-- **Mobile-friendly** — members will view this on phones at meetings.
+- **No dark themes** — Rotary brand blue is `#17458F`. Keep light/neutral.
 - **No ClubRunner replacement** — treasurer's workflow is untouched.
-- **Prototype mindset** — prefer working simply over perfect; this is a demo
-  to show the club what's possible, not a production system.
-- **Google Sheets as the source of truth** for speakers and events.
-  Published CSV URL: `https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv`
-  Actual sheet column order (0-based):
-  0 Event ID | 1 Event Type | 2 Cancelled | 3 Day | 4 Date (YYYY-MM-DD) |
-  5 Time (H:MM AM/PM) | 6 Duration (min) | 7 Location | 8 Google Meet Link |
-  9 Speaker(s) Organizer | 10 Opening Speaker | 11 Main Speaker | 12 Main Topic |
-  13 Speaker URL (optional link) | 14 Summary (newsletter + calendar body) |
-  15 Speaker Top Photo URL | 16 Speaker Bottom Photo URL |
-  17 MC | 18 Setup/Teardown | 19 AV/Zoom | 20 Greeter | 21 4-Way-Test | 22 Thought |
-  23 Detective | 24 Bag Person | 25 Comments | 26 Sync Status | 27 Hash |
-  28 Photo Top URL (hidden, auto) | 29 Photo Bottom URL (hidden, auto)
-
----
-
-## Related tools (outside this repo)
-
-- **RotaryCalendarSync.gs** — Apps Script that syncs Google Calendar ↔
-  Google Sheet (bidirectional, with de-duplication via Event ID column).
-- **Newsletter Apps Script** — separate script generating the Google Doc
-  weekly bulletin from the same Sheet.
-
----
-
-## What Claude should do by default
-
-- Prefer **vanilla JS + CDN libraries** over anything that needs `npm install`.
-- Keep Liquid/Jekyll templating simple — no custom plugins (GitHub Pages
-  doesn't support them).
-- When editing `_config.yml`, preserve existing comments.
-- Suggest Google Forms for any data-entry workflow; don't build custom
-  backends.
-- If touching the newsletter or calendar JS, parse the **published Google Sheets CSV**
-  endpoint (`/pub?output=csv`) rather than the Sheets API (no auth needed).
-  The live URL is already hardcoded in both `calendar.html` and `newsletter.html`.
-- Default to **FullCalendar 6.x** for calendar UI (loaded from cdnjs or
-  jsDelivr).
+- **Prototype mindset** — working simply beats perfect.
+- **Vanilla JS + CDN** — no npm, no bundlers. Must deploy via GitHub Pages.
+- **No custom Jekyll plugins** — GitHub Pages doesn't support them.
+- **CSV parsing** — use the published `/pub?output=csv` endpoint, not the
+  Sheets API. No auth needed. Google's cache lags ~5–15 min after edits.
+- **Color sync** — `TYPE_COLOR` in year.html and `GRID_BG` in RotaryCalendarSync.gs
+  must stay identical. Same for event type labels between `EVENT_TYPES`,
+  `canonicalType()`, and the year.html legend.
+- **Preserve `_config.yml` comments** when editing it.
+- **FullCalendar 6.x** for the calendar UI (CDN from jsDelivr).
+- **Mobile-friendly** — members view the site on phones at meetings.
