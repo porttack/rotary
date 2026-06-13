@@ -3092,11 +3092,11 @@ function openPanel(rowIndex) {
       '<input id="pn-introducer" value="' + esc(card.introducer) + '" placeholder="Who introduces the speaker"></div>' +
     '<div class="pfield"><label>Top Photo</label>' +
       '<input id="pn-phototop" value="' + esc(card.photoTop) + '" placeholder="paste an image URL, or upload below">' +
-      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,\'pn-phototop\')">' +
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,&#39;pn-phototop&#39;)">' +
       '<div id="pn-phototop-prev" class="photo-prev"></div></div>' +
     '<div class="pfield"><label>Bottom Photo</label>' +
       '<input id="pn-photobottom" value="' + esc(card.photoBottom) + '" placeholder="paste an image URL, or upload below">' +
-      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,\'pn-photobottom\')">' +
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,&#39;pn-photobottom&#39;)">' +
       '<div id="pn-photobottom-prev" class="photo-prev"></div></div>' +
     '<div class="pfield"><label>Tags <span style="font-weight:normal;color:#888;font-size:0.9em">(comma-separated)</span></label>' +
       '<input id="pn-tags" value="' + esc(card.tags) + '" placeholder="e.g. environment, local, tech"></div>' +
@@ -3445,7 +3445,7 @@ function renderTable(){
   var cols=['speakerName','topic','status','assignedTo','tentativeDate','interested','source','updatedAt'];
   var colLabels={speakerName:'Speaker',topic:'Topic',status:'Status',assignedTo:'Assigned',tentativeDate:'Date',interested:'♡',source:'Source',updatedAt:'Updated'};
   var html='<table><thead><tr>'+cols.map(function(c){
-    return'<th onclick="sortBy(\''+c+'\')">'+(colLabels[c]||c)+(sortCol===c?(sortAsc?' ▲':' ▼'):'')+'</th>';
+    return'<th onclick="sortBy(&#39;'+c+'&#39;)">'+(colLabels[c]||c)+(sortCol===c?(sortAsc?' ▲':' ▼'):'')+'</th>';
   }).join('')+'</tr></thead><tbody id="tbody"></tbody></table>';
   content.innerHTML=html;
   var tbody=document.getElementById('tbody');
@@ -3486,10 +3486,10 @@ function buildExpandRow(card,memberOpts,statusOpts){
     ef('Speaker URL','<input id="ef-url-'+ro+'" value="'+esc(card.speakerUrl)+'" placeholder="https://…">')+
     ef('Introducer','<input id="ef-introducer-'+ro+'" value="'+esc(card.introducer)+'">')+
     ef('Top Photo','<input id="ef-phototop-'+ro+'" value="'+esc(card.photoTop)+'" placeholder="paste URL or upload">'+
-      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,\'ef-phototop-'+ro+'\','+ro+')">'+
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,&#39;ef-phototop-'+ro+'&#39;,'+ro+')">'+
       '<div id="ef-phototop-'+ro+'-prev" class="photo-prev"></div>',true)+
     ef('Bottom Photo','<input id="ef-photobottom-'+ro+'" value="'+esc(card.photoBottom)+'" placeholder="paste URL or upload">'+
-      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,\'ef-photobottom-'+ro+'\','+ro+')">'+
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,&#39;ef-photobottom-'+ro+'&#39;,'+ro+')">'+
       '<div id="ef-photobottom-'+ro+'-prev" class="photo-prev"></div>',true)+
     ef('Notes','<div class="notes-log">'+esc(card.notes)+'</div>'+
       '<textarea id="ef-note-'+ro+'" rows="2" placeholder="Add a note…"></textarea>',true)+
