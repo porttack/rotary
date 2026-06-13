@@ -2894,10 +2894,13 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 .ev-item.available.selected{background:#dbeafe;border-left:3px solid #2563eb}
 .ev-item.taken{color:#9ca3af;cursor:default}
 .ev-item.taken .ev-speaker{text-decoration:line-through;font-size:0.9em}
+.ev-item.tentative{background:#fffbeb}
+.ev-item.tentative:hover{background:#fef3c7}
 .ev-date{font-weight:bold;white-space:nowrap;min-width:130px}
 .ev-type{color:#6b7280;font-size:0.9em}
 .ev-speaker{color:#b91c1c;font-size:0.85em;margin-left:auto}
 .ev-open{color:#16a34a;font-size:0.85em;margin-left:auto}
+.ev-tentative{color:#b45309;font-size:0.82em;margin-left:auto;text-align:right}
 .modal-btns{display:flex;gap:0.5em}
 /* Phone layout: stack the columns and make the detail panel full-width */
 @media (max-width:600px){
@@ -2946,7 +2949,7 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 <div id="modal-overlay">
   <div class="modal">
     <h3>Assign to Event</h3>
-    <p class="modal-desc">Green = open slot. Gray/strikethrough = already has a speaker. Click to select, then Assign.</p>
+    <p class="modal-desc">Green = open · Amber = open but another card has it as a tentative date · Gray/strikethrough = already has a speaker. Click an open date to select, then Assign.</p>
     <div id="event-list"><p style="padding:0.6em;color:#888;font-size:0.85em">Loading…</p></div>
     <div class="modal-btns">
       <button class="pbtn" onclick="confirmAssign()">Assign</button>
@@ -3146,6 +3149,11 @@ function buildCard(card) {
   });
   var statusSel = div.querySelector('.card-status');
   statusSel.addEventListener('click', function(e) { e.stopPropagation(); });
+  // Suspend HTML5 dragging while the dropdown is in use so desktop browsers
+  // don't try to drag the card out from under an open <select>.
+  statusSel.addEventListener('mousedown', function() { div.draggable = false; });
+  statusSel.addEventListener('focus', function() { div.draggable = false; });
+  statusSel.addEventListener('blur', function() { div.draggable = true; });
   statusSel.addEventListener('change', function(e) {
     e.stopPropagation();
     var newStatus = statusSel.value;
@@ -3385,14 +3393,30 @@ async function openAssignModal() {
     list.innerHTML = '<p style="padding:0.6em;color:#888;font-size:0.85em">No upcoming meetings found.</p>';
     return;
   }
+  // Map meeting date -> names of OTHER pipeline cards that have it as a
+  // tentative date, so we can flag open slots someone else is already eyeing.
+  var tentMap = {};
+  allCards.forEach(function(c) {
+    if (c.status === 'declined' || c.status === 'scheduled') return;
+    if (c.rowIndex === panelRow) return; // ignore the card being assigned
+    if (!c.tentativeDate) return;
+    (tentMap[c.tentativeDate] = tentMap[c.tentativeDate] || []).push(c.speakerName || '(no name)');
+  });
   list.innerHTML = '';
   events.forEach(function(ev) {
+    var tentNames = tentMap[ev.date] || [];
     var div = document.createElement('div');
-    div.className = 'ev-item ' + (ev.available ? 'available' : 'taken');
+    var cls = ev.available ? (tentNames.length ? 'available tentative' : 'available') : 'taken';
+    div.className = 'ev-item ' + cls;
     div.dataset.row = ev.rowIndex;
-    var speakerHtml = ev.available
-      ? '<span class="ev-open">open</span>'
-      : '<span class="ev-speaker">' + esc(ev.mainSpeaker) + (ev.mainTopic ? ': ' + esc(ev.mainTopic) : '') + '</span>';
+    var speakerHtml;
+    if (!ev.available) {
+      speakerHtml = '<span class="ev-speaker">' + esc(ev.mainSpeaker) + (ev.mainTopic ? ': ' + esc(ev.mainTopic) : '') + '</span>';
+    } else if (tentNames.length) {
+      speakerHtml = '<span class="ev-tentative">⚠️ tentative: ' + esc(tentNames.join(', ')) + '</span>';
+    } else {
+      speakerHtml = '<span class="ev-open">open</span>';
+    }
     div.innerHTML =
       '<span class="ev-date">' + esc(ev.dateLabel) + '</span>' +
       '<span class="ev-type">' + esc(ev.eventType) + (ev.time ? ' ' + ev.time : '') + '</span>' +
