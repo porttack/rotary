@@ -125,6 +125,48 @@ const ROLE_FIELDS = [
   { col: COL.BAG_PERSON,     label: "Bag Person"     },
 ];
 
+// ── SPEAKER PIPELINE ─────────────────────────────────────────
+const PIPELINE_SHEET = 'Speaker Pipeline';
+const PIPELINE_STATUSES = ['new', 'in-progress', 'limbo', 'confirmed', 'scheduled', 'done', 'declined'];
+const PIPELINE_STATUS_LABELS = {
+  new: 'New', 'in-progress': 'In Progress', limbo: 'Limbo',
+  confirmed: 'Confirmed', scheduled: 'Scheduled', done: 'Done ✓', declined: 'Declined',
+};
+
+const CP = {
+  SOURCE:              1,   // A - offer | request | manual
+  STATUS:              2,   // B - kanban column value
+  SPEAKER_NAME:        3,   // C
+  SPEAKER_EMAIL:       4,   // D
+  SPEAKER_PHONE:       5,   // E
+  SPEAKER_CITY:        6,   // F
+  TOPIC:               7,   // G
+  SPEAKER_ROLE:        8,   // H - Opening | Main | Either | Unsure
+  BIO:                 9,   // I
+  NOTES:              10,   // J - append-only log, newest first
+  ASSIGNED_TO:        11,   // K
+  PREFERRED_DATES:    12,   // L - free text from submitter
+  TENTATIVE_DATE:     13,   // M - YYYY-MM-DD proposed date
+  EVENTS_ROW:         14,   // N - row index in Events tab once scheduled
+  PHOTO_URL:          15,   // O
+  REQUESTOR_NAME:     16,   // P
+  REQUESTOR_EMAIL:    17,   // Q
+  REQUESTOR_PHONE:    18,   // R
+  SPOKE_TO_ORGANIZER: 19,   // S
+  SPOKE_TO_PRESIDENT: 20,   // T
+  AVAIL_MORNING:      21,   // U
+  AVAIL_EVENING:      22,   // V
+  ZOOM_ONLY:          23,   // W
+  OTHER_SUGGESTIONS:  24,   // X
+  COMMENTS:           25,   // Y
+  SUBMITTED_AT:       26,   // Z
+  UPDATED_AT:         27,   // AA
+  UPDATED_BY:         28,   // AB
+  TAGS:               29,   // AC - comma-separated tag labels
+  INTERESTED:         30,   // AD - comma-separated names of members who +1'd
+};
+const NUM_PIPE_COLS = 30;
+
 // ── MENU ─────────────────────────────────────────────────────
 function onOpen() {
   SpreadsheetApp.getUi()
@@ -136,9 +178,11 @@ function onOpen() {
     .addSeparator()
     .addItem("🖼️  Sync Photos → URL Columns",   "syncPhotos")
     .addItem("📝  Open Duty Editor (web app)",  "openDutyEditor")
+    .addItem("🎤  Open Speaker Pipeline (web app)", "openSpeakerPipeline")
     .addItem("👥  Setup Members Tab",           "setupMembers")
     .addSeparator()
     .addItem("📋  Setup / Reset Sheet Headers", "setupSheet")
+    .addItem("🎤  Setup Speaker Pipeline Tab",  "setupSpeakerPipeline")
     .addItem("⚡  Install Edit Trigger (run once)", "installEditTrigger")
     .addToUi();
 }
@@ -1310,14 +1354,26 @@ function generateNewsletter() {
 
 /** Entry point for the deployed web app. Routes based on ?app= parameter. */
 function doGet(e) {
-  if (e && e.parameter && e.parameter.app === 'assistant') {
+  const app = (e && e.parameter && e.parameter.app) || '';
+  const mode = HtmlService.XFrameOptionsMode.ALLOWALL;
+  if (app === 'assistant') {
     return HtmlService.createHtmlOutput(getCalendarAssistantHtml())
-      .setTitle("SLV Rotary — Calendar Assistant")
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+      .setTitle("SLV Rotary — Calendar Assistant").setXFrameOptionsMode(mode);
+  }
+  if (app === 'kanban') {
+    return HtmlService.createHtmlOutput(getKanbanHtml())
+      .setTitle("SLV Rotary — Speaker Pipeline (Kanban)").setXFrameOptionsMode(mode);
+  }
+  if (app === 'pipeline') {
+    return HtmlService.createHtmlOutput(getPipelineTableHtml())
+      .setTitle("SLV Rotary — Speaker Pipeline (Table)").setXFrameOptionsMode(mode);
+  }
+  if (app === 'speaker-pipeline') {
+    return HtmlService.createHtmlOutput(getSpeakerStatusHtml())
+      .setTitle("SLV Rotary — Speaker Pipeline Status").setXFrameOptionsMode(mode);
   }
   return HtmlService.createHtmlOutput(getDutyEditorHtml())
-    .setTitle("SLV Rotary — Duty Editor")
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    .setTitle("SLV Rotary — Duty Editor").setXFrameOptionsMode(mode);
 }
 
 // Maximum form submissions accepted per calendar day across all form types.
@@ -1340,6 +1396,7 @@ function doPost(e) {
     boolFields.forEach(function (k) { p[k] = p[k] === "true"; });
 
     if (action === "speakerRequest") return handleSpeakerRequest_(p);
+    if (action === "speakerOffer")   return handleSpeakerOffer_(p);
     return jsonOut_({ ok: false, error: "Unknown action: " + action });
   } catch (err) {
     return jsonOut_({ ok: false, error: err.toString() });
@@ -1824,67 +1881,78 @@ google.script.run
 // ═══════════════════════════════════════════════════════════════
 
 function handleSpeakerRequest_(data) {
-  const sheet = getOrCreateTab_(
-    "Speaker Requests",
-    [
-      "Submitted At",
-      "Requestor Name", "Requestor Email", "Requestor Phone",
-      "Speaker Name", "Speaker Email", "Speaker Phone", "Speaker City",
-      "Topic", "Speaker Role", "Brief Bio", "Suggested Dates", "Time Preference",
-      "Comments",
-      "Spoke to Organizer", "Spoke to President",
-      "Avail: Morning", "Avail: Evening", "Zoom Only", "Other Suggestions",
-      "Photo URL",
-    ]
-  );
-
-  // Save photo to Drive and get a public URL
-  let photoUrl = "";
-  if (data.photoBase64) {
-    try {
-      const base64 = data.photoBase64.includes(",")
-        ? data.photoBase64.split(",")[1]
-        : data.photoBase64;
-      const mime = data.photoMime || "image/jpeg";
-      const ext  = (data.photoName || "photo.jpg").split(".").pop() || "jpg";
-      const safeName = (data.speakerName || "speaker")
-        .replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_") || "speaker";
-      const blob = Utilities.newBlob(Utilities.base64Decode(base64), mime, safeName + "." + ext);
-      const file = getRotaryPhotosFolder_().createFile(blob);
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      photoUrl = "https://drive.google.com/uc?export=view&id=" + file.getId();
-    } catch (photoErr) {
-      Logger.log("Photo save error: " + photoErr.toString());
-    }
-  }
-
+  const photoUrl = savePhotoToDrive_(data);
   const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "M/d/yyyy h:mm a");
-
-  sheet.appendRow([
-    ts,
-    data.requestorName    || "",
-    data.requestorEmail   || "",
-    data.requestorPhone   || "",
-    data.speakerName      || "",
-    data.speakerEmail     || "",
-    data.speakerPhone     || "",
-    data.speakerCity      || "",
-    data.topic            || "",
-    data.speakerRole      || "",
-    data.bio              || "",
-    data.suggestedDates   || "",
-    data.timePreference   || "",
-    data.comments         || "",
-    data.spokeToOrganizer ? "Yes" : "",
-    data.spokeToPresident ? "Yes" : "",
-    data.availMorning     ? "Yes" : "",
-    data.availEvening     ? "Yes" : "",
-    data.zoomOnly         ? "Yes" : "",
-    data.otherSuggestions ? "Yes" : "",
-    photoUrl,
-  ]);
-
+  const sheet = getPipelineSheet_();
+  const row = buildPipelineRow_('request', data, photoUrl, ts);
+  sheet.appendRow(row);
   return jsonOut_({ ok: true });
+}
+
+function handleSpeakerOffer_(data) {
+  const photoUrl = savePhotoToDrive_(data);
+  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "M/d/yyyy h:mm a");
+  const sheet = getPipelineSheet_();
+  const row = buildPipelineRow_('offer', data, photoUrl, ts);
+  sheet.appendRow(row);
+  return jsonOut_({ ok: true });
+}
+
+function buildPipelineRow_(source, data, photoUrl, ts) {
+  const row = Array(NUM_PIPE_COLS).fill('');
+  row[CP.SOURCE - 1]              = source;
+  row[CP.STATUS - 1]              = 'new';
+  row[CP.SPEAKER_NAME - 1]        = data.speakerName      || '';
+  row[CP.SPEAKER_EMAIL - 1]       = data.speakerEmail     || '';
+  row[CP.SPEAKER_PHONE - 1]       = data.speakerPhone     || '';
+  row[CP.SPEAKER_CITY - 1]        = data.speakerCity      || '';
+  row[CP.TOPIC - 1]               = data.topic            || '';
+  row[CP.SPEAKER_ROLE - 1]        = data.speakerRole      || '';
+  row[CP.BIO - 1]                 = data.bio              || '';
+  row[CP.PREFERRED_DATES - 1]     = data.suggestedDates   || '';
+  row[CP.PHOTO_URL - 1]           = photoUrl;
+  row[CP.REQUESTOR_NAME - 1]      = data.requestorName    || '';
+  row[CP.REQUESTOR_EMAIL - 1]     = data.requestorEmail   || '';
+  row[CP.REQUESTOR_PHONE - 1]     = data.requestorPhone   || '';
+  row[CP.SPOKE_TO_ORGANIZER - 1]  = data.spokeToOrganizer ? 'Yes' : '';
+  row[CP.SPOKE_TO_PRESIDENT - 1]  = data.spokeToPresident ? 'Yes' : '';
+  row[CP.AVAIL_MORNING - 1]       = data.availMorning     ? 'Yes' : '';
+  row[CP.AVAIL_EVENING - 1]       = data.availEvening     ? 'Yes' : '';
+  row[CP.ZOOM_ONLY - 1]           = data.zoomOnly         ? 'Yes' : '';
+  row[CP.OTHER_SUGGESTIONS - 1]   = data.otherSuggestions ? 'Yes' : '';
+  row[CP.COMMENTS - 1]            = data.comments         || '';
+  row[CP.SUBMITTED_AT - 1]        = ts;
+  row[CP.UPDATED_AT - 1]          = ts;
+  row[CP.UPDATED_BY - 1]          = 'form submission';
+  return row;
+}
+
+function savePhotoToDrive_(data) {
+  if (!data.photoBase64) return '';
+  try {
+    const base64 = data.photoBase64.includes(',') ? data.photoBase64.split(',')[1] : data.photoBase64;
+    const mime = data.photoMime || 'image/jpeg';
+    const ext  = (data.photoName || 'photo.jpg').split('.').pop() || 'jpg';
+    const safeName = (data.speakerName || 'speaker')
+      .replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_') || 'speaker';
+    const blob = Utilities.newBlob(Utilities.base64Decode(base64), mime, safeName + '.' + ext);
+    const file = getRotaryPhotosFolder_().createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return 'https://drive.google.com/uc?export=view&id=' + file.getId();
+  } catch (err) {
+    Logger.log('Photo save error: ' + err.toString());
+    return '';
+  }
+}
+
+function getPipelineSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(PIPELINE_SHEET);
+  if (!sheet) {
+    setupSpeakerPipeline();
+    sheet = ss.getSheetByName(PIPELINE_SHEET);
+  }
+  return sheet;
 }
 
 /** Find or create a sheet tab with a header row. */
@@ -2389,4 +2457,1129 @@ function getCalendarAssistantHtml() {
 '</script>\n' +
 '</body>\n' +
 '</html>';
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  SPEAKER PIPELINE — SETUP & SERVER API
+// ═══════════════════════════════════════════════════════════════
+
+function setupSpeakerPipeline() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(PIPELINE_SHEET);
+  if (!sheet) sheet = ss.insertSheet(PIPELINE_SHEET);
+
+  const headers = [
+    'Source', 'Status', 'Speaker Name', 'Speaker Email', 'Speaker Phone',
+    'Speaker City', 'Topic', 'Speaker Role', 'Bio', 'Notes',
+    'Assigned To', 'Preferred Dates', 'Tentative Date', 'Events Row', 'Photo URL',
+    'Requestor Name', 'Requestor Email', 'Requestor Phone',
+    'Spoke to Organizer', 'Spoke to President',
+    'Avail Morning', 'Avail Evening', 'Zoom Only', 'Other Suggestions', 'Comments',
+    'Submitted At', 'Updated At', 'Updated By',
+    'Tags', 'Interested (+1s)',
+  ];
+
+  const hdr = sheet.getRange(1, 1, 1, headers.length);
+  hdr.setValues([headers]);
+  hdr.setBackground('#1a3a6b').setFontColor('#ffffff').setFontWeight('bold').setFontSize(11);
+  sheet.setFrozenRows(1);
+
+  const statusRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(PIPELINE_STATUSES, true).setAllowInvalid(false).build();
+  sheet.getRange(2, CP.STATUS, 500, 1).setDataValidation(statusRule);
+
+  const colWidths = [80,90,160,180,120,120,220,110,300,300,
+                     130,180,110,80,220,140,180,120,80,80,70,70,70,80,220,130,130,130,200,200];
+  colWidths.forEach((w,i) => sheet.setColumnWidth(i+1, w));
+  sheet.setColumnWidth(CP.BIO, 300);
+  sheet.setColumnWidth(CP.NOTES, 300);
+
+  try { SpreadsheetApp.getUi().alert('Speaker Pipeline tab is ready!'); } catch(_) {}
+}
+
+function openSpeakerPipeline() {
+  let url;
+  try { url = ScriptApp.getService().getUrl(); } catch(_) { url = null; }
+  if (!url) { SpreadsheetApp.getUi().alert('Deploy the web app first.'); return; }
+  const html = HtmlService.createHtmlOutput(
+    '<p style="font-family:sans-serif">Opening Speaker Pipeline…</p>' +
+    '<script>window.open("' + url + '?app=kanban","_blank");google.script.host.close();</script>'
+  ).setWidth(320).setHeight(60);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Speaker Pipeline');
+}
+
+/** Validate the shared pipeline password against Script Properties. */
+function checkPipelinePassword(password) {
+  const stored = PropertiesService.getScriptProperties().getProperty('KANBAN_PASSWORD');
+  return !!(stored && password === stored);
+}
+
+/** Return all pipeline cards + member list for the web apps. */
+function getPipelineData() {
+  const sheet = getPipelineSheet_();
+  const last = sheet.getLastRow();
+  const cards = [];
+  if (last > 1) {
+    const data = sheet.getRange(2, 1, last - 1, NUM_PIPE_COLS).getValues();
+    const tz = Session.getScriptTimeZone();
+    data.forEach((row, i) => {
+      const tv = row[CP.TENTATIVE_DATE - 1];
+      cards.push({
+        rowIndex:          i + 2,
+        source:            String(row[CP.SOURCE - 1]              || ''),
+        status:            String(row[CP.STATUS - 1]              || 'new'),
+        speakerName:       String(row[CP.SPEAKER_NAME - 1]        || ''),
+        speakerEmail:      String(row[CP.SPEAKER_EMAIL - 1]       || ''),
+        speakerPhone:      String(row[CP.SPEAKER_PHONE - 1]       || ''),
+        speakerCity:       String(row[CP.SPEAKER_CITY - 1]        || ''),
+        topic:             String(row[CP.TOPIC - 1]               || ''),
+        speakerRole:       String(row[CP.SPEAKER_ROLE - 1]        || ''),
+        bio:               String(row[CP.BIO - 1]                 || ''),
+        notes:             String(row[CP.NOTES - 1]               || ''),
+        assignedTo:        String(row[CP.ASSIGNED_TO - 1]         || ''),
+        preferredDates:    String(row[CP.PREFERRED_DATES - 1]     || ''),
+        tentativeDate:     tv instanceof Date ? Utilities.formatDate(tv, tz, 'yyyy-MM-dd') : String(tv || ''),
+        eventsRow:         row[CP.EVENTS_ROW - 1]                 || '',
+        photoUrl:          String(row[CP.PHOTO_URL - 1]           || ''),
+        requestorName:     String(row[CP.REQUESTOR_NAME - 1]      || ''),
+        requestorEmail:    String(row[CP.REQUESTOR_EMAIL - 1]     || ''),
+        requestorPhone:    String(row[CP.REQUESTOR_PHONE - 1]     || ''),
+        spokeToOrganizer:  row[CP.SPOKE_TO_ORGANIZER - 1] === 'Yes',
+        spokeToPresident:  row[CP.SPOKE_TO_PRESIDENT - 1] === 'Yes',
+        availMorning:      row[CP.AVAIL_MORNING - 1] === 'Yes',
+        availEvening:      row[CP.AVAIL_EVENING - 1] === 'Yes',
+        zoomOnly:          row[CP.ZOOM_ONLY - 1] === 'Yes',
+        otherSuggestions:  row[CP.OTHER_SUGGESTIONS - 1] === 'Yes',
+        comments:          String(row[CP.COMMENTS - 1]            || ''),
+        submittedAt:       String(row[CP.SUBMITTED_AT - 1]        || ''),
+        updatedAt:         String(row[CP.UPDATED_AT - 1]          || ''),
+        updatedBy:         String(row[CP.UPDATED_BY - 1]          || ''),
+        tags:              String(row[CP.TAGS - 1]                || ''),
+        interested:        String(row[CP.INTERESTED - 1]          || ''),
+      });
+    });
+  }
+  const members = getMemberNames_();
+  return { cards, members, statuses: PIPELINE_STATUSES, statusLabels: PIPELINE_STATUS_LABELS };
+}
+
+/** Update fields on an existing pipeline card. */
+function savePipelineCard(rowIndex, changes, updatedBy) {
+  const sheet = getPipelineSheet_();
+  const colMap = {
+    status: CP.STATUS, speakerName: CP.SPEAKER_NAME, speakerEmail: CP.SPEAKER_EMAIL,
+    speakerPhone: CP.SPEAKER_PHONE, speakerCity: CP.SPEAKER_CITY,
+    topic: CP.TOPIC, speakerRole: CP.SPEAKER_ROLE, bio: CP.BIO,
+    assignedTo: CP.ASSIGNED_TO, preferredDates: CP.PREFERRED_DATES,
+    tentativeDate: CP.TENTATIVE_DATE, eventsRow: CP.EVENTS_ROW, photoUrl: CP.PHOTO_URL,
+    comments: CP.COMMENTS, tags: CP.TAGS,
+  };
+  Object.entries(changes).forEach(([k, v]) => {
+    if (colMap[k]) sheet.getRange(rowIndex, colMap[k]).setValue(v);
+  });
+  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'M/d/yy h:mm a');
+  sheet.getRange(rowIndex, CP.UPDATED_AT).setValue(ts);
+  sheet.getRange(rowIndex, CP.UPDATED_BY).setValue(updatedBy || '');
+  return { ok: true };
+}
+
+/** Toggle a +1 vote for memberName on a pipeline card. Returns updated interested string. */
+function togglePipelineVote(rowIndex, memberName) {
+  const sheet = getPipelineSheet_();
+  const cell = sheet.getRange(rowIndex, CP.INTERESTED);
+  const existing = String(cell.getValue() || '');
+  const names = existing ? existing.split(',').map(n => n.trim()).filter(Boolean) : [];
+  const idx = names.indexOf(memberName);
+  if (idx === -1) { names.push(memberName); } else { names.splice(idx, 1); }
+  const updated = names.join(', ');
+  cell.setValue(updated);
+  return { ok: true, interested: updated };
+}
+
+/** Prepend a timestamped note to the Notes cell (newest-first). */
+function appendPipelineNote(rowIndex, noteText, authorName) {
+  const sheet = getPipelineSheet_();
+  const tz = Session.getScriptTimeZone();
+  const stamp = Utilities.formatDate(new Date(), tz, 'M/d/yy h:mm a');
+  const entry = '[' + stamp + ' ' + (authorName || '?') + ']: ' + noteText;
+  const cell = sheet.getRange(rowIndex, CP.NOTES);
+  const existing = String(cell.getValue() || '').trim();
+  cell.setValue(existing ? entry + '\n' + existing : entry);
+  sheet.getRange(rowIndex, CP.UPDATED_AT).setValue(stamp);
+  sheet.getRange(rowIndex, CP.UPDATED_BY).setValue(authorName || '');
+  return { ok: true };
+}
+
+/** Add a manually-created pipeline card. */
+function addPipelineCard(data, addedBy) {
+  const sheet = getPipelineSheet_();
+  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'M/d/yyyy h:mm a');
+  const row = buildPipelineRow_('manual', data, '', ts);
+  row[CP.UPDATED_BY - 1] = addedBy || '';
+  if (data.status) row[CP.STATUS - 1] = data.status;
+  sheet.appendRow(row);
+  return { ok: true, rowIndex: sheet.getLastRow() };
+}
+
+/** Return upcoming Events rows where the main speaker slot is empty or TBD. */
+function getUpcomingEventsForPicker() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const tz = Session.getScriptTimeZone();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, NUM_COLS).getValues();
+  const results = [];
+  data.forEach((row, i) => {
+    const dv = row[COL.DATE - 1];
+    if (!dv || !(dv instanceof Date)) return;
+    const d = new Date(dv); d.setHours(0, 0, 0, 0);
+    if (d < today) return;
+    if (row[COL.CANCELLED - 1]) return;
+    const type = String(row[COL.EVENT_TYPE - 1] || '').toLowerCase();
+    if (!['meeting', 'assembly', 'board meeting'].includes(type)) return;
+    const tv = row[COL.TIME - 1];
+    const speakerRaw = String(row[COL.MAIN_SPEAKER - 1] || '').trim();
+    const speakerUp  = speakerRaw.toUpperCase();
+    const available  = !speakerRaw || speakerUp === 'TBD' || speakerUp === 'N/A';
+    results.push({
+      rowIndex:    i + 2,
+      date:        Utilities.formatDate(dv, tz, 'yyyy-MM-dd'),
+      dateLabel:   Utilities.formatDate(dv, tz, 'EEE MMM d, yyyy'),
+      eventType:   String(row[COL.EVENT_TYPE - 1] || ''),
+      mainSpeaker: speakerRaw,
+      mainTopic:   String(row[COL.MAIN_TOPIC - 1] || ''),
+      time:        tv instanceof Date ? Utilities.formatDate(tv, tz, 'h:mm a') : String(tv || ''),
+      location:    String(row[COL.LOCATION - 1] || ''),
+      available:   available,
+    });
+  });
+  return results; // return all; client trims to preference
+}
+
+/**
+ * Copy speaker data from a pipeline card into an existing Events row.
+ * Sets pipeline card status to 'scheduled' and records the events row link.
+ */
+function assignSpeakerToEvent(pipelineRow, eventsRow, updatedBy) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const evSheet = ss.getSheetByName(SHEET_NAME);
+  const pSheet  = getPipelineSheet_();
+
+  const pData = pSheet.getRange(pipelineRow, 1, 1, NUM_PIPE_COLS).getValues()[0];
+  const speakerName = String(pData[CP.SPEAKER_NAME - 1] || '');
+  const topic       = String(pData[CP.TOPIC - 1]        || '');
+  const bio         = String(pData[CP.BIO - 1]          || '');
+  const photoUrl    = String(pData[CP.PHOTO_URL - 1]    || '');
+  const role        = String(pData[CP.SPEAKER_ROLE - 1] || 'Main Speaker').toLowerCase();
+
+  if (role.includes('opening')) {
+    evSheet.getRange(eventsRow, COL.OPENING_SPEAKER).setValue(speakerName);
+  } else {
+    evSheet.getRange(eventsRow, COL.MAIN_SPEAKER).setValue(speakerName);
+    evSheet.getRange(eventsRow, COL.MAIN_TOPIC).setValue(topic);
+  }
+  if (bio)      evSheet.getRange(eventsRow, COL.SUMMARY).setValue(bio);
+  if (photoUrl) evSheet.getRange(eventsRow, COL.PHOTO_TOP).setValue(photoUrl);
+
+  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'M/d/yy h:mm a');
+  evSheet.getRange(eventsRow, COL.STATUS).setValue('Speaker assigned ' + ts);
+
+  pSheet.getRange(pipelineRow, CP.STATUS).setValue('scheduled');
+  pSheet.getRange(pipelineRow, CP.EVENTS_ROW).setValue(eventsRow);
+  pSheet.getRange(pipelineRow, CP.UPDATED_AT).setValue(ts);
+  pSheet.getRange(pipelineRow, CP.UPDATED_BY).setValue(updatedBy || '');
+
+  return { ok: true, speakerName, eventsRow };
+}
+
+function getMemberNames_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ms = ss.getSheetByName('Members');
+  if (!ms || ms.getLastRow() < 2) return [];
+  return ms.getRange(2, 1, ms.getLastRow() - 1, 1)
+    .getValues().map(r => String(r[0] || '').trim()).filter(Boolean).sort();
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  SPEAKER PIPELINE — KANBAN VIEW  (?app=kanban)
+// ═══════════════════════════════════════════════════════════════
+function getKanbanHtml() {
+return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLV Rotary — Speaker Pipeline (Kanban)</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#f0f2f5;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header{background:#17458F;color:#fff;padding:0.6em 1em;display:flex;align-items:center;gap:1em;flex-shrink:0}
+header h1{font-size:1em;font-weight:bold;flex:1}
+.hbtn{font-size:0.8em;padding:3px 10px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;cursor:pointer}
+.hbtn:hover{background:rgba(255,255,255,0.28)}
+#board{flex:1;overflow-x:auto;display:flex;gap:0.6em;padding:0.7em;align-items:flex-start}
+.col{background:#e8eaf0;border-radius:8px;width:200px;flex-shrink:0;display:flex;flex-direction:column;max-height:100%}
+.col-hd{padding:0.5em 0.7em;font-weight:bold;font-size:0.82em;color:#fff;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center}
+.col-body{flex:1;overflow-y:auto;padding:0.4em;display:flex;flex-direction:column;gap:0.35em;min-height:60px}
+.col-body.drag-over{background:#c8d8f8}
+.card{background:#fff;border-radius:6px;padding:0.5em 0.65em;cursor:pointer;border-left:3px solid #17458F;font-size:0.82em;user-select:none}
+.card:hover{box-shadow:0 2px 6px rgba(0,0,0,0.12)}
+.card.dragging{opacity:0.4}
+.card-name{font-weight:bold;color:#17458F;margin-bottom:2px}
+.card-topic{color:#444;font-size:0.92em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-meta{color:#888;font-size:0.8em;margin-top:3px;display:flex;gap:0.4em;flex-wrap:wrap}
+.badge{background:#e8eaf0;border-radius:3px;padding:1px 5px;font-size:0.78em}
+.badge.offer{background:#d1fae5;color:#065f46}
+.badge.request{background:#dbeafe;color:#1e3a8a}
+.badge.manual{background:#f3f4f6;color:#555}
+/* Status column colors */
+.hd-new{background:#6b7280}
+.hd-in-progress{background:#2563eb}
+.hd-limbo{background:#9333ea}
+.hd-confirmed{background:#d97706}
+.hd-scheduled{background:#16a34a}
+.hd-done{background:#059669}
+.hd-declined{background:#dc2626}
+/* Panel */
+#panel{position:fixed;right:-420px;top:0;width:420px;height:100%;background:#fff;box-shadow:-3px 0 16px rgba(0,0,0,0.12);transition:right 0.2s;display:flex;flex-direction:column;z-index:100}
+#panel.open{right:0}
+#panel-hd{background:#17458F;color:#fff;padding:0.7em 1em;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+#panel-hd h2{font-size:1em}
+#panel-close{background:none;border:none;color:#fff;font-size:1.3em;cursor:pointer;line-height:1}
+#panel-body{flex:1;overflow-y:auto;padding:1em}
+.pfield{margin-bottom:0.7em}
+.pfield label{display:block;font-weight:bold;color:#17458F;font-size:0.82em;margin-bottom:2px}
+.pfield input,.pfield textarea,.pfield select{width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-size:0.88em;font-family:Arial,sans-serif}
+.pfield textarea{resize:vertical;min-height:60px}
+.notes-display{background:#f8f9fa;border:1px solid #e0e0e0;border-radius:4px;padding:0.5em 0.7em;font-size:0.8em;white-space:pre-wrap;max-height:120px;overflow-y:auto;color:#333;margin-bottom:0.4em}
+.pbtn{background:#17458F;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;margin-right:0.4em}
+.pbtn:hover{background:#1a56db}
+.pbtn.sec{background:#f4f4f4;color:#444;border:1px solid #ccc}
+.pbtn.sec:hover{background:#e8e8e8}
+.pbtn.danger{background:#dc2626}
+.pmsg{font-size:0.8em;margin-top:0.4em;min-height:1em}
+.pmsg.ok{color:#166534}.pmsg.err{color:#b91c1c}
+.sec-title{font-weight:bold;color:#17458F;font-size:0.85em;border-bottom:1px solid #e0e0e0;padding-bottom:3px;margin:0.8em 0 0.5em}
+/* Auth */
+#auth{position:fixed;inset:0;background:#17458F;display:flex;align-items:center;justify-content:center;z-index:200}
+.auth-box{background:#fff;border-radius:10px;padding:2em;width:300px;text-align:center}
+.auth-box h2{color:#17458F;margin-bottom:1em;font-size:1.1em}
+.auth-box input{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;margin-bottom:0.6em;font-size:0.95em}
+.auth-box button{background:#17458F;color:#fff;border:none;padding:8px 24px;border-radius:4px;cursor:pointer;font-size:0.95em;width:100%}
+.auth-err{color:#b91c1c;font-size:0.85em;margin-top:0.4em;min-height:1em}
+/* Tags on cards */
+.card-tags{display:flex;flex-wrap:wrap;gap:2px;margin-top:3px}
+.tag-chip{font-size:0.72em;padding:1px 6px;border-radius:8px;background:#e0e7ff;color:#3730a3;font-weight:500}
+/* Vote button */
+.vote-row{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:4px}
+.vote-btn{background:none;border:1px solid #d1d5db;border-radius:10px;padding:1px 7px;font-size:0.78em;cursor:pointer;color:#6b7280;line-height:1.5}
+.vote-btn.voted{background:#fee2e2;border-color:#fca5a5;color:#b91c1c}
+/* Modal */
+#modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:150;align-items:center;justify-content:center}
+#modal-overlay.show{display:flex}
+.modal{background:#fff;border-radius:8px;padding:1.2em;width:440px;max-height:80vh;display:flex;flex-direction:column}
+.modal h3{color:#17458F;margin-bottom:0.5em}
+.modal-desc{font-size:0.82em;color:#555;margin-bottom:0.6em}
+#event-list{flex:1;overflow-y:auto;max-height:340px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:0.6em}
+.ev-item{padding:0.5em 0.75em;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:0.84em;display:flex;gap:0.5em;align-items:baseline}
+.ev-item:last-child{border-bottom:none}
+.ev-item.available:hover{background:#f0f7ff}
+.ev-item.available.selected{background:#dbeafe;border-left:3px solid #2563eb}
+.ev-item.taken{color:#9ca3af;cursor:default}
+.ev-item.taken .ev-speaker{text-decoration:line-through;font-size:0.9em}
+.ev-date{font-weight:bold;white-space:nowrap;min-width:130px}
+.ev-type{color:#6b7280;font-size:0.9em}
+.ev-speaker{color:#b91c1c;font-size:0.85em;margin-left:auto}
+.ev-open{color:#16a34a;font-size:0.85em;margin-left:auto}
+.modal-btns{display:flex;gap:0.5em}
+</style>
+</head>
+<body>
+
+<div id="auth">
+  <div class="auth-box">
+    <h2>📅 SLV Rotary<br>Speaker Pipeline</h2>
+    <input type="text" id="auth-name" placeholder="Your name" autocomplete="name">
+    <input type="password" id="auth-pw" placeholder="Password">
+    <button onclick="doLogin()">Enter</button>
+    <div class="auth-err" id="auth-err"></div>
+  </div>
+</div>
+
+<header>
+  <h1>🎤 Speaker Pipeline — Kanban</h1>
+  <span id="hdr-user" style="font-size:0.85em;opacity:0.8"></span>
+  <a class="hbtn" href="https://rotary.porttack.com/request/" target="_blank">+ Request Speaker</a>
+  <button class="hbtn" onclick="toggleDeclined()">Declined</button>
+  <a href="?app=pipeline" class="hbtn">Table →</a>
+  <a href="?app=speaker-pipeline" class="hbtn">Status →</a>
+  <button class="hbtn" onclick="logout()">Logout</button>
+</header>
+<div id="board"></div>
+
+<!-- Detail Panel -->
+<div id="panel">
+  <div id="panel-hd"><h2 id="panel-title">Speaker Detail</h2><button id="panel-close" onclick="closePanel()">✕</button></div>
+  <div id="panel-body"></div>
+</div>
+
+<!-- Event Picker Modal -->
+<div id="modal-overlay">
+  <div class="modal">
+    <h3>Assign to Event</h3>
+    <p class="modal-desc">Green = open slot. Gray/strikethrough = already has a speaker. Click to select, then Assign.</p>
+    <div id="event-list"><p style="padding:0.6em;color:#888;font-size:0.85em">Loading…</p></div>
+    <div class="modal-btns">
+      <button class="pbtn" onclick="confirmAssign()">Assign</button>
+      <button class="pbtn sec" onclick="closeModal()">Cancel</button>
+    </div>
+    <div class="pmsg" id="modal-msg"></div>
+  </div>
+</div>
+
+<script>
+var currentUser = '', allCards = [], members = [], statuses = [], statusLabels = {};
+var panelRow = null, showDeclined = false;
+
+function gs(fn, arg) {
+  return new Promise(function(ok, fail) {
+    var r = google.script.run.withSuccessHandler(ok).withFailureHandler(fail);
+    r[fn](arg);
+  });
+}
+function gs2(fn, a, b) {
+  return new Promise(function(ok, fail) {
+    google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a, b);
+  });
+}
+function gs3(fn, a, b, c) {
+  return new Promise(function(ok, fail) {
+    google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a, b, c);
+  });
+}
+
+// ── Auth ──────────────────────────────────────────────────────
+function doLogin() {
+  var name = document.getElementById('auth-name').value.trim();
+  var pw   = document.getElementById('auth-pw').value;
+  if (!name) { document.getElementById('auth-err').textContent = 'Enter your name.'; return; }
+  if (!pw)   { document.getElementById('auth-err').textContent = 'Enter the password.'; return; }
+  gs('checkPipelinePassword', pw).then(function(ok) {
+    if (ok) {
+      localStorage.setItem('pipelinePw', pw);
+      localStorage.setItem('pipelineName', name);
+      currentUser = name;
+      document.getElementById('auth').style.display = 'none';
+      document.getElementById('hdr-user').textContent = name;
+      loadBoard();
+    } else {
+      document.getElementById('auth-err').textContent = 'Wrong password. (Set KANBAN_PASSWORD in Script Properties if not done yet.)';
+    }
+  }).catch(function(err) {
+    document.getElementById('auth-err').textContent = 'Error: ' + (err.message || String(err));
+  });
+}
+
+window.addEventListener('load', function() {
+  var pw = localStorage.getItem('pipelinePw');
+  var name = localStorage.getItem('pipelineName');
+  if (pw && name) {
+    gs('checkPipelinePassword', pw).then(function(ok) {
+      if (ok) {
+        currentUser = name;
+        document.getElementById('auth').style.display = 'none';
+        document.getElementById('hdr-user').textContent = name;
+        loadBoard();
+      } else { localStorage.removeItem('pipelinePw'); }
+    });
+  }
+  document.getElementById('auth-pw').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') doLogin();
+  });
+});
+
+// ── Board ─────────────────────────────────────────────────────
+async function loadBoard() {
+  try {
+    var data = await gs('getPipelineData', null);
+    allCards = data.cards;
+    members  = data.members;
+    statuses = data.statuses;
+    statusLabels = data.statusLabels;
+    renderBoard();
+  } catch(e) {
+    document.getElementById('board').innerHTML =
+      '<p style="color:#b91c1c;padding:1.2em;font-family:Arial,sans-serif">⚠️ ' + e.message +
+      '<br><br>Run <strong>Setup Speaker Pipeline Tab</strong> from the Rotary Sync menu in the spreadsheet, then reload.</p>';
+  }
+}
+
+function renderBoard() {
+  var board = document.getElementById('board');
+  board.innerHTML = '';
+  var visibleStatuses = statuses.filter(function(s) { return showDeclined || s !== 'declined'; });
+  visibleStatuses.forEach(function(status) {
+    var cards = allCards.filter(function(c) { return c.status === status; });
+    var col = document.createElement('div');
+    col.className = 'col';
+    col.dataset.status = status;
+    col.innerHTML =
+      '<div class="col-hd hd-' + status + '">' +
+        '<span>' + (statusLabels[status] || status) + '</span>' +
+        '<span style="background:rgba(255,255,255,0.3);border-radius:10px;padding:1px 7px;font-size:0.9em">' + cards.length + '</span>' +
+      '</div>' +
+      '<div class="col-body" id="col-' + status + '"></div>';
+    var body = col.querySelector('.col-body');
+    setupDrop(body, status);
+    cards.forEach(function(card) { body.appendChild(buildCard(card)); });
+    board.appendChild(col);
+  });
+}
+
+function buildCard(card) {
+  var div = document.createElement('div');
+  div.className = 'card';
+  div.draggable = true;
+  div.dataset.row = card.rowIndex;
+  var interestedNames = card.interested ? card.interested.split(',').map(function(n){return n.trim();}).filter(Boolean) : [];
+  var iVoted = interestedNames.indexOf(currentUser) !== -1;
+  var tagChips = card.tags ? card.tags.split(',').map(function(t){t=t.trim();return t?'<span class="tag-chip">'+esc(t)+'</span>':''}).join('') : '';
+  div.innerHTML =
+    '<div class="card-name">' + esc(card.speakerName || '(no name)') + '</div>' +
+    '<div class="card-topic">' + esc(card.topic || '—') + '</div>' +
+    '<div class="card-meta">' +
+      '<span class="badge ' + card.source + '">' + card.source + '</span>' +
+      (card.assignedTo ? '<span class="badge">👤 ' + esc(card.assignedTo) + '</span>' : '') +
+      (card.tentativeDate ? '<span class="badge">📅 ' + card.tentativeDate + '</span>' : '') +
+    '</div>' +
+    (tagChips ? '<div class="card-tags">' + tagChips + '</div>' : '') +
+    '<div class="vote-row">' +
+      '<button class="vote-btn' + (iVoted ? ' voted' : '') + '" data-row="' + card.rowIndex + '">' +
+        (iVoted ? '❤️' : '🤍') + ' ' + interestedNames.length +
+      '</button>' +
+    '</div>';
+  div.addEventListener('click', function(e) {
+    if (e.target.closest('.vote-btn')) return; // vote button handles its own click
+    openPanel(card.rowIndex);
+  });
+  div.querySelector('.vote-btn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    gs3('togglePipelineVote', card.rowIndex, currentUser).then(function(res) {
+      card.interested = res.interested;
+      var btn = div.querySelector('.vote-btn');
+      var names = res.interested ? res.interested.split(',').map(function(n){return n.trim();}).filter(Boolean) : [];
+      var voted = names.indexOf(currentUser) !== -1;
+      btn.className = 'vote-btn' + (voted ? ' voted' : '');
+      btn.textContent = (voted ? '❤️' : '🤍') + ' ' + names.length;
+    });
+  });
+  div.addEventListener('dragstart', function(e) {
+    div.classList.add('dragging');
+    e.dataTransfer.setData('rowIndex', card.rowIndex);
+  });
+  div.addEventListener('dragend', function() { div.classList.remove('dragging'); });
+  return div;
+}
+
+function setupDrop(el, status) {
+  el.addEventListener('dragover', function(e) { e.preventDefault(); el.classList.add('drag-over'); });
+  el.addEventListener('dragleave', function() { el.classList.remove('drag-over'); });
+  el.addEventListener('drop', function(e) {
+    e.preventDefault(); el.classList.remove('drag-over');
+    var rowIndex = parseInt(e.dataTransfer.getData('rowIndex'));
+    if (!rowIndex) return;
+    var card = allCards.find(function(c) { return c.rowIndex === rowIndex; });
+    if (!card || card.status === status) return;
+    card.status = status;
+    renderBoard();
+    gs3('savePipelineCard', rowIndex, { status: status }, currentUser)
+      .catch(function(err) { alert('Save failed: ' + err.message); loadBoard(); });
+  });
+}
+
+// ── Detail Panel ─────────────────────────────────────────────
+function openPanel(rowIndex) {
+  var card = allCards.find(function(c) { return c.rowIndex === rowIndex; });
+  if (!card) return;
+  panelRow = rowIndex;
+  var b = document.getElementById('panel-body');
+  document.getElementById('panel-title').textContent = card.speakerName || 'Speaker Detail';
+
+  var memberOpts = [''].concat(members).map(function(m) {
+    return '<option value="' + esc(m) + '"' + (m === card.assignedTo ? ' selected' : '') + '>' + esc(m || '— unassigned —') + '</option>';
+  }).join('');
+  var statusOpts = statuses.map(function(s) {
+    return '<option value="' + s + '"' + (s === card.status ? ' selected' : '') + '>' + (statusLabels[s] || s) + '</option>';
+  }).join('');
+
+  b.innerHTML =
+    '<div class="pfield"><label>Speaker Name</label>' +
+      '<input id="pn-name" value="' + esc(card.speakerName) + '"></div>' +
+    '<div class="pfield"><label>Topic</label>' +
+      '<input id="pn-topic" value="' + esc(card.topic) + '"></div>' +
+    '<div class="pfield"><label>Status</label>' +
+      '<select id="pn-status">' + statusOpts + '</select></div>' +
+    '<div class="pfield"><label>Assigned To</label>' +
+      '<select id="pn-assigned">' + memberOpts + '</select></div>' +
+    '<div class="pfield"><label>Tentative Date</label>' +
+      '<input type="date" id="pn-date" value="' + esc(card.tentativeDate) + '"></div>' +
+    '<div class="pfield"><label>Speaker Role</label>' +
+      '<select id="pn-role"><option>Opening Speaker</option><option>Main Speaker</option><option>Either</option><option>Unsure</option></select></div>' +
+    '<div class="pfield"><label>Email</label><input id="pn-email" value="' + esc(card.speakerEmail) + '"></div>' +
+    '<div class="pfield"><label>Phone</label><input id="pn-phone" value="' + esc(card.speakerPhone) + '"></div>' +
+    '<div class="pfield"><label>City</label><input id="pn-city" value="' + esc(card.speakerCity) + '"></div>' +
+    '<div class="pfield"><label>Preferred Dates</label>' +
+      '<input id="pn-pref" value="' + esc(card.preferredDates) + '"></div>' +
+    '<div class="pfield"><label>Bio</label>' +
+      '<textarea id="pn-bio" rows="3">' + esc(card.bio) + '</textarea></div>' +
+    '<div class="pfield"><label>Tags <span style="font-weight:normal;color:#888;font-size:0.9em">(comma-separated)</span></label>' +
+      '<input id="pn-tags" value="' + esc(card.tags) + '" placeholder="e.g. environment, local, tech"></div>' +
+    (card.requestorName ? '<div class="pfield"><label>Submitted by</label><span style="font-size:0.88em">' + esc(card.requestorName) + ' &lt;' + esc(card.requestorEmail) + '&gt;</span></div>' : '') +
+    (card.interested ? '<div class="pfield"><label>Interested members</label><span style="font-size:0.88em">' + esc(card.interested) + '</span></div>' : '') +
+    '<button class="pbtn" onclick="savePanel()">Save</button>' +
+    (card.status === 'confirmed' || card.status === 'scheduled' ?
+      '<button class="pbtn" style="background:#16a34a" onclick="openAssignModal()">Assign to Event</button>' : '') +
+    '<div class="pmsg" id="panel-msg"></div>' +
+    '<div class="sec-title">Notes</div>' +
+    '<div class="notes-display" id="pn-notes-display">' + esc(card.notes) + '</div>' +
+    '<div class="pfield"><label>Add Note</label>' +
+      '<textarea id="pn-note-input" rows="2" placeholder="Type a note…"></textarea></div>' +
+    '<button class="pbtn sec" onclick="addNote()">Add Note</button>';
+
+  document.getElementById('pn-role').value = card.speakerRole || 'Main Speaker';
+  document.getElementById('panel').classList.add('open');
+}
+
+function closePanel() { document.getElementById('panel').classList.remove('open'); panelRow = null; }
+
+async function savePanel() {
+  if (!panelRow) return;
+  var msg = document.getElementById('panel-msg');
+  var changes = {
+    speakerName: document.getElementById('pn-name').value.trim(),
+    topic:       document.getElementById('pn-topic').value.trim(),
+    status:      document.getElementById('pn-status').value,
+    assignedTo:  document.getElementById('pn-assigned').value,
+    tentativeDate: document.getElementById('pn-date').value,
+    speakerRole: document.getElementById('pn-role').value,
+    speakerEmail: document.getElementById('pn-email').value.trim(),
+    speakerPhone: document.getElementById('pn-phone').value.trim(),
+    speakerCity:  document.getElementById('pn-city').value.trim(),
+    preferredDates: document.getElementById('pn-pref').value.trim(),
+    bio:          document.getElementById('pn-bio').value.trim(),
+    tags:         document.getElementById('pn-tags').value.trim(),
+  };
+  try {
+    await gs3('savePipelineCard', panelRow, changes, currentUser);
+    var card = allCards.find(function(c) { return c.rowIndex === panelRow; });
+    if (card) Object.assign(card, changes);
+    renderBoard();
+    msg.className = 'pmsg ok'; msg.textContent = 'Saved ✓';
+    setTimeout(function() { msg.textContent = ''; }, 2000);
+  } catch(e) { msg.className = 'pmsg err'; msg.textContent = 'Error: ' + e.message; }
+}
+
+async function addNote() {
+  if (!panelRow) return;
+  var inp = document.getElementById('pn-note-input');
+  var text = inp.value.trim();
+  if (!text) return;
+  try {
+    await gs3('appendPipelineNote', panelRow, text, currentUser);
+    inp.value = '';
+    var card = allCards.find(function(c) { return c.rowIndex === panelRow; });
+    var data = await gs('getPipelineData', null);
+    var updated = data.cards.find(function(c) { return c.rowIndex === panelRow; });
+    if (updated && card) { card.notes = updated.notes; }
+    document.getElementById('pn-notes-display').textContent = updated ? updated.notes : '';
+    allCards = data.cards;
+    renderBoard();
+  } catch(e) { alert('Note failed: ' + e.message); }
+}
+
+// ── Assign to Event Modal ─────────────────────────────────────
+var selectedEventsRow = null;
+
+async function openAssignModal() {
+  selectedEventsRow = null;
+  document.getElementById('modal-overlay').classList.add('show');
+  document.getElementById('modal-msg').textContent = '';
+  var list = document.getElementById('event-list');
+  list.innerHTML = '<p style="padding:0.6em;color:#888;font-size:0.85em">Loading…</p>';
+  var events = await gs('getUpcomingEventsForPicker', null);
+  if (!events.length) {
+    list.innerHTML = '<p style="padding:0.6em;color:#888;font-size:0.85em">No upcoming meetings found.</p>';
+    return;
+  }
+  list.innerHTML = '';
+  events.forEach(function(ev) {
+    var div = document.createElement('div');
+    div.className = 'ev-item ' + (ev.available ? 'available' : 'taken');
+    div.dataset.row = ev.rowIndex;
+    var speakerHtml = ev.available
+      ? '<span class="ev-open">open</span>'
+      : '<span class="ev-speaker">' + esc(ev.mainSpeaker) + (ev.mainTopic ? ': ' + esc(ev.mainTopic) : '') + '</span>';
+    div.innerHTML =
+      '<span class="ev-date">' + esc(ev.dateLabel) + '</span>' +
+      '<span class="ev-type">' + esc(ev.eventType) + (ev.time ? ' ' + ev.time : '') + '</span>' +
+      speakerHtml;
+    if (ev.available) {
+      div.addEventListener('click', function() {
+        list.querySelectorAll('.ev-item').forEach(function(el) { el.classList.remove('selected'); });
+        div.classList.add('selected');
+        selectedEventsRow = ev.rowIndex;
+      });
+    }
+    list.appendChild(div);
+  });
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('show');
+  selectedEventsRow = null;
+}
+
+async function confirmAssign() {
+  if (!selectedEventsRow || !panelRow) {
+    document.getElementById('modal-msg').textContent = 'Please select an available date first.';
+    return;
+  }
+  var msg = document.getElementById('modal-msg');
+  try {
+    var res = await gs3('assignSpeakerToEvent', panelRow, selectedEventsRow, currentUser);
+    msg.className = 'pmsg ok'; msg.textContent = '✓ Assigned ' + res.speakerName;
+    var data = await gs('getPipelineData', null);
+    allCards = data.cards; renderBoard();
+    setTimeout(function() { closeModal(); closePanel(); }, 1500);
+  } catch(e) { msg.className = 'pmsg err'; msg.textContent = 'Error: ' + e.message; }
+}
+
+function toggleDeclined() { showDeclined = !showDeclined; renderBoard(); }
+
+function logout() {
+  localStorage.removeItem('pipelinePw');
+  localStorage.removeItem('pipelineName');
+  location.reload();
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  SPEAKER PIPELINE — TABLE VIEW  (?app=pipeline)
+// ═══════════════════════════════════════════════════════════════
+function getPipelineTableHtml() {
+return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLV Rotary — Speaker Pipeline (Table)</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh}
+header{background:#17458F;color:#fff;padding:0.6em 1em;display:flex;align-items:center;gap:1em}
+header h1{font-size:1em;font-weight:bold;flex:1}
+.hbtn{font-size:0.8em;padding:3px 10px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;cursor:pointer;text-decoration:none}
+#toolbar{background:#fff;border-bottom:1px solid #ddd;padding:0.5em 1em;display:flex;gap:0.8em;flex-wrap:wrap;align-items:center}
+#search{padding:5px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.88em;width:180px}
+.filter-btn{padding:3px 10px;border:1px solid #ccc;border-radius:12px;font-size:0.8em;cursor:pointer;background:#fff}
+.filter-btn.active{background:#17458F;color:#fff;border-color:#17458F}
+#content{padding:0.7em 1em}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.07)}
+th{background:#17458F;color:#fff;padding:7px 10px;text-align:left;font-size:0.82em;cursor:pointer;white-space:nowrap}
+th:hover{background:#1a56db}
+td{padding:7px 10px;font-size:0.85em;border-bottom:1px solid #f0f0f0;vertical-align:top}
+tr:hover td{background:#f8f9ff}
+.tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:0.78em;font-weight:bold}
+.tag-new{background:#e5e7eb;color:#374151}
+.tag-in-progress{background:#dbeafe;color:#1e40af}
+.tag-limbo{background:#ede9fe;color:#5b21b6}
+.tag-confirmed{background:#fef3c7;color:#92400e}
+.tag-scheduled{background:#dcfce7;color:#14532d}
+.tag-done{background:#d1fae5;color:#065f46}
+.tag-declined{background:#fee2e2;color:#991b1b}
+.tag-offer{background:#d1fae5;color:#065f46}
+.tag-request{background:#dbeafe;color:#1e3a8a}
+.tag-manual{background:#f3f4f6;color:#555}
+.tag-chip{font-size:0.75em;padding:1px 6px;border-radius:8px;background:#e0e7ff;color:#3730a3;font-weight:500;margin-right:2px}
+.vote-cell{color:#888;font-size:0.85em}
+.expand-row td{background:#f8faff!important;padding:0}
+.expand-inner{padding:0.8em 1em;display:grid;grid-template-columns:1fr 1fr;gap:0.5em 1.5em}
+.ef label{display:block;font-size:0.78em;font-weight:bold;color:#17458F;margin-bottom:2px}
+.ef input,.ef textarea,.ef select{width:100%;padding:4px 7px;border:1px solid #ccc;border-radius:3px;font-size:0.85em;font-family:Arial,sans-serif}
+.ef textarea{resize:vertical;min-height:50px}
+.ef.full{grid-column:1/-1}
+.notes-log{background:#f8f8f8;border:1px solid #e0e0e0;border-radius:3px;padding:0.4em 0.6em;font-size:0.8em;white-space:pre-wrap;max-height:100px;overflow-y:auto;margin-bottom:0.4em}
+.row-btns{grid-column:1/-1;display:flex;gap:0.5em;margin-top:0.3em}
+.btn{padding:5px 14px;border:none;border-radius:4px;cursor:pointer;font-size:0.83em}
+.btn-save{background:#17458F;color:#fff}
+.btn-sec{background:#f4f4f4;color:#444;border:1px solid #ccc}
+.btn-assign{background:#16a34a;color:#fff}
+.row-msg{font-size:0.8em;min-height:1em}
+.row-msg.ok{color:#166534}.row-msg.err{color:#b91c1c}
+#auth{position:fixed;inset:0;background:#17458F;display:flex;align-items:center;justify-content:center;z-index:200}
+.auth-box{background:#fff;border-radius:10px;padding:2em;width:300px;text-align:center}
+.auth-box h2{color:#17458F;margin-bottom:1em;font-size:1.1em}
+.auth-box input{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;margin-bottom:0.6em;font-size:0.95em}
+.auth-box button{background:#17458F;color:#fff;border:none;padding:8px 24px;border-radius:4px;cursor:pointer;font-size:0.95em;width:100%}
+.auth-err{color:#b91c1c;font-size:0.85em;margin-top:0.4em;min-height:1em}
+</style>
+</head>
+<body>
+<div id="auth">
+  <div class="auth-box">
+    <h2>📅 SLV Rotary<br>Speaker Pipeline</h2>
+    <input type="text" id="auth-name" placeholder="Your name" autocomplete="name">
+    <input type="password" id="auth-pw" placeholder="Password">
+    <button onclick="doLogin()">Enter</button>
+    <div class="auth-err" id="auth-err"></div>
+  </div>
+</div>
+<header>
+  <h1>🎤 Speaker Pipeline — Table</h1>
+  <span id="hdr-user" style="font-size:0.85em;opacity:0.8"></span>
+  <a class="hbtn" href="https://rotary.porttack.com/request/" target="_blank">+ Request Speaker</a>
+  <a href="?app=kanban" class="hbtn">Kanban →</a>
+  <a href="?app=speaker-pipeline" class="hbtn">Status →</a>
+  <button class="hbtn" onclick="logout()">Logout</button>
+</header>
+<div id="toolbar">
+  <input type="text" id="search" placeholder="Search name / topic…" oninput="renderTable()">
+  <span style="font-size:0.82em;color:#666">Filter:</span>
+  <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
+  <button class="filter-btn" onclick="setFilter('new',this)">New</button>
+  <button class="filter-btn" onclick="setFilter('in-progress',this)">In Progress</button>
+  <button class="filter-btn" onclick="setFilter('limbo',this)">Limbo</button>
+  <button class="filter-btn" onclick="setFilter('confirmed',this)">Confirmed</button>
+  <button class="filter-btn" onclick="setFilter('scheduled',this)">Scheduled</button>
+  <button class="filter-btn" onclick="setFilter('done',this)">Done</button>
+</div>
+<div id="content"><p style="color:#888;padding:1em">Loading…</p></div>
+<script>
+var currentUser='',allCards=[],members=[],statuses=[],statusLabels={};
+var filterStatus='all',expandedRow=null,sortCol='updatedAt',sortAsc=false;
+function gs(fn,a){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a);})}
+function gs3(fn,a,b,c){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c);})}
+function doLogin(){
+  var name=document.getElementById('auth-name').value.trim();
+  var pw=document.getElementById('auth-pw').value;
+  if(!name){document.getElementById('auth-err').textContent='Enter your name.';return;}
+  gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){localStorage.setItem('pipelinePw',pw);localStorage.setItem('pipelineName',name);
+      currentUser=name;document.getElementById('auth').style.display='none';
+      document.getElementById('hdr-user').textContent=name;loadData();}
+    else{document.getElementById('auth-err').textContent='Wrong password. (Set KANBAN_PASSWORD in Script Properties if not done yet.)';}
+  }).catch(function(err){document.getElementById('auth-err').textContent='Error: '+(err.message||String(err));});
+}
+window.addEventListener('load',function(){
+  var pw=localStorage.getItem('pipelinePw'),name=localStorage.getItem('pipelineName');
+  if(pw&&name){gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){currentUser=name;document.getElementById('auth').style.display='none';
+      document.getElementById('hdr-user').textContent=name;loadData();}
+    else{localStorage.removeItem('pipelinePw');}
+  }).catch(function(){localStorage.removeItem('pipelinePw');});}
+  document.getElementById('auth-pw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+});
+async function loadData(){
+  try{
+    var d=await gs('getPipelineData',null);
+    allCards=d.cards;members=d.members;statuses=d.statuses;statusLabels=d.statusLabels;renderTable();
+  }catch(e){
+    document.getElementById('content').innerHTML=
+      '<p style="color:#b91c1c;padding:1.2em">⚠️ '+e.message+
+      '<br><br>Run <strong>Setup Speaker Pipeline Tab</strong> from the Rotary Sync menu in the spreadsheet, then reload.</p>';
+  }
+}
+function setFilter(s,btn){
+  filterStatus=s;document.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');renderTable();
+}
+function renderTable(){
+  var q=(document.getElementById('search').value||'').toLowerCase();
+  var rows=allCards.filter(function(c){
+    if(filterStatus!=='all'&&c.status!==filterStatus)return false;
+    if(filterStatus==='all'&&c.status==='declined')return false;
+    if(q&&!(c.speakerName+c.topic+c.assignedTo).toLowerCase().includes(q))return false;
+    return true;
+  });
+  rows.sort(function(a,b){var av=a[sortCol]||'',bv=b[sortCol]||'';return sortAsc?(av>bv?1:-1):(av<bv?1:-1);});
+  var content=document.getElementById('content');
+  if(!rows.length){content.innerHTML='<p style="color:#888;padding:1em">No matching speakers.</p>';return;}
+  var memberOpts=[''].concat(members).map(function(m){return'<option value="'+esc(m)+'">'+esc(m||'— unassigned —')+'</option>';}).join('');
+  var statusOpts=statuses.map(function(s){return'<option value="'+s+'">'+(statusLabels[s]||s)+'</option>';}).join('');
+  var cols=['speakerName','topic','status','assignedTo','tentativeDate','interested','source','updatedAt'];
+  var colLabels={speakerName:'Speaker',topic:'Topic',status:'Status',assignedTo:'Assigned',tentativeDate:'Date',interested:'♡',source:'Source',updatedAt:'Updated'};
+  var html='<table><thead><tr>'+cols.map(function(c){
+    return'<th onclick="sortBy(\''+c+'\')">'+(colLabels[c]||c)+(sortCol===c?(sortAsc?' ▲':' ▼'):'')+'</th>';
+  }).join('')+'</tr></thead><tbody id="tbody"></tbody></table>';
+  content.innerHTML=html;
+  var tbody=document.getElementById('tbody');
+  rows.forEach(function(card){
+    var tr=document.createElement('tr');tr.style.cursor='pointer';
+    var intNames=card.interested?card.interested.split(',').map(function(n){return n.trim();}).filter(Boolean):[];
+    var iVoted=intNames.indexOf(currentUser)!==-1;
+    tr.innerHTML='<td><strong>'+esc(card.speakerName||'(no name)')+'</strong>'+
+      (card.tags?'<br>'+card.tags.split(',').map(function(t){t=t.trim();return t?'<span class="tag-chip">'+esc(t)+'</span>':''}).join(''):'')+'</td>'+
+      '<td>'+esc(card.topic||'—')+'</td>'+
+      '<td><span class="tag tag-'+card.status.replace('-','_')+'">'+esc(statusLabels[card.status]||card.status)+'</span></td>'+
+      '<td>'+esc(card.assignedTo||'—')+'</td><td>'+esc(card.tentativeDate||'—')+'</td>'+
+      '<td class="vote-cell"><button style="background:none;border:none;cursor:pointer;font-size:0.9em" onclick="voteRow(event,'+card.rowIndex+')">'+(iVoted?'❤️':'🤍')+'</button> '+intNames.length+'</td>'+
+      '<td><span class="tag tag-'+card.source+'">'+card.source+'</span></td>'+
+      '<td style="color:#888;font-size:0.8em">'+esc(card.updatedAt||'')+'</td>';
+    tr.addEventListener('click',function(){
+      expandedRow=(expandedRow===card.rowIndex)?null:card.rowIndex;renderTable();
+    });
+    tbody.appendChild(tr);
+    if(expandedRow===card.rowIndex){tbody.appendChild(buildExpandRow(card,memberOpts,statusOpts));}
+  });
+}
+function buildExpandRow(card,memberOpts,statusOpts){
+  var tr=document.createElement('tr');tr.className='expand-row';
+  var ro=card.rowIndex;
+  tr.innerHTML='<td colspan="7"><div class="expand-inner">'+
+    ef('Speaker Name','<input id="ef-name-'+ro+'" value="'+esc(card.speakerName)+'">')+
+    ef('Topic','<input id="ef-topic-'+ro+'" value="'+esc(card.topic)+'">')+
+    ef('Status','<select id="ef-status-'+ro+'">'+statusOpts+'</select>')+
+    ef('Assigned To','<select id="ef-assigned-'+ro+'">'+memberOpts+'</select>')+
+    ef('Tentative Date','<input type="date" id="ef-date-'+ro+'" value="'+esc(card.tentativeDate)+'">')+
+    ef('Email','<input id="ef-email-'+ro+'" value="'+esc(card.speakerEmail)+'">')+
+    ef('Phone','<input id="ef-phone-'+ro+'" value="'+esc(card.speakerPhone)+'">')+
+    ef('City','<input id="ef-city-'+ro+'" value="'+esc(card.speakerCity)+'">')+
+    ef('Preferred Dates','<input id="ef-pref-'+ro+'" value="'+esc(card.preferredDates)+'">')+
+    ef('Bio','<textarea id="ef-bio-'+ro+'" rows="3">'+esc(card.bio)+'</textarea>',true)+
+    ef('Notes','<div class="notes-log">'+esc(card.notes)+'</div>'+
+      '<textarea id="ef-note-'+ro+'" rows="2" placeholder="Add a note…"></textarea>',true)+
+    '<div class="row-btns">'+
+      '<button class="btn btn-save" onclick="saveRow('+ro+')">Save</button>'+
+      '<button class="btn btn-sec" onclick="addRowNote('+ro+')">Add Note</button>'+
+      ((card.status==='confirmed'||card.status==='scheduled')?
+        '<button class="btn btn-assign" onclick="assignRow('+ro+')">Assign to Event</button>':'')+
+    '</div><div class="row-msg" id="ef-msg-'+ro+'"></div>'+
+    '</div></td>';
+  setTimeout(function(){
+    var ss=document.getElementById('ef-status-'+ro);if(ss)ss.value=card.status;
+    var sa=document.getElementById('ef-assigned-'+ro);if(sa)sa.value=card.assignedTo;
+  },0);
+  return tr;
+}
+function ef(label,input,full){return'<div class="ef'+(full?' full':'')+'"><label>'+esc(label)+'</label>'+input+'</div>';}
+async function saveRow(ro){
+  var msg=document.getElementById('ef-msg-'+ro);
+  var changes={speakerName:document.getElementById('ef-name-'+ro).value.trim(),
+    topic:document.getElementById('ef-topic-'+ro).value.trim(),
+    status:document.getElementById('ef-status-'+ro).value,
+    assignedTo:document.getElementById('ef-assigned-'+ro).value,
+    tentativeDate:document.getElementById('ef-date-'+ro).value,
+    speakerEmail:document.getElementById('ef-email-'+ro).value.trim(),
+    speakerPhone:document.getElementById('ef-phone-'+ro).value.trim(),
+    speakerCity:document.getElementById('ef-city-'+ro).value.trim(),
+    preferredDates:document.getElementById('ef-pref-'+ro).value.trim(),
+    bio:document.getElementById('ef-bio-'+ro).value.trim()};
+  try{await gs3('savePipelineCard',ro,changes,currentUser);
+    var card=allCards.find(function(c){return c.rowIndex===ro;});if(card)Object.assign(card,changes);
+    msg.className='row-msg ok';msg.textContent='Saved ✓';
+    setTimeout(function(){renderTable();},800);
+  }catch(e){msg.className='row-msg err';msg.textContent='Error: '+e.message;}
+}
+async function addRowNote(ro){
+  var inp=document.getElementById('ef-note-'+ro);var text=inp.value.trim();if(!text)return;
+  try{await gs3('appendPipelineNote',ro,text,currentUser);inp.value='';
+    var d=await gs('getPipelineData',null);allCards=d.cards;renderTable();}
+  catch(e){alert('Note failed: '+e.message);}
+}
+async function assignRow(ro){
+  var events=await gs('getUpcomingEventsForPicker',null);
+  if(!events.length){alert('No upcoming events with an open speaker slot.');return;}
+  var opts=events.map(function(e,i){return i+': '+e.dateLabel+' — '+e.eventType+(e.mainTopic?' ('+e.mainTopic+')':'');}).join('\\n');
+  var idx=prompt('Pick event number:\\n'+opts);if(idx===null)return;
+  var ev=events[parseInt(idx)];if(!ev){alert('Invalid.');return;}
+  try{var res=await gs3('assignSpeakerToEvent',ro,ev.rowIndex,currentUser);
+    alert('Assigned '+res.speakerName+' to event on row '+res.eventsRow);
+    var d=await gs('getPipelineData',null);allCards=d.cards;expandedRow=null;renderTable();}
+  catch(e){alert('Error: '+e.message);}
+}
+function sortBy(col){sortAsc=(sortCol===col)?!sortAsc:false;sortCol=col;renderTable();}
+function voteRow(e,ro){
+  e.stopPropagation();
+  gs3('togglePipelineVote',ro,currentUser).then(function(res){
+    var card=allCards.find(function(c){return c.rowIndex===ro;});
+    if(card)card.interested=res.interested;
+    renderTable();
+  }).catch(function(err){alert('Vote failed: '+err.message);});
+}
+function logout(){localStorage.removeItem('pipelinePw');localStorage.removeItem('pipelineName');location.reload();}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+</script>
+</body>
+</html>`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  SPEAKER PIPELINE — STATUS VIEW  (?app=speaker-pipeline)
+// ═══════════════════════════════════════════════════════════════
+function getSpeakerStatusHtml() {
+return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLV Rotary — Speaker Pipeline Status</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#f7f8fa;color:#222}
+header{background:#17458F;color:#fff;padding:0.8em 1.2em;display:flex;align-items:baseline;gap:1em}
+header h1{font-size:1.05em;font-weight:bold;flex:1}
+header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
+.hbtn{font-size:0.8em;padding:3px 10px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;cursor:pointer;text-decoration:none}
+.hbtn:hover{background:rgba(255,255,255,0.28)}
+#content{max-width:720px;margin:1.2em auto;padding:0 1em}
+.section{margin-bottom:1.8em}
+.sec-hd{font-size:1.05em;font-weight:bold;color:#17458F;border-bottom:2px solid #17458F;padding-bottom:0.25em;margin-bottom:0.7em;display:flex;align-items:center;gap:0.5em}
+.sec-count{background:#17458F;color:#fff;font-size:0.75em;border-radius:10px;padding:1px 8px}
+.card{background:#fff;border-radius:7px;padding:0.8em 1em;margin-bottom:0.55em;box-shadow:0 1px 3px rgba(0,0,0,0.07);display:flex;gap:1em;align-items:flex-start}
+.card-left{flex:1}
+.card-name{font-weight:bold;font-size:0.97em;color:#17458F}
+.card-topic{color:#444;font-size:0.88em;margin-top:2px}
+.card-meta{color:#888;font-size:0.8em;margin-top:4px;display:flex;flex-wrap:wrap;gap:0.6em}
+.card-notes{background:#f8f9fa;border-radius:4px;padding:0.35em 0.6em;font-size:0.78em;color:#555;margin-top:0.5em;white-space:pre-wrap;max-height:80px;overflow-y:auto}
+.note-form{margin-top:0.5em;display:flex;gap:0.4em}
+.note-form input{flex:1;padding:4px 7px;border:1px solid #ccc;border-radius:4px;font-size:0.82em}
+.note-form button{background:#17458F;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:0.82em;white-space:nowrap}
+.badge{display:inline-block;padding:1px 7px;border-radius:8px;font-size:0.76em;font-weight:bold}
+.badge-offer{background:#d1fae5;color:#065f46}
+.badge-request{background:#dbeafe;color:#1e3a8a}
+.badge-manual{background:#f3f4f6;color:#555}
+.empty{color:#aaa;font-size:0.88em;font-style:italic;padding:0.3em 0}
+#auth{position:fixed;inset:0;background:#17458F;display:flex;align-items:center;justify-content:center;z-index:200}
+.auth-box{background:#fff;border-radius:10px;padding:2em;width:300px;text-align:center}
+.auth-box h2{color:#17458F;margin-bottom:1em;font-size:1.1em}
+.auth-box input{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;margin-bottom:0.6em;font-size:0.95em}
+.auth-box button{background:#17458F;color:#fff;border:none;padding:8px 24px;border-radius:4px;cursor:pointer;font-size:0.95em;width:100%}
+.auth-err{color:#b91c1c;font-size:0.85em;margin-top:0.4em;min-height:1em}
+</style>
+</head>
+<body>
+<div id="auth">
+  <div class="auth-box">
+    <h2>📅 SLV Rotary<br>Speaker Pipeline</h2>
+    <input type="text" id="auth-name" placeholder="Your name" autocomplete="name">
+    <input type="password" id="auth-pw" placeholder="Password">
+    <button onclick="doLogin()">Enter</button>
+    <div class="auth-err" id="auth-err"></div>
+  </div>
+</div>
+<header>
+  <h1>🎤 SLV Rotary — Speaker Pipeline</h1>
+  <a href="?app=kanban" class="hbtn">Kanban →</a>
+  <a href="?app=pipeline" class="hbtn">Table →</a>
+  <button class="hbtn" onclick="logout()">Logout</button>
+</header>
+<div id="content"><p style="color:#888;padding:1em">Loading…</p></div>
+<script>
+var currentUser='',allCards=[],statusLabels={};
+function gs(fn,a){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a);})}
+function gs3(fn,a,b,c){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c);})}
+function doLogin(){
+  var name=document.getElementById('auth-name').value.trim();
+  var pw=document.getElementById('auth-pw').value;
+  if(!name){document.getElementById('auth-err').textContent='Enter your name.';return;}
+  gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){localStorage.setItem('pipelinePw',pw);localStorage.setItem('pipelineName',name);
+      currentUser=name;document.getElementById('auth').style.display='none';loadData();}
+    else{document.getElementById('auth-err').textContent='Wrong password. (Set KANBAN_PASSWORD in Script Properties if not done yet.)';}
+  }).catch(function(err){document.getElementById('auth-err').textContent='Error: '+(err.message||String(err));});
+}
+window.addEventListener('load',function(){
+  var pw=localStorage.getItem('pipelinePw'),name=localStorage.getItem('pipelineName');
+  if(pw&&name){gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){currentUser=name;document.getElementById('auth').style.display='none';loadData();}
+    else{localStorage.removeItem('pipelinePw');}
+  }).catch(function(){localStorage.removeItem('pipelinePw');});}
+  document.getElementById('auth-pw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+});
+async function loadData(){
+  try{
+    var d=await gs('getPipelineData',null);
+    allCards=d.cards;statusLabels=d.statusLabels;render();
+  }catch(e){
+    document.getElementById('content').innerHTML=
+      '<p style="color:#b91c1c;padding:1.2em">⚠️ '+e.message+
+      '<br><br>Run <strong>Setup Speaker Pipeline Tab</strong> from the Rotary Sync menu in the spreadsheet, then reload.</p>';
+  }
+}
+function render(){
+  var sections=[
+    {key:'scheduled',icon:'🗓️',desc:'Confirmed and on the calendar'},
+    {key:'confirmed',icon:'✅',desc:'Speaker agreed — date TBD'},
+    {key:'in-progress', icon:'📞',desc:'Actively working on it'},
+    {key:'limbo',    icon:'⏳',desc:'Waiting / stalled'},
+    {key:'new',      icon:'💡',desc:'New lead — not yet contacted'},
+    {key:'done',     icon:'🎤',desc:'Recently presented'},
+  ];
+  var html='';
+  sections.forEach(function(sec){
+    var cards=allCards.filter(function(c){return c.status===sec.key;});
+    html+='<div class="section"><div class="sec-hd">'+sec.icon+' '+(statusLabels[sec.key]||sec.key)+
+      '<span class="sec-count">'+cards.length+'</span></div>';
+    if(!cards.length){html+='<div class="empty">None at this stage</div></div>';return;}
+    cards.forEach(function(card){
+      html+='<div class="card">'+
+        '<div class="card-left">'+
+          '<div class="card-name">'+esc(card.speakerName||'(no name)')+'</div>'+
+          (card.topic?'<div class="card-topic">'+esc(card.topic)+'</div>':'')+
+          '<div class="card-meta">'+
+            (card.tentativeDate?'<span>📅 '+esc(card.tentativeDate)+'</span>':'')+
+            (card.assignedTo?'<span>👤 '+esc(card.assignedTo)+'</span>':'')+
+            (card.speakerCity?'<span>📍 '+esc(card.speakerCity)+'</span>':'')+
+            '<span class="badge badge-'+card.source+'">'+card.source+'</span>'+
+            voteHtml(card)+
+          '</div>'+
+          (card.tags?'<div style="margin-top:4px">'+card.tags.split(',').map(function(t){t=t.trim();return t?'<span class="badge" style="background:#e0e7ff;color:#3730a3;font-size:0.76em">'+esc(t)+'</span> ':''}).join('')+'</div>':'')+
+          (card.notes?'<div class="card-notes">'+esc(card.notes)+'</div>':'')+
+          '<div class="note-form">'+
+            '<input type="text" id="note-'+card.rowIndex+'" placeholder="Add a note…">'+
+            '<button onclick="addNote('+card.rowIndex+')">Add</button>'+
+          '</div>'+
+        '</div>'+
+        (card.photoUrl?'<img src="'+esc(card.photoUrl)+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;flex-shrink:0" onerror="this.style.display=&#39;none&#39;">':'')+
+      '</div>';
+    });
+    html+='</div>';
+  });
+  document.getElementById('content').innerHTML=html;
+}
+async function addNote(ro){
+  var inp=document.getElementById('note-'+ro);var text=inp.value.trim();if(!text)return;
+  try{await gs3('appendPipelineNote',ro,text,currentUser);inp.value='';
+    var d=await gs('getPipelineData',null);allCards=d.cards;render();}
+  catch(e){alert('Note failed: '+e.message);}
+}
+function voteHtml(card){
+  var names=card.interested?card.interested.split(',').map(function(n){return n.trim();}).filter(Boolean):[];
+  var voted=names.indexOf(currentUser)!==-1;
+  return '<span style="cursor:pointer;font-size:0.85em" onclick="vote('+card.rowIndex+')">'+(voted?'❤️':'🤍')+' '+names.length+'</span>';
+}
+function vote(ro){
+  gs3('togglePipelineVote',ro,currentUser).then(function(res){
+    var card=allCards.find(function(c){return c.rowIndex===ro;});
+    if(card)card.interested=res.interested;
+    render();
+  }).catch(function(e){alert('Vote failed: '+e.message);});
+}
+function logout(){localStorage.removeItem('pipelinePw');localStorage.removeItem('pipelineName');location.reload();}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+</script>
+</body>
+</html>`;
 }
