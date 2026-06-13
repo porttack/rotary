@@ -112,8 +112,8 @@ Fill out the form below — the speaker organizer will follow up with you.</p>
   <div class="field">
     <label>Speaker Role</label>
     <div class="radio-group">
-      <label><input type="radio" name="speakerRole" value="Opening Speaker" checked> Opening Speaker <span class="hint">(5–10 min)</span></label>
-      <label><input type="radio" name="speakerRole" value="Main Speaker"> Main Speaker <span class="hint">(~20 min)</span></label>
+      <label><input type="radio" name="speakerRole" value="Main Speaker" checked> Main Speaker <span class="hint">(~20 min)</span></label>
+      <label><input type="radio" name="speakerRole" value="Opening Speaker"> Opening Speaker <span class="hint">(5–10 min)</span></label>
       <label><input type="radio" name="speakerRole" value="Either"> Either</label>
       <label><input type="radio" name="speakerRole" value="Unsure"> Unsure</label>
     </div>

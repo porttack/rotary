@@ -2710,7 +2710,9 @@ function getUpcomingEventsForPicker() {
     if (d < today) return;
     if (row[COL.CANCELLED - 1]) return;
     const type = String(row[COL.EVENT_TYPE - 1] || '').toLowerCase();
-    if (!['meeting', 'assembly', 'board meeting'].includes(type)) return;
+    // Only regular Meetings can host a speaker — assemblies (no-speaker by
+    // definition) and board meetings are never assignable/tentative dates.
+    if (type !== 'meeting') return;
     const tv = row[COL.TIME - 1];
     const speakerRaw = String(row[COL.MAIN_SPEAKER - 1] || '').trim();
     const speakerUp  = speakerRaw.toUpperCase();
@@ -3189,6 +3191,10 @@ function openPanel(rowIndex) {
       '<input id="pn-tags" value="' + esc(card.tags) + '" placeholder="e.g. environment, local, tech"></div>' +
     '<div class="pfield"><label>Comments <span style="font-weight:normal;color:#888;font-size:0.9em">(internal — from the submitter)</span></label>' +
       '<textarea id="pn-comments" rows="2">' + esc(card.comments) + '</textarea></div>' +
+    ((card.zoomOnly || card.availMorning || card.availEvening) ?
+      '<div class="pfield"><label>Availability / Format</label><span style="font-size:0.88em">' +
+        [card.availMorning ? 'Mornings' : '', card.availEvening ? 'Evenings' : '', card.zoomOnly ? '💻 Zoom only (not in person)' : '']
+          .filter(Boolean).join(' · ') + '</span></div>' : '') +
     (card.requestorName ? '<div class="pfield"><label>Submitted by</label><span style="font-size:0.88em">' + esc(card.requestorName) + ' &lt;' + esc(card.requestorEmail) + '&gt;</span></div>' : '') +
     (card.interested ? '<div class="pfield"><label>Interested members</label><span style="font-size:0.88em">' + esc(card.interested) + '</span></div>' : '') +
     '<button class="pbtn" onclick="savePanel()">Save</button>' +
