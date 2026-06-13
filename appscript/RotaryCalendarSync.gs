@@ -2820,9 +2820,11 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 .col-hd{padding:0.5em 0.7em;font-weight:bold;font-size:0.82em;color:#fff;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center}
 .col-body{flex:1;overflow-y:auto;padding:0.4em;display:flex;flex-direction:column;gap:0.35em;min-height:60px}
 .col-body.drag-over{background:#c8d8f8}
-.card{background:#fff;border-radius:6px;padding:0.5em 0.65em;cursor:pointer;border-left:3px solid #17458F;font-size:0.82em;user-select:none}
+.card{background:#fff;border-radius:6px;padding:0.5em 0.65em;cursor:pointer;border-left:3px solid #17458F;font-size:0.82em;user-select:none;position:relative}
 .card:hover{box-shadow:0 2px 6px rgba(0,0,0,0.12)}
 .card.dragging{opacity:0.4}
+.card.has-thumb{padding-right:54px}
+.card-thumb{position:absolute;top:6px;right:6px;width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid #ddd}
 .card.conflict{border-left-color:#dc2626;background:#fff7f7}
 .card-date{font-weight:bold;font-size:0.9em;color:#15803d;margin-bottom:3px}
 .card-date.conflict{color:#dc2626}
@@ -3075,7 +3077,13 @@ function buildCard(card) {
         (isConflict ? ' title="Same date as: ' + esc(others.join(', ')) + '"' : '') + '>📅 ' +
         esc(fmtMonthDay(dateStr)) + (isConflict ? ' ⚠️ conflict' : '') + '</div>'
     : '';
+  var thumb = '';
+  if (card.photoTop) {
+    div.className += ' has-thumb';
+    thumb = '<img class="card-thumb" src="' + esc(driveThumb(card.photoTop, 120)) + '" onerror="this.style.display=&#39;none&#39;">';
+  }
   div.innerHTML =
+    thumb +
     dateBlock +
     '<div class="card-name">' + esc(card.speakerName || '(no name)') + '</div>' +
     '<div class="card-topic">' + esc(card.topic || '—') + '</div>' +
@@ -3197,12 +3205,20 @@ function openPanel(rowIndex) {
   document.getElementById('panel').classList.add('open');
 }
 
+// Drive "uc?export=view" links don't render in <img>; convert to the
+// thumbnail endpoint, which does. Non-Drive URLs pass through unchanged.
+function driveThumb(u, size) {
+  if (!u) return '';
+  var m = u.match(/[?&]id=([^&]+)/) || u.match(/\/d\/([^/]+)/);
+  return m ? 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w' + (size || 200) : u;
+}
+
 function showPhotoPreview(inputId) {
   var v = (document.getElementById(inputId) || {}).value || '';
   var prev = document.getElementById(inputId + '-prev');
   if (!prev) return;
   prev.innerHTML = (v && v.indexOf('http') === 0)
-    ? '<img src="' + esc(v) + '" style="max-width:120px;max-height:120px;border-radius:4px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">'
+    ? '<img src="' + esc(driveThumb(v, 250)) + '" style="max-width:140px;max-height:140px;border-radius:4px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">'
     : '';
 }
 
@@ -3594,7 +3610,8 @@ function buildExpandRow(card,memberOpts,statusOpts){
 }
 function ef(label,input,full){return'<div class="ef'+(full?' full':'')+'"><label>'+esc(label)+'</label>'+input+'</div>';}
 function buildDateOptions(cur){var opts='<option value="">— no date —</option>',found=false;upcomingMeetings.forEach(function(m){var isCur=(m.date===cur);if(isCur)found=true;var disabled=(!m.available&&!isCur)?' disabled':'';var label=m.available?(esc(m.dateLabel)+(m.time?' '+m.time:'')):(esc(m.dateLabel)+' — taken'+(m.mainSpeaker?' ('+esc(m.mainSpeaker)+')':''));opts+='<option value="'+esc(m.date)+'"'+(isCur?' selected':'')+disabled+'>'+label+'</option>';});if(cur&&!found)opts+='<option value="'+esc(cur)+'" selected>'+esc(cur)+' (custom)</option>';return opts;}
-function showPhotoPreview(id){var el=document.getElementById(id);if(!el)return;var v=el.value||'';var prev=document.getElementById(id+'-prev');if(!prev)return;prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(v)+'" style="max-width:120px;max-height:120px;border-radius:4px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';}
+function driveThumb(u,size){if(!u)return'';var m=u.match(/[?&]id=([^&]+)/)||u.match(/\/d\/([^/]+)/);return m?'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w'+(size||200):u;}
+function showPhotoPreview(id){var el=document.getElementById(id);if(!el)return;var v=el.value||'';var prev=document.getElementById(id+'-prev');if(!prev)return;prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(driveThumb(v,250))+'" style="max-width:140px;max-height:140px;border-radius:4px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';}
 async function uploadPhoto(input,targetId,ro){var file=input.files[0];if(!file)return;var prev=document.getElementById(targetId+'-prev');if(file.size>8*1024*1024){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Image too large (max 8 MB)</span>';input.value='';return;}if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#888">Uploading…</span>';try{var dataUrl=await new Promise(function(res,rej){var r=new FileReader();r.onload=function(ev){res(ev.target.result);};r.onerror=rej;r.readAsDataURL(file);});var sn=(document.getElementById('ef-name-'+ro)||{}).value||'speaker';var resp=await gs3('uploadPipelinePhoto',dataUrl,file.name,sn);document.getElementById(targetId).value=resp.url;showPhotoPreview(targetId);}catch(e){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Upload failed</span>';}}
 async function saveRow(ro){
   var msg=document.getElementById('ef-msg-'+ro);
@@ -3781,13 +3798,14 @@ function render(){
             '<button onclick="addNote('+card.rowIndex+')">Add</button>'+
           '</div>'+
         '</div>'+
-        (card.photoUrl?'<img src="'+esc(card.photoUrl)+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;flex-shrink:0" onerror="this.style.display=&#39;none&#39;">':'')+
+        (card.photoUrl?'<img src="'+esc(driveThumb(card.photoUrl,150))+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;flex-shrink:0" onerror="this.style.display=&#39;none&#39;">':'')+
       '</div>';
     });
     html+='</div>';
   });
   document.getElementById('content').innerHTML=html;
 }
+function driveThumb(u,size){if(!u)return'';var m=u.match(/[?&]id=([^&]+)/)||u.match(/\/d\/([^/]+)/);return m?'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w'+(size||200):u;}
 async function addNote(ro){
   var inp=document.getElementById('note-'+ro);var text=inp.value.trim();if(!text)return;
   try{await gs3('appendPipelineNote',ro,text,currentUser);inp.value='';
