@@ -3209,8 +3209,11 @@ function openPanel(rowIndex) {
 // thumbnail endpoint, which does. Non-Drive URLs pass through unchanged.
 function driveThumb(u, size) {
   if (!u) return '';
-  var m = u.match(/[?&]id=([^&]+)/) || u.match(/\/d\/([^/]+)/);
-  return m ? 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w' + (size || 200) : u;
+  var id = '';
+  var i = u.indexOf('id=');
+  if (i >= 0) { id = u.substring(i + 3).split('&')[0]; }
+  else { var j = u.indexOf('/d/'); if (j >= 0) id = u.substring(j + 3).split('/')[0]; }
+  return id ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w' + (size || 200) : u;
 }
 
 function showPhotoPreview(inputId) {
@@ -3610,7 +3613,7 @@ function buildExpandRow(card,memberOpts,statusOpts){
 }
 function ef(label,input,full){return'<div class="ef'+(full?' full':'')+'"><label>'+esc(label)+'</label>'+input+'</div>';}
 function buildDateOptions(cur){var opts='<option value="">— no date —</option>',found=false;upcomingMeetings.forEach(function(m){var isCur=(m.date===cur);if(isCur)found=true;var disabled=(!m.available&&!isCur)?' disabled':'';var label=m.available?(esc(m.dateLabel)+(m.time?' '+m.time:'')):(esc(m.dateLabel)+' — taken'+(m.mainSpeaker?' ('+esc(m.mainSpeaker)+')':''));opts+='<option value="'+esc(m.date)+'"'+(isCur?' selected':'')+disabled+'>'+label+'</option>';});if(cur&&!found)opts+='<option value="'+esc(cur)+'" selected>'+esc(cur)+' (custom)</option>';return opts;}
-function driveThumb(u,size){if(!u)return'';var m=u.match(/[?&]id=([^&]+)/)||u.match(/\/d\/([^/]+)/);return m?'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w'+(size||200):u;}
+function driveThumb(u,size){if(!u)return'';var id='';var i=u.indexOf('id=');if(i>=0){id=u.substring(i+3).split('&')[0];}else{var j=u.indexOf('/d/');if(j>=0)id=u.substring(j+3).split('/')[0];}return id?'https://drive.google.com/thumbnail?id='+id+'&sz=w'+(size||200):u;}
 function showPhotoPreview(id){var el=document.getElementById(id);if(!el)return;var v=el.value||'';var prev=document.getElementById(id+'-prev');if(!prev)return;prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(driveThumb(v,250))+'" style="max-width:140px;max-height:140px;border-radius:4px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';}
 async function uploadPhoto(input,targetId,ro){var file=input.files[0];if(!file)return;var prev=document.getElementById(targetId+'-prev');if(file.size>8*1024*1024){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Image too large (max 8 MB)</span>';input.value='';return;}if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#888">Uploading…</span>';try{var dataUrl=await new Promise(function(res,rej){var r=new FileReader();r.onload=function(ev){res(ev.target.result);};r.onerror=rej;r.readAsDataURL(file);});var sn=(document.getElementById('ef-name-'+ro)||{}).value||'speaker';var resp=await gs3('uploadPipelinePhoto',dataUrl,file.name,sn);document.getElementById(targetId).value=resp.url;showPhotoPreview(targetId);}catch(e){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Upload failed</span>';}}
 async function saveRow(ro){
@@ -3805,7 +3808,7 @@ function render(){
   });
   document.getElementById('content').innerHTML=html;
 }
-function driveThumb(u,size){if(!u)return'';var m=u.match(/[?&]id=([^&]+)/)||u.match(/\/d\/([^/]+)/);return m?'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w'+(size||200):u;}
+function driveThumb(u,size){if(!u)return'';var id='';var i=u.indexOf('id=');if(i>=0){id=u.substring(i+3).split('&')[0];}else{var j=u.indexOf('/d/');if(j>=0)id=u.substring(j+3).split('/')[0];}return id?'https://drive.google.com/thumbnail?id='+id+'&sz=w'+(size||200):u;}
 async function addNote(ro){
   var inp=document.getElementById('note-'+ro);var text=inp.value.trim();if(!text)return;
   try{await gs3('appendPipelineNote',ro,text,currentUser);inp.value='';
