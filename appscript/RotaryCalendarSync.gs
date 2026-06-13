@@ -2897,6 +2897,17 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 .ev-speaker{color:#b91c1c;font-size:0.85em;margin-left:auto}
 .ev-open{color:#16a34a;font-size:0.85em;margin-left:auto}
 .modal-btns{display:flex;gap:0.5em}
+/* Phone layout: stack the columns and make the detail panel full-width */
+@media (max-width:600px){
+  header{flex-wrap:wrap;gap:0.4em;padding:0.5em 0.7em}
+  header h1{font-size:0.95em;flex:1 0 100%;margin-bottom:0.2em}
+  #assignee-filter{flex:1 1 auto}
+  #board{flex-direction:column;overflow-x:hidden;overflow-y:auto}
+  .col{width:100%;max-height:none}
+  .col-body{min-height:0}
+  #panel{width:100%;right:-100%}
+  .modal{width:94vw}
+}
 </style>
 </head>
 <body>
@@ -3476,6 +3487,15 @@ tr:hover td{background:#f8f9ff}
 .vote-cell{color:#888;font-size:0.85em}
 .expand-row td{background:#f8faff!important;padding:0}
 .expand-inner{padding:0.8em 1em;display:grid;grid-template-columns:1fr 1fr;gap:0.5em 1.5em}
+@media (max-width:600px){
+  header{flex-wrap:wrap;gap:0.4em}
+  header h1{flex:1 0 100%;font-size:0.95em}
+  #toolbar{gap:0.5em}
+  #search{width:100%}
+  #content{overflow-x:auto}
+  table{font-size:0.78em;min-width:560px}
+  .expand-inner{grid-template-columns:1fr}
+}
 .ef label{display:block;font-size:0.78em;font-weight:bold;color:#17458F;margin-bottom:2px}
 .ef input,.ef textarea,.ef select{width:100%;padding:4px 7px;border:1px solid #ccc;border-radius:3px;font-size:0.85em;font-family:Arial,sans-serif}
 .ef textarea{resize:vertical;min-height:50px}
@@ -3761,6 +3781,14 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
 .badge-request{background:#dbeafe;color:#1e3a8a}
 .badge-manual{background:#f3f4f6;color:#555}
 .empty{color:#aaa;font-size:0.88em;font-style:italic;padding:0.3em 0}
+@media (max-width:600px){
+  header{flex-wrap:wrap;gap:0.4em}
+  header h1{flex:1 0 100%;font-size:1em}
+  #assignee-filter{flex:1 1 auto}
+  #content{margin:0.8em auto}
+  .card{flex-direction:column-reverse;align-items:stretch}
+  .card img{align-self:flex-start}
+}
 #auth{position:fixed;inset:0;background:#17458F;display:flex;align-items:center;justify-content:center;z-index:200}
 .auth-box{background:#fff;border-radius:10px;padding:2em;width:300px;text-align:center}
 .auth-box h2{color:#17458F;margin-bottom:1em;font-size:1.1em}
