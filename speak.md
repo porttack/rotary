@@ -66,6 +66,9 @@ expertise. Talks are typically **10–20 minutes**.
 
 <div id="sp-wrap">
 <p>Fill out the form below and the speaker organizer will follow up within a week to discuss scheduling.</p>
+<p style="background:#eef3fb;border-left:4px solid #17458F;border-radius:4px;padding:0.7em 1em;font-size:0.92em;color:#333;margin:1em 0;">
+SLV Rotary is non-political and non-religious. Your presentation should focus on the topic itself rather than donation requests, sales pitches, or sponsorship asks. If you'd like, you're welcome to leave information or materials on the table for members to pick up on their own.
+</p>
 <p style="font-size:0.9em;color:#555;">Fields marked <span style="color:#c00;">*</span> are required.</p>
 
 <form class="sp-form" id="sp-form" novalidate>

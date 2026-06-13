@@ -64,6 +64,9 @@ permalink: /request/
 <div id="rq-wrap">
 <p>Know someone who would make a great speaker, or have a topic you'd like the club to explore?
 Fill out the form below — the speaker organizer will follow up with you.</p>
+<p style="background:#eef3fb;border-left:4px solid #17458F;border-radius:4px;padding:0.7em 1em;font-size:0.92em;color:#333;margin:1em 0;">
+A quick note: SLV Rotary is non-political and non-religious, and we don't use our programs as a fundraising platform. Your nominee won't be put in a position to make an ask from the podium, though they're welcome to bring information or materials to leave on the table for members to pick up on their own.
+</p>
 <p style="font-size:0.9em;color:#555;">Fields marked <span style="color:#c00;">*</span> are required.</p>
 
 <form class="rq-form" id="rq-form" novalidate>
