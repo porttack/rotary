@@ -2879,6 +2879,8 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 .vote-row{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:4px}
 .vote-btn{background:none;border:1px solid #d1d5db;border-radius:10px;padding:1px 7px;font-size:0.78em;cursor:pointer;color:#6b7280;line-height:1.5}
 .vote-btn.voted{background:#fee2e2;border-color:#fca5a5;color:#b91c1c}
+/* Quick status changer on each card (tap-friendly on phones) */
+.card-status{width:100%;margin-top:5px;font-size:0.76em;padding:3px 4px;border:1px solid #d1d5db;border-radius:4px;background:#fff;color:#374151;cursor:pointer}
 /* Modal */
 #modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:150;align-items:center;justify-content:center}
 #modal-overlay.show{display:flex}
@@ -3129,14 +3131,29 @@ function buildCard(card) {
       (card.assignedTo ? '<span class="badge">👤 ' + esc(card.assignedTo) + '</span>' : '') +
     '</div>' +
     (tagChips ? '<div class="card-tags">' + tagChips + '</div>' : '') +
+    '<select class="card-status">' +
+      statuses.map(function(s) { return '<option value="' + s + '"' + (s === card.status ? ' selected' : '') + '>' + esc(statusLabels[s] || s) + '</option>'; }).join('') +
+    '</select>' +
     '<div class="vote-row">' +
       '<button class="vote-btn' + (iVoted ? ' voted' : '') + '" data-row="' + card.rowIndex + '">' +
         (iVoted ? '❤️' : '🤍') + ' ' + interestedNames.length +
       '</button>' +
     '</div>';
   div.addEventListener('click', function(e) {
-    if (e.target.closest('.vote-btn')) return; // vote button handles its own click
+    // The vote button and status dropdown handle their own clicks.
+    if (e.target.closest('.vote-btn') || e.target.closest('.card-status')) return;
     openPanel(card.rowIndex);
+  });
+  var statusSel = div.querySelector('.card-status');
+  statusSel.addEventListener('click', function(e) { e.stopPropagation(); });
+  statusSel.addEventListener('change', function(e) {
+    e.stopPropagation();
+    var newStatus = statusSel.value;
+    if (newStatus === card.status) return;
+    card.status = newStatus;
+    renderBoard();
+    gs3('savePipelineCard', card.rowIndex, { status: newStatus }, currentUser)
+      .catch(function(err) { alert('Save failed: ' + err.message); loadBoard(); });
   });
   div.querySelector('.vote-btn').addEventListener('click', function(e) {
     e.stopPropagation();
