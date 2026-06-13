@@ -2914,6 +2914,7 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 <header>
   <h1>🎤 Speaker Pipeline — Kanban</h1>
   <span id="hdr-user" style="font-size:0.85em;opacity:0.8"></span>
+  <select id="assignee-filter" onchange="setAssignee(this.value)" style="font-size:0.8em;padding:3px 6px;border-radius:4px;border:none"><option value="">All assignees</option></select>
   <a class="hbtn" href="https://rotary.porttack.com/request/" target="_blank">+ Request Speaker</a>
   <button class="hbtn" onclick="toggleDeclined()">Declined</button>
   <a href="__EXEC_URL__?app=pipeline" target="_top" class="hbtn">Table →</a>
@@ -2945,6 +2946,7 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 <script>
 var currentUser = '', allCards = [], members = [], statuses = [], statusLabels = {};
 var panelRow = null, showDeclined = false, upcomingMeetings = [], dateConflicts = {};
+var assigneeFilter = '';
 
 function gs(fn, arg) {
   return new Promise(function(ok, fail) {
@@ -3012,6 +3014,7 @@ async function loadBoard() {
     statuses = data.statuses;
     statusLabels = data.statusLabels;
     upcomingMeetings = await gs('getUpcomingEventsForPicker', null);
+    populateAssigneeFilter();
     renderBoard();
   } catch(e) {
     document.getElementById('board').innerHTML =
@@ -3039,13 +3042,34 @@ function fmtMonthDay(d) {
   return mo + ' ' + parseInt(p[2], 10);
 }
 
+// Build the assignee dropdown from whoever currently owns cards, plus an
+// "Unassigned" bucket. Default (empty value) shows everyone.
+function populateAssigneeFilter() {
+  var sel = document.getElementById('assignee-filter');
+  if (!sel) return;
+  var seen = {};
+  allCards.forEach(function(c) { if (c.assignedTo) seen[c.assignedTo] = true; });
+  var names = Object.keys(seen).sort();
+  var html = '<option value="">All assignees</option>';
+  names.forEach(function(n) { html += '<option value="' + esc(n) + '">' + esc(n) + '</option>'; });
+  html += '<option value="__UNASSIGNED__">— Unassigned —</option>';
+  sel.innerHTML = html;
+  sel.value = assigneeFilter;
+}
+function setAssignee(v) { assigneeFilter = v; renderBoard(); }
+function matchAssignee(c) {
+  if (!assigneeFilter) return true;
+  if (assigneeFilter === '__UNASSIGNED__') return !c.assignedTo;
+  return c.assignedTo === assigneeFilter;
+}
+
 function renderBoard() {
   computeConflicts();
   var board = document.getElementById('board');
   board.innerHTML = '';
   var visibleStatuses = statuses.filter(function(s) { return showDeclined || s !== 'declined'; });
   visibleStatuses.forEach(function(status) {
-    var cards = allCards.filter(function(c) { return c.status === status; });
+    var cards = allCards.filter(function(c) { return c.status === status && matchAssignee(c); });
     var col = document.createElement('div');
     col.className = 'col';
     col.dataset.status = status;
@@ -3500,11 +3524,13 @@ tr:hover td{background:#f8f9ff}
   <button class="filter-btn" onclick="setFilter('confirmed',this)">Confirmed</button>
   <button class="filter-btn" onclick="setFilter('scheduled',this)">Scheduled</button>
   <button class="filter-btn" onclick="setFilter('done',this)">Done</button>
+  <span style="font-size:0.82em;color:#666;margin-left:0.4em">Assigned to:</span>
+  <select id="assignee-filter" onchange="setAssignee(this.value)" style="font-size:0.82em;padding:3px 6px;border:1px solid #ccc;border-radius:4px"><option value="">All</option></select>
 </div>
 <div id="content"><p style="color:#888;padding:1em">Loading…</p></div>
 <script>
 var currentUser='',allCards=[],members=[],statuses=[],statusLabels={};
-var filterStatus='all',expandedRow=null,sortCol='updatedAt',sortAsc=false,upcomingMeetings=[];
+var filterStatus='all',expandedRow=null,sortCol='updatedAt',sortAsc=false,upcomingMeetings=[],assigneeFilter='';
 function gs(fn,a){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a);})}
 function gs3(fn,a,b,c){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c);})}
 function doLogin(){
@@ -3531,7 +3557,7 @@ async function loadData(){
   try{
     var d=await gs('getPipelineData',null);
     allCards=d.cards;members=d.members;statuses=d.statuses;statusLabels=d.statusLabels;
-    upcomingMeetings=await gs('getUpcomingEventsForPicker',null);renderTable();
+    upcomingMeetings=await gs('getUpcomingEventsForPicker',null);populateAssigneeFilter();renderTable();
   }catch(e){
     document.getElementById('content').innerHTML=
       '<p style="color:#b91c1c;padding:1.2em">⚠️ '+e.message+
@@ -3542,11 +3568,27 @@ function setFilter(s,btn){
   filterStatus=s;document.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('active');});
   btn.classList.add('active');renderTable();
 }
+function populateAssigneeFilter(){
+  var sel=document.getElementById('assignee-filter');if(!sel)return;
+  var seen={};allCards.forEach(function(c){if(c.assignedTo)seen[c.assignedTo]=true;});
+  var names=Object.keys(seen).sort();
+  var html='<option value="">All</option>';
+  names.forEach(function(n){html+='<option value="'+esc(n)+'">'+esc(n)+'</option>';});
+  html+='<option value="__UNASSIGNED__">— Unassigned —</option>';
+  sel.innerHTML=html;sel.value=assigneeFilter;
+}
+function setAssignee(v){assigneeFilter=v;renderTable();}
+function matchAssignee(c){
+  if(!assigneeFilter)return true;
+  if(assigneeFilter==='__UNASSIGNED__')return !c.assignedTo;
+  return c.assignedTo===assigneeFilter;
+}
 function renderTable(){
   var q=(document.getElementById('search').value||'').toLowerCase();
   var rows=allCards.filter(function(c){
     if(filterStatus!=='all'&&c.status!==filterStatus)return false;
     if(filterStatus==='all'&&c.status==='declined')return false;
+    if(!matchAssignee(c))return false;
     if(q&&!(c.speakerName+c.topic+c.assignedTo).toLowerCase().includes(q))return false;
     return true;
   });
@@ -3739,13 +3781,14 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
 </div>
 <header>
   <h1>🎤 SLV Rotary — Speaker Pipeline</h1>
+  <select id="assignee-filter" onchange="setAssignee(this.value)" style="font-size:0.8em;padding:3px 6px;border-radius:4px;border:none"><option value="">All assignees</option></select>
   <a href="__EXEC_URL__?app=kanban" target="_top" class="hbtn">Kanban →</a>
   <a href="__EXEC_URL__?app=pipeline" target="_top" class="hbtn">Table →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
 <div id="content"><p style="color:#888;padding:1em">Loading…</p></div>
 <script>
-var currentUser='',allCards=[],statusLabels={};
+var currentUser='',allCards=[],statusLabels={},assigneeFilter='';
 function gs(fn,a){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a);})}
 function gs3(fn,a,b,c){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c);})}
 function doLogin(){
@@ -3769,7 +3812,7 @@ window.addEventListener('load',function(){
 async function loadData(){
   try{
     var d=await gs('getPipelineData',null);
-    allCards=d.cards;statusLabels=d.statusLabels;render();
+    allCards=d.cards;statusLabels=d.statusLabels;populateAssigneeFilter();render();
   }catch(e){
     document.getElementById('content').innerHTML=
       '<p style="color:#b91c1c;padding:1.2em">⚠️ '+e.message+
@@ -3787,7 +3830,7 @@ function render(){
   ];
   var html='';
   sections.forEach(function(sec){
-    var cards=allCards.filter(function(c){return c.status===sec.key;});
+    var cards=allCards.filter(function(c){return c.status===sec.key&&matchAssignee(c);});
     html+='<div class="section"><div class="sec-hd">'+sec.icon+' '+(statusLabels[sec.key]||sec.key)+
       '<span class="sec-count">'+cards.length+'</span></div>';
     if(!cards.length){html+='<div class="empty">None at this stage</div></div>';return;}
@@ -3835,6 +3878,21 @@ function vote(ro){
     if(card)card.interested=res.interested;
     render();
   }).catch(function(e){alert('Vote failed: '+e.message);});
+}
+function populateAssigneeFilter(){
+  var sel=document.getElementById('assignee-filter');if(!sel)return;
+  var seen={};allCards.forEach(function(c){if(c.assignedTo)seen[c.assignedTo]=true;});
+  var names=Object.keys(seen).sort();
+  var html='<option value="">All assignees</option>';
+  names.forEach(function(n){html+='<option value="'+esc(n)+'">'+esc(n)+'</option>';});
+  html+='<option value="__UNASSIGNED__">— Unassigned —</option>';
+  sel.innerHTML=html;sel.value=assigneeFilter;
+}
+function setAssignee(v){assigneeFilter=v;render();}
+function matchAssignee(c){
+  if(!assigneeFilter)return true;
+  if(assigneeFilter==='__UNASSIGNED__')return !c.assignedTo;
+  return c.assignedTo===assigneeFilter;
 }
 function logout(){localStorage.removeItem('pipelinePw');localStorage.removeItem('pipelineName');location.reload();}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
