@@ -3187,6 +3187,8 @@ function openPanel(rowIndex) {
       '<div id="pn-photobottom-prev" class="photo-prev"></div></div>' +
     '<div class="pfield"><label>Tags <span style="font-weight:normal;color:#888;font-size:0.9em">(comma-separated)</span></label>' +
       '<input id="pn-tags" value="' + esc(card.tags) + '" placeholder="e.g. environment, local, tech"></div>' +
+    '<div class="pfield"><label>Comments <span style="font-weight:normal;color:#888;font-size:0.9em">(internal — from the submitter)</span></label>' +
+      '<textarea id="pn-comments" rows="2">' + esc(card.comments) + '</textarea></div>' +
     (card.requestorName ? '<div class="pfield"><label>Submitted by</label><span style="font-size:0.88em">' + esc(card.requestorName) + ' &lt;' + esc(card.requestorEmail) + '&gt;</span></div>' : '') +
     (card.interested ? '<div class="pfield"><label>Interested members</label><span style="font-size:0.88em">' + esc(card.interested) + '</span></div>' : '') +
     '<button class="pbtn" onclick="savePanel()">Save</button>' +
@@ -3275,6 +3277,7 @@ async function savePanel() {
     photoTop:     document.getElementById('pn-phototop').value.trim(),
     photoBottom:  document.getElementById('pn-photobottom').value.trim(),
     tags:         document.getElementById('pn-tags').value.trim(),
+    comments:     document.getElementById('pn-comments').value.trim(),
   };
   try {
     var res = await gs3('savePipelineCard', panelRow, changes, currentUser);
