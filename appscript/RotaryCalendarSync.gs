@@ -2587,9 +2587,10 @@ function getPipelineData() {
   return { cards, members, statuses: PIPELINE_STATUSES, statusLabels: PIPELINE_STATUS_LABELS };
 }
 
-/** Update fields on an existing pipeline card. */
+/** Update fields on an existing pipeline card. Logs a timestamped change note. */
 function savePipelineCard(rowIndex, changes, updatedBy) {
   const sheet = getPipelineSheet_();
+  const tz = Session.getScriptTimeZone();
   const colMap = {
     status: CP.STATUS, speakerName: CP.SPEAKER_NAME, speakerEmail: CP.SPEAKER_EMAIL,
     speakerPhone: CP.SPEAKER_PHONE, speakerCity: CP.SPEAKER_CITY,
@@ -2600,13 +2601,45 @@ function savePipelineCard(rowIndex, changes, updatedBy) {
     speakerUrl: CP.SPEAKER_URL, summary: CP.SUMMARY, introducer: CP.INTRODUCER,
     photoTop: CP.PHOTO_URL, photoBottom: CP.PHOTO_BOTTOM,
   };
+  const labelMap = {
+    status: 'Status', speakerName: 'Speaker', speakerEmail: 'Email', speakerPhone: 'Phone',
+    speakerCity: 'City', topic: 'Topic', speakerRole: 'Role', assignedTo: 'Assigned to',
+    preferredDates: 'Preferred dates', tentativeDate: 'Date', speakerUrl: 'Speaker URL',
+    introducer: 'Introducer', tags: 'Tags', comments: 'Comments', bio: 'Bio',
+    summary: 'Summary', photoTop: 'Top photo', photoBottom: 'Bottom photo',
+    photoUrl: 'Photo', eventsRow: 'Events row',
+  };
+  // Long/opaque fields: note that they changed, not the full (often huge) value.
+  const longFields = { bio: true, summary: true, photoTop: true, photoBottom: true, photoUrl: true };
+
+  // Read the current row once so we can diff old → new and only write real changes.
+  const cur = sheet.getRange(rowIndex, 1, 1, NUM_PIPE_COLS).getValues()[0];
+  const diffs = [];
   Object.entries(changes).forEach(([k, v]) => {
-    if (colMap[k]) sheet.getRange(rowIndex, colMap[k]).setValue(v);
+    const col = colMap[k];
+    if (!col) return;
+    let oldVal = cur[col - 1];
+    if (oldVal instanceof Date) oldVal = Utilities.formatDate(oldVal, tz, 'yyyy-MM-dd');
+    oldVal = String(oldVal == null ? '' : oldVal);
+    const newVal = String(v == null ? '' : v);
+    if (oldVal === newVal) return; // unchanged — skip write and note
+    sheet.getRange(rowIndex, col).setValue(v);
+    if (longFields[k]) diffs.push((labelMap[k] || k) + (newVal ? ' updated' : ' cleared'));
+    else diffs.push((labelMap[k] || k) + ': ' + (oldVal || '∅') + ' → ' + (newVal || '∅'));
   });
-  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'M/d/yy h:mm a');
+
+  const ts = Utilities.formatDate(new Date(), tz, 'M/d/yy h:mm a');
+  let notes = null;
+  if (diffs.length) {
+    const entry = '[' + ts + ' ' + (updatedBy || '?') + ']: ' + diffs.join('; ');
+    const noteCell = sheet.getRange(rowIndex, CP.NOTES);
+    const existing = String(noteCell.getValue() || '').trim();
+    notes = existing ? entry + '\n' + existing : entry;
+    noteCell.setValue(notes);
+  }
   sheet.getRange(rowIndex, CP.UPDATED_AT).setValue(ts);
   sheet.getRange(rowIndex, CP.UPDATED_BY).setValue(updatedBy || '');
-  return { ok: true };
+  return { ok: true, noted: diffs.length, notes: notes };
 }
 
 /** Toggle a +1 vote for memberName on a pipeline card. Returns updated interested string. */
@@ -2706,6 +2739,7 @@ function assignSpeakerToEvent(pipelineRow, eventsRow, updatedBy) {
   const evSheet = ss.getSheetByName(SHEET_NAME);
   const pSheet  = getPipelineSheet_();
 
+  const tz = Session.getScriptTimeZone();
   const pData = pSheet.getRange(pipelineRow, 1, 1, NUM_PIPE_COLS).getValues()[0];
   const speakerName  = String(pData[CP.SPEAKER_NAME - 1] || '');
   const topic        = String(pData[CP.TOPIC - 1]        || '');
@@ -2716,6 +2750,11 @@ function assignSpeakerToEvent(pipelineRow, eventsRow, updatedBy) {
   const photoTop     = String(pData[CP.PHOTO_URL - 1]    || '');
   const photoBottom  = String(pData[CP.PHOTO_BOTTOM - 1] || '');
   const role         = String(pData[CP.SPEAKER_ROLE - 1] || 'Main Speaker').toLowerCase();
+
+  // The scheduled meeting's date — mirrored onto the card so it shows on the
+  // board and is included in conflict detection.
+  const evDateRaw = evSheet.getRange(eventsRow, COL.DATE).getValue();
+  const evDate = evDateRaw instanceof Date ? Utilities.formatDate(evDateRaw, tz, 'yyyy-MM-dd') : String(evDateRaw || '');
 
   if (role.includes('opening')) {
     evSheet.getRange(eventsRow, COL.OPENING_SPEAKER).setValue(speakerName);
@@ -2731,11 +2770,19 @@ function assignSpeakerToEvent(pipelineRow, eventsRow, updatedBy) {
   if (photoTop)     evSheet.getRange(eventsRow, COL.PHOTO_TOP).setValue(photoTop);
   if (photoBottom)  evSheet.getRange(eventsRow, COL.PHOTO_BOTTOM).setValue(photoBottom);
 
-  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'M/d/yy h:mm a');
+  const ts = Utilities.formatDate(new Date(), tz, 'M/d/yy h:mm a');
   evSheet.getRange(eventsRow, COL.STATUS).setValue('Speaker assigned ' + ts);
 
   pSheet.getRange(pipelineRow, CP.STATUS).setValue('scheduled');
   pSheet.getRange(pipelineRow, CP.EVENTS_ROW).setValue(eventsRow);
+  if (evDate) pSheet.getRange(pipelineRow, CP.TENTATIVE_DATE).setValue(evDate);
+
+  // Log the scheduling as a change note.
+  const noteCell = pSheet.getRange(pipelineRow, CP.NOTES);
+  const existingNote = String(noteCell.getValue() || '').trim();
+  const entry = '[' + ts + ' ' + (updatedBy || '?') + ']: Scheduled' + (evDate ? ' to ' + evDate : '') + ' (Events row ' + eventsRow + ')';
+  noteCell.setValue(existingNote ? entry + '\n' + existingNote : entry);
+
   pSheet.getRange(pipelineRow, CP.UPDATED_AT).setValue(ts);
   pSheet.getRange(pipelineRow, CP.UPDATED_BY).setValue(updatedBy || '');
 
@@ -2776,6 +2823,9 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 .card{background:#fff;border-radius:6px;padding:0.5em 0.65em;cursor:pointer;border-left:3px solid #17458F;font-size:0.82em;user-select:none}
 .card:hover{box-shadow:0 2px 6px rgba(0,0,0,0.12)}
 .card.dragging{opacity:0.4}
+.card.conflict{border-left-color:#dc2626;background:#fff7f7}
+.card-date{font-weight:bold;font-size:0.9em;color:#15803d;margin-bottom:3px}
+.card-date.conflict{color:#dc2626}
 .card-name{font-weight:bold;color:#17458F;margin-bottom:2px}
 .card-topic{color:#444;font-size:0.92em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-meta{color:#888;font-size:0.8em;margin-top:3px;display:flex;gap:0.4em;flex-wrap:wrap}
@@ -2890,7 +2940,7 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 
 <script>
 var currentUser = '', allCards = [], members = [], statuses = [], statusLabels = {};
-var panelRow = null, showDeclined = false, upcomingMeetings = [];
+var panelRow = null, showDeclined = false, upcomingMeetings = [], dateConflicts = {};
 
 function gs(fn, arg) {
   return new Promise(function(ok, fail) {
@@ -2966,7 +3016,27 @@ async function loadBoard() {
   }
 }
 
+// Map of tentative/scheduled date -> [speaker names] across non-declined cards,
+// used to flag two speakers competing for the same meeting date.
+function computeConflicts() {
+  dateConflicts = {};
+  allCards.forEach(function(c) {
+    if (c.status === 'declined') return;
+    var d = c.tentativeDate;
+    if (!d) return;
+    (dateConflicts[d] = dateConflicts[d] || []).push(c.speakerName || '(no name)');
+  });
+}
+
+function fmtMonthDay(d) {
+  var p = String(d).split('-');
+  if (p.length < 3) return d;
+  var mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(p[1],10)-1] || '';
+  return mo + ' ' + parseInt(p[2], 10);
+}
+
 function renderBoard() {
+  computeConflicts();
   var board = document.getElementById('board');
   board.innerHTML = '';
   var visibleStatuses = statuses.filter(function(s) { return showDeclined || s !== 'declined'; });
@@ -2996,13 +3066,22 @@ function buildCard(card) {
   var interestedNames = card.interested ? card.interested.split(',').map(function(n){return n.trim();}).filter(Boolean) : [];
   var iVoted = interestedNames.indexOf(currentUser) !== -1;
   var tagChips = card.tags ? card.tags.split(',').map(function(t){t=t.trim();return t?'<span class="tag-chip">'+esc(t)+'</span>':''}).join('') : '';
+  var dateStr = card.tentativeDate || '';
+  var others = dateStr ? (dateConflicts[dateStr] || []).filter(function(n){ return n !== (card.speakerName || '(no name)'); }) : [];
+  var isConflict = others.length > 0;
+  if (isConflict) div.className += ' conflict';
+  var dateBlock = dateStr
+    ? '<div class="card-date' + (isConflict ? ' conflict' : '') + '"' +
+        (isConflict ? ' title="Same date as: ' + esc(others.join(', ')) + '"' : '') + '>📅 ' +
+        esc(fmtMonthDay(dateStr)) + (isConflict ? ' ⚠️ conflict' : '') + '</div>'
+    : '';
   div.innerHTML =
+    dateBlock +
     '<div class="card-name">' + esc(card.speakerName || '(no name)') + '</div>' +
     '<div class="card-topic">' + esc(card.topic || '—') + '</div>' +
     '<div class="card-meta">' +
       '<span class="badge ' + card.source + '">' + card.source + '</span>' +
       (card.assignedTo ? '<span class="badge">👤 ' + esc(card.assignedTo) + '</span>' : '') +
-      (card.tentativeDate ? '<span class="badge">📅 ' + card.tentativeDate + '</span>' : '') +
     '</div>' +
     (tagChips ? '<div class="card-tags">' + tagChips + '</div>' : '') +
     '<div class="vote-row">' +
@@ -3179,12 +3258,18 @@ async function savePanel() {
     tags:         document.getElementById('pn-tags').value.trim(),
   };
   try {
-    await gs3('savePipelineCard', panelRow, changes, currentUser);
+    var res = await gs3('savePipelineCard', panelRow, changes, currentUser);
     var card = allCards.find(function(c) { return c.rowIndex === panelRow; });
     if (card) Object.assign(card, changes);
+    if (res && res.notes != null) {
+      if (card) card.notes = res.notes;
+      var nd = document.getElementById('pn-notes-display');
+      if (nd) nd.textContent = res.notes;
+    }
     renderBoard();
-    msg.className = 'pmsg ok'; msg.textContent = 'Saved ✓';
-    setTimeout(function() { msg.textContent = ''; }, 2000);
+    msg.className = 'pmsg ok';
+    msg.textContent = (res && res.noted) ? 'Saved ✓ (' + res.noted + ' change' + (res.noted === 1 ? '' : 's') + ' logged)' : 'Saved ✓';
+    setTimeout(function() { msg.textContent = ''; }, 2500);
   } catch(e) { msg.className = 'pmsg err'; msg.textContent = 'Error: ' + e.message; }
 }
 
@@ -3528,9 +3613,10 @@ async function saveRow(ro){
     introducer:document.getElementById('ef-introducer-'+ro).value.trim(),
     photoTop:document.getElementById('ef-phototop-'+ro).value.trim(),
     photoBottom:document.getElementById('ef-photobottom-'+ro).value.trim()};
-  try{await gs3('savePipelineCard',ro,changes,currentUser);
+  try{var res=await gs3('savePipelineCard',ro,changes,currentUser);
     var card=allCards.find(function(c){return c.rowIndex===ro;});if(card)Object.assign(card,changes);
-    msg.className='row-msg ok';msg.textContent='Saved ✓';
+    if(res&&res.notes!=null&&card)card.notes=res.notes;
+    msg.className='row-msg ok';msg.textContent=(res&&res.noted)?'Saved ✓ ('+res.noted+' logged)':'Saved ✓';
     setTimeout(function(){renderTable();},800);
   }catch(e){msg.className='row-msg err';msg.textContent='Error: '+e.message;}
 }
