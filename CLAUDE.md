@@ -98,6 +98,7 @@ The year.html page adds `&t=Date.now()` on each fetch to bust the browser cache.
 | 27 | HASH | Hash | Last-push hash; hidden, do not edit |
 | 28 | PHOTO_TOP_URL | Photo Top URL (auto) | Written by Sync Photos; hidden |
 | 29 | PHOTO_BOTTOM_URL | Photo Bottom URL (auto) | Written by Sync Photos; hidden |
+| 30 | INTRODUCER | Introducer | Who introduces the speaker; written by Speaker Pipeline on assign |
 
 ---
 

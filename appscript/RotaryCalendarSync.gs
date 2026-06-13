@@ -76,9 +76,10 @@ const COL = {
   HASH:             28, // AB - Hash of last-pushed fields (hidden, do not edit)
   PHOTO_TOP_URL:    29, // AC - Extracted URL for Photo Top (hidden; written by Sync Photos)
   PHOTO_BOTTOM_URL: 30, // AD - Extracted URL for Photo Bottom (hidden; written by Sync Photos)
+  INTRODUCER:       31, // AE - Who introduces the speaker (often, not always, the organizer)
 };
 
-const NUM_COLS = 30;
+const NUM_COLS = 31;
 
 // Duty field key → COL mapping (shared by web app and sheet save logic)
 const DUTY_COLS = {
@@ -164,8 +165,12 @@ const CP = {
   UPDATED_BY:         28,   // AB
   TAGS:               29,   // AC - comma-separated tag labels
   INTERESTED:         30,   // AD - comma-separated names of members who +1'd
+  SPEAKER_URL:        31,   // AE - link for speaker/topic
+  SUMMARY:            32,   // AF - newsletter narrative paragraph
+  INTRODUCER:         33,   // AG - who introduces the speaker at the meeting
+  PHOTO_BOTTOM:       34,   // AH - second photo (PHOTO_URL col 15 is the top photo)
 };
-const NUM_PIPE_COLS = 30;
+const NUM_PIPE_COLS = 34;
 
 // ── MENU ─────────────────────────────────────────────────────
 function onOpen() {
@@ -275,6 +280,7 @@ function setupSheet() {
     "Hash (do not edit)",       // AB
     "Photo Top URL (auto)",     // AC - written by Sync Photos; do not edit
     "Photo Bottom URL (auto)",  // AD - written by Sync Photos; do not edit
+    "Introducer",               // AE - who introduces the speaker
   ];
 
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
@@ -317,6 +323,7 @@ function setupSheet() {
     50,   // AB Hash
     280,  // AC Photo Top URL (auto)
     280,  // AD Photo Bottom URL (auto)
+    150,  // AE Introducer
   ];
   widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
@@ -566,7 +573,7 @@ function eventToRow(event) {
 
   // Strip all tagged lines to get clean summary body
   const allLabels = [
-    "Type","Opening Speaker","Main Speaker","Main Topic",
+    "Type","Opening Speaker","Main Speaker","Main Topic","Introducer",
     "MC","Setup/Teardown","AV/Zoom","Greeter","4-Way-Test",
     "Thought","Detective","Bag Person","Meet","More Info"
   ];
@@ -642,6 +649,7 @@ function buildEventOptions(row) {
   const mainTopic      = row[COL.MAIN_TOPIC - 1]       || "";
   const description    = row[COL.SUMMARY - 1]          || "";  // Summary is the calendar body
   const speakerUrl     = row[COL.SPEAKER_URL - 1]      || "";
+  const introducer     = row[COL.INTRODUCER - 1]       || "";
   const eventType      = row[COL.EVENT_TYPE - 1]       || "Meeting";
 
   // Build structured header block
@@ -650,6 +658,7 @@ function buildEventOptions(row) {
   if (openingSpeaker) desc += `Opening Speaker: ${openingSpeaker}\n`;
   if (mainSpeaker)    desc += `Main Speaker: ${mainSpeaker}\n`;
   if (mainTopic)      desc += `Main Topic: ${mainTopic}\n`;
+  if (introducer)     desc += `Introducer: ${introducer}\n`;
   if (meetLink)       desc += `Meet: ${meetLink}\n`;
   if (speakerUrl)     desc += `More Info: ${speakerUrl}\n`;
 
@@ -793,7 +802,7 @@ function rowHash(row) {
     COL.EVENT_TYPE, COL.CANCELLED, COL.DATE, COL.TIME, COL.DURATION,
     COL.LOCATION, COL.GOOGLE_MEET, COL.OPENING_SPEAKER, COL.MAIN_SPEAKER,
     COL.MAIN_TOPIC, COL.SPEAKER_URL, COL.SUMMARY, COL.MC, COL.SETUP_TEARDOWN, COL.AV_ZOOM,
-    COL.GREETER, COL.FOUR_WAY_TEST, COL.THOUGHT, COL.DETECTIVE, COL.BAG_PERSON,
+    COL.GREETER, COL.FOUR_WAY_TEST, COL.THOUGHT, COL.DETECTIVE, COL.BAG_PERSON, COL.INTRODUCER,
   ];
   const str = fields.map(c => String(row[c - 1] || "")).join("|");
   // Simple DJB2-style hash — fast and collision-resistant enough for this use
@@ -1356,20 +1365,25 @@ function generateNewsletter() {
 function doGet(e) {
   const app = (e && e.parameter && e.parameter.app) || '';
   const mode = HtmlService.XFrameOptionsMode.ALLOWALL;
+  // Real /exec URL, injected into pages so cross-view nav links work from
+  // inside the Apps Script sandbox iframe (relative links would 404/blank).
+  let execUrl = '';
+  try { execUrl = ScriptApp.getService().getUrl() || ''; } catch (_) {}
+  const inject = (html) => html.replace(/__EXEC_URL__/g, execUrl);
   if (app === 'assistant') {
     return HtmlService.createHtmlOutput(getCalendarAssistantHtml())
       .setTitle("SLV Rotary — Calendar Assistant").setXFrameOptionsMode(mode);
   }
   if (app === 'kanban') {
-    return HtmlService.createHtmlOutput(getKanbanHtml())
+    return HtmlService.createHtmlOutput(inject(getKanbanHtml()))
       .setTitle("SLV Rotary — Speaker Pipeline (Kanban)").setXFrameOptionsMode(mode);
   }
   if (app === 'pipeline') {
-    return HtmlService.createHtmlOutput(getPipelineTableHtml())
+    return HtmlService.createHtmlOutput(inject(getPipelineTableHtml()))
       .setTitle("SLV Rotary — Speaker Pipeline (Table)").setXFrameOptionsMode(mode);
   }
   if (app === 'speaker-pipeline') {
-    return HtmlService.createHtmlOutput(getSpeakerStatusHtml())
+    return HtmlService.createHtmlOutput(inject(getSpeakerStatusHtml()))
       .setTitle("SLV Rotary — Speaker Pipeline Status").setXFrameOptionsMode(mode);
   }
   return HtmlService.createHtmlOutput(getDutyEditorHtml())
@@ -1931,7 +1945,9 @@ function savePhotoToDrive_(data) {
   if (!data.photoBase64) return '';
   try {
     const base64 = data.photoBase64.includes(',') ? data.photoBase64.split(',')[1] : data.photoBase64;
-    const mime = data.photoMime || 'image/jpeg';
+    // Derive MIME from the data URL prefix (data:image/png;base64,...) if not given.
+    const prefixMime = (data.photoBase64.match(/^data:([^;]+);/) || [])[1];
+    const mime = data.photoMime || prefixMime || 'image/jpeg';
     const ext  = (data.photoName || 'photo.jpg').split('.').pop() || 'jpg';
     const safeName = (data.speakerName || 'speaker')
       .replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_') || 'speaker';
@@ -2478,6 +2494,7 @@ function setupSpeakerPipeline() {
     'Avail Morning', 'Avail Evening', 'Zoom Only', 'Other Suggestions', 'Comments',
     'Submitted At', 'Updated At', 'Updated By',
     'Tags', 'Interested (+1s)',
+    'Speaker URL', 'Summary', 'Introducer', 'Photo Bottom',
   ];
 
   const hdr = sheet.getRange(1, 1, 1, headers.length);
@@ -2490,7 +2507,8 @@ function setupSpeakerPipeline() {
   sheet.getRange(2, CP.STATUS, 500, 1).setDataValidation(statusRule);
 
   const colWidths = [80,90,160,180,120,120,220,110,300,300,
-                     130,180,110,80,220,140,180,120,80,80,70,70,70,80,220,130,130,130,200,200];
+                     130,180,110,80,220,140,180,120,80,80,70,70,70,80,220,130,130,130,200,200,
+                     280,300,150,220];
   colWidths.forEach((w,i) => sheet.setColumnWidth(i+1, w));
   sheet.setColumnWidth(CP.BIO, 300);
   sheet.setColumnWidth(CP.NOTES, 300);
@@ -2557,6 +2575,11 @@ function getPipelineData() {
         updatedBy:         String(row[CP.UPDATED_BY - 1]          || ''),
         tags:              String(row[CP.TAGS - 1]                || ''),
         interested:        String(row[CP.INTERESTED - 1]          || ''),
+        speakerUrl:        String(row[CP.SPEAKER_URL - 1]         || ''),
+        summary:           String(row[CP.SUMMARY - 1]             || ''),
+        introducer:        String(row[CP.INTRODUCER - 1]          || ''),
+        photoTop:          String(row[CP.PHOTO_URL - 1]           || ''),
+        photoBottom:       String(row[CP.PHOTO_BOTTOM - 1]        || ''),
       });
     });
   }
@@ -2574,6 +2597,8 @@ function savePipelineCard(rowIndex, changes, updatedBy) {
     assignedTo: CP.ASSIGNED_TO, preferredDates: CP.PREFERRED_DATES,
     tentativeDate: CP.TENTATIVE_DATE, eventsRow: CP.EVENTS_ROW, photoUrl: CP.PHOTO_URL,
     comments: CP.COMMENTS, tags: CP.TAGS,
+    speakerUrl: CP.SPEAKER_URL, summary: CP.SUMMARY, introducer: CP.INTRODUCER,
+    photoTop: CP.PHOTO_URL, photoBottom: CP.PHOTO_BOTTOM,
   };
   Object.entries(changes).forEach(([k, v]) => {
     if (colMap[k]) sheet.getRange(rowIndex, colMap[k]).setValue(v);
@@ -2595,6 +2620,20 @@ function togglePipelineVote(rowIndex, memberName) {
   const updated = names.join(', ');
   cell.setValue(updated);
   return { ok: true, interested: updated };
+}
+
+/**
+ * Save an uploaded/pasted photo (base64 data URL) to Drive and return a public
+ * URL. Called from the pipeline web apps when a user uploads from their computer.
+ */
+function uploadPipelinePhoto(dataUrl, fileName, speakerName) {
+  const url = savePhotoToDrive_({
+    photoBase64: dataUrl,
+    photoName:   fileName || 'photo.jpg',
+    speakerName: speakerName || 'speaker',
+  });
+  if (!url) throw new Error('Could not save photo. Check that the file is a valid image under ~10 MB.');
+  return { ok: true, url: url };
 }
 
 /** Prepend a timestamped note to the Notes cell (newest-first). */
@@ -2668,11 +2707,15 @@ function assignSpeakerToEvent(pipelineRow, eventsRow, updatedBy) {
   const pSheet  = getPipelineSheet_();
 
   const pData = pSheet.getRange(pipelineRow, 1, 1, NUM_PIPE_COLS).getValues()[0];
-  const speakerName = String(pData[CP.SPEAKER_NAME - 1] || '');
-  const topic       = String(pData[CP.TOPIC - 1]        || '');
-  const bio         = String(pData[CP.BIO - 1]          || '');
-  const photoUrl    = String(pData[CP.PHOTO_URL - 1]    || '');
-  const role        = String(pData[CP.SPEAKER_ROLE - 1] || 'Main Speaker').toLowerCase();
+  const speakerName  = String(pData[CP.SPEAKER_NAME - 1] || '');
+  const topic        = String(pData[CP.TOPIC - 1]        || '');
+  const bio          = String(pData[CP.BIO - 1]          || '');
+  const summary      = String(pData[CP.SUMMARY - 1]      || '');
+  const speakerUrl   = String(pData[CP.SPEAKER_URL - 1]  || '');
+  const introducer   = String(pData[CP.INTRODUCER - 1]   || '');
+  const photoTop     = String(pData[CP.PHOTO_URL - 1]    || '');
+  const photoBottom  = String(pData[CP.PHOTO_BOTTOM - 1] || '');
+  const role         = String(pData[CP.SPEAKER_ROLE - 1] || 'Main Speaker').toLowerCase();
 
   if (role.includes('opening')) {
     evSheet.getRange(eventsRow, COL.OPENING_SPEAKER).setValue(speakerName);
@@ -2680,8 +2723,13 @@ function assignSpeakerToEvent(pipelineRow, eventsRow, updatedBy) {
     evSheet.getRange(eventsRow, COL.MAIN_SPEAKER).setValue(speakerName);
     evSheet.getRange(eventsRow, COL.MAIN_TOPIC).setValue(topic);
   }
-  if (bio)      evSheet.getRange(eventsRow, COL.SUMMARY).setValue(bio);
-  if (photoUrl) evSheet.getRange(eventsRow, COL.PHOTO_TOP).setValue(photoUrl);
+  // Prefer the explicit Summary; fall back to Bio if Summary is empty.
+  const narrative = summary || bio;
+  if (narrative)    evSheet.getRange(eventsRow, COL.SUMMARY).setValue(narrative);
+  if (speakerUrl)   evSheet.getRange(eventsRow, COL.SPEAKER_URL).setValue(speakerUrl);
+  if (introducer)   evSheet.getRange(eventsRow, COL.INTRODUCER).setValue(introducer);
+  if (photoTop)     evSheet.getRange(eventsRow, COL.PHOTO_TOP).setValue(photoTop);
+  if (photoBottom)  evSheet.getRange(eventsRow, COL.PHOTO_BOTTOM).setValue(photoBottom);
 
   const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'M/d/yy h:mm a');
   evSheet.getRange(eventsRow, COL.STATUS).setValue('Speaker assigned ' + ts);
@@ -2814,8 +2862,8 @@ header h1{font-size:1em;font-weight:bold;flex:1}
   <span id="hdr-user" style="font-size:0.85em;opacity:0.8"></span>
   <a class="hbtn" href="https://rotary.porttack.com/request/" target="_blank">+ Request Speaker</a>
   <button class="hbtn" onclick="toggleDeclined()">Declined</button>
-  <a href="?app=pipeline" class="hbtn">Table →</a>
-  <a href="?app=speaker-pipeline" class="hbtn">Status →</a>
+  <a href="__EXEC_URL__?app=pipeline" target="_top" class="hbtn">Table →</a>
+  <a href="__EXEC_URL__?app=speaker-pipeline" target="_top" class="hbtn">Status →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
 <div id="board"></div>
@@ -2842,7 +2890,7 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 
 <script>
 var currentUser = '', allCards = [], members = [], statuses = [], statusLabels = {};
-var panelRow = null, showDeclined = false;
+var panelRow = null, showDeclined = false, upcomingMeetings = [];
 
 function gs(fn, arg) {
   return new Promise(function(ok, fail) {
@@ -2909,6 +2957,7 @@ async function loadBoard() {
     members  = data.members;
     statuses = data.statuses;
     statusLabels = data.statusLabels;
+    upcomingMeetings = await gs('getUpcomingEventsForPicker', null);
     renderBoard();
   } catch(e) {
     document.getElementById('board').innerHTML =
@@ -3024,8 +3073,8 @@ function openPanel(rowIndex) {
       '<select id="pn-status">' + statusOpts + '</select></div>' +
     '<div class="pfield"><label>Assigned To</label>' +
       '<select id="pn-assigned">' + memberOpts + '</select></div>' +
-    '<div class="pfield"><label>Tentative Date</label>' +
-      '<input type="date" id="pn-date" value="' + esc(card.tentativeDate) + '"></div>' +
+    '<div class="pfield"><label>Tentative Date <span style="font-weight:normal;color:#888;font-size:0.9em">(open meeting dates)</span></label>' +
+      '<select id="pn-date">' + buildDateOptions(card.tentativeDate) + '</select></div>' +
     '<div class="pfield"><label>Speaker Role</label>' +
       '<select id="pn-role"><option>Opening Speaker</option><option>Main Speaker</option><option>Either</option><option>Unsure</option></select></div>' +
     '<div class="pfield"><label>Email</label><input id="pn-email" value="' + esc(card.speakerEmail) + '"></div>' +
@@ -3035,6 +3084,20 @@ function openPanel(rowIndex) {
       '<input id="pn-pref" value="' + esc(card.preferredDates) + '"></div>' +
     '<div class="pfield"><label>Bio</label>' +
       '<textarea id="pn-bio" rows="3">' + esc(card.bio) + '</textarea></div>' +
+    '<div class="pfield"><label>Summary <span style="font-weight:normal;color:#888;font-size:0.9em">(newsletter narrative)</span></label>' +
+      '<textarea id="pn-summary" rows="3">' + esc(card.summary) + '</textarea></div>' +
+    '<div class="pfield"><label>Speaker URL</label>' +
+      '<input id="pn-url" value="' + esc(card.speakerUrl) + '" placeholder="https://…"></div>' +
+    '<div class="pfield"><label>Introducer</label>' +
+      '<input id="pn-introducer" value="' + esc(card.introducer) + '" placeholder="Who introduces the speaker"></div>' +
+    '<div class="pfield"><label>Top Photo</label>' +
+      '<input id="pn-phototop" value="' + esc(card.photoTop) + '" placeholder="paste an image URL, or upload below">' +
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,\'pn-phototop\')">' +
+      '<div id="pn-phototop-prev" class="photo-prev"></div></div>' +
+    '<div class="pfield"><label>Bottom Photo</label>' +
+      '<input id="pn-photobottom" value="' + esc(card.photoBottom) + '" placeholder="paste an image URL, or upload below">' +
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,\'pn-photobottom\')">' +
+      '<div id="pn-photobottom-prev" class="photo-prev"></div></div>' +
     '<div class="pfield"><label>Tags <span style="font-weight:normal;color:#888;font-size:0.9em">(comma-separated)</span></label>' +
       '<input id="pn-tags" value="' + esc(card.tags) + '" placeholder="e.g. environment, local, tech"></div>' +
     (card.requestorName ? '<div class="pfield"><label>Submitted by</label><span style="font-size:0.88em">' + esc(card.requestorName) + ' &lt;' + esc(card.requestorEmail) + '&gt;</span></div>' : '') +
@@ -3050,7 +3113,45 @@ function openPanel(rowIndex) {
     '<button class="pbtn sec" onclick="addNote()">Add Note</button>';
 
   document.getElementById('pn-role').value = card.speakerRole || 'Main Speaker';
+  showPhotoPreview('pn-phototop');
+  showPhotoPreview('pn-photobottom');
   document.getElementById('panel').classList.add('open');
+}
+
+function showPhotoPreview(inputId) {
+  var v = (document.getElementById(inputId) || {}).value || '';
+  var prev = document.getElementById(inputId + '-prev');
+  if (!prev) return;
+  prev.innerHTML = (v && v.indexOf('http') === 0)
+    ? '<img src="' + esc(v) + '" style="max-width:120px;max-height:120px;border-radius:4px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">'
+    : '';
+}
+
+async function uploadPhoto(input, targetId) {
+  var file = input.files[0];
+  if (!file) return;
+  var target = document.getElementById(targetId);
+  var prev = document.getElementById(targetId + '-prev');
+  if (file.size > 8 * 1024 * 1024) {
+    if (prev) prev.innerHTML = '<span style="font-size:0.8em;color:#b91c1c">Image too large (max 8 MB)</span>';
+    input.value = '';
+    return;
+  }
+  if (prev) prev.innerHTML = '<span style="font-size:0.8em;color:#888">Uploading…</span>';
+  try {
+    var dataUrl = await new Promise(function(resolve, reject) {
+      var r = new FileReader();
+      r.onload = function(ev) { resolve(ev.target.result); };
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+    var speakerName = (document.getElementById('pn-name') || {}).value || 'speaker';
+    var res = await gs3('uploadPipelinePhoto', dataUrl, file.name, speakerName);
+    target.value = res.url;
+    showPhotoPreview(targetId);
+  } catch(e) {
+    if (prev) prev.innerHTML = '<span style="font-size:0.8em;color:#b91c1c">Upload failed: ' + (e.message || e) + '</span>';
+  }
 }
 
 function closePanel() { document.getElementById('panel').classList.remove('open'); panelRow = null; }
@@ -3070,6 +3171,11 @@ async function savePanel() {
     speakerCity:  document.getElementById('pn-city').value.trim(),
     preferredDates: document.getElementById('pn-pref').value.trim(),
     bio:          document.getElementById('pn-bio').value.trim(),
+    summary:      document.getElementById('pn-summary').value.trim(),
+    speakerUrl:   document.getElementById('pn-url').value.trim(),
+    introducer:   document.getElementById('pn-introducer').value.trim(),
+    photoTop:     document.getElementById('pn-phototop').value.trim(),
+    photoBottom:  document.getElementById('pn-photobottom').value.trim(),
     tags:         document.getElementById('pn-tags').value.trim(),
   };
   try {
@@ -3165,6 +3271,24 @@ function logout() {
   location.reload();
 }
 
+// Build <option>s for a tentative-date dropdown from upcoming meeting slots.
+// Open slots are selectable; booked slots are disabled and show the speaker.
+function buildDateOptions(cur) {
+  var opts = '<option value="">— no date —</option>';
+  var found = false;
+  upcomingMeetings.forEach(function(m) {
+    var isCur = (m.date === cur);
+    if (isCur) found = true;
+    var disabled = (!m.available && !isCur) ? ' disabled' : '';
+    var label = m.available
+      ? esc(m.dateLabel) + (m.time ? ' ' + m.time : '')
+      : esc(m.dateLabel) + ' — taken' + (m.mainSpeaker ? ' (' + esc(m.mainSpeaker) + ')' : '');
+    opts += '<option value="' + esc(m.date) + '"' + (isCur ? ' selected' : '') + disabled + '>' + label + '</option>';
+  });
+  if (cur && !found) opts += '<option value="' + esc(cur) + '" selected>' + esc(cur) + ' (custom)</option>';
+  return opts;
+}
+
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -3249,8 +3373,8 @@ tr:hover td{background:#f8f9ff}
   <h1>🎤 Speaker Pipeline — Table</h1>
   <span id="hdr-user" style="font-size:0.85em;opacity:0.8"></span>
   <a class="hbtn" href="https://rotary.porttack.com/request/" target="_blank">+ Request Speaker</a>
-  <a href="?app=kanban" class="hbtn">Kanban →</a>
-  <a href="?app=speaker-pipeline" class="hbtn">Status →</a>
+  <a href="__EXEC_URL__?app=kanban" target="_top" class="hbtn">Kanban →</a>
+  <a href="__EXEC_URL__?app=speaker-pipeline" target="_top" class="hbtn">Status →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
 <div id="toolbar">
@@ -3267,7 +3391,7 @@ tr:hover td{background:#f8f9ff}
 <div id="content"><p style="color:#888;padding:1em">Loading…</p></div>
 <script>
 var currentUser='',allCards=[],members=[],statuses=[],statusLabels={};
-var filterStatus='all',expandedRow=null,sortCol='updatedAt',sortAsc=false;
+var filterStatus='all',expandedRow=null,sortCol='updatedAt',sortAsc=false,upcomingMeetings=[];
 function gs(fn,a){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a);})}
 function gs3(fn,a,b,c){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c);})}
 function doLogin(){
@@ -3293,7 +3417,8 @@ window.addEventListener('load',function(){
 async function loadData(){
   try{
     var d=await gs('getPipelineData',null);
-    allCards=d.cards;members=d.members;statuses=d.statuses;statusLabels=d.statusLabels;renderTable();
+    allCards=d.cards;members=d.members;statuses=d.statuses;statusLabels=d.statusLabels;
+    upcomingMeetings=await gs('getUpcomingEventsForPicker',null);renderTable();
   }catch(e){
     document.getElementById('content').innerHTML=
       '<p style="color:#b91c1c;padding:1.2em">⚠️ '+e.message+
@@ -3351,12 +3476,21 @@ function buildExpandRow(card,memberOpts,statusOpts){
     ef('Topic','<input id="ef-topic-'+ro+'" value="'+esc(card.topic)+'">')+
     ef('Status','<select id="ef-status-'+ro+'">'+statusOpts+'</select>')+
     ef('Assigned To','<select id="ef-assigned-'+ro+'">'+memberOpts+'</select>')+
-    ef('Tentative Date','<input type="date" id="ef-date-'+ro+'" value="'+esc(card.tentativeDate)+'">')+
+    ef('Tentative Date','<select id="ef-date-'+ro+'">'+buildDateOptions(card.tentativeDate)+'</select>')+
     ef('Email','<input id="ef-email-'+ro+'" value="'+esc(card.speakerEmail)+'">')+
     ef('Phone','<input id="ef-phone-'+ro+'" value="'+esc(card.speakerPhone)+'">')+
     ef('City','<input id="ef-city-'+ro+'" value="'+esc(card.speakerCity)+'">')+
     ef('Preferred Dates','<input id="ef-pref-'+ro+'" value="'+esc(card.preferredDates)+'">')+
     ef('Bio','<textarea id="ef-bio-'+ro+'" rows="3">'+esc(card.bio)+'</textarea>',true)+
+    ef('Summary (newsletter)','<textarea id="ef-summary-'+ro+'" rows="3">'+esc(card.summary)+'</textarea>',true)+
+    ef('Speaker URL','<input id="ef-url-'+ro+'" value="'+esc(card.speakerUrl)+'" placeholder="https://…">')+
+    ef('Introducer','<input id="ef-introducer-'+ro+'" value="'+esc(card.introducer)+'">')+
+    ef('Top Photo','<input id="ef-phototop-'+ro+'" value="'+esc(card.photoTop)+'" placeholder="paste URL or upload">'+
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,\'ef-phototop-'+ro+'\','+ro+')">'+
+      '<div id="ef-phototop-'+ro+'-prev" class="photo-prev"></div>',true)+
+    ef('Bottom Photo','<input id="ef-photobottom-'+ro+'" value="'+esc(card.photoBottom)+'" placeholder="paste URL or upload">'+
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,\'ef-photobottom-'+ro+'\','+ro+')">'+
+      '<div id="ef-photobottom-'+ro+'-prev" class="photo-prev"></div>',true)+
     ef('Notes','<div class="notes-log">'+esc(card.notes)+'</div>'+
       '<textarea id="ef-note-'+ro+'" rows="2" placeholder="Add a note…"></textarea>',true)+
     '<div class="row-btns">'+
@@ -3369,10 +3503,14 @@ function buildExpandRow(card,memberOpts,statusOpts){
   setTimeout(function(){
     var ss=document.getElementById('ef-status-'+ro);if(ss)ss.value=card.status;
     var sa=document.getElementById('ef-assigned-'+ro);if(sa)sa.value=card.assignedTo;
+    showPhotoPreview('ef-phototop-'+ro);showPhotoPreview('ef-photobottom-'+ro);
   },0);
   return tr;
 }
 function ef(label,input,full){return'<div class="ef'+(full?' full':'')+'"><label>'+esc(label)+'</label>'+input+'</div>';}
+function buildDateOptions(cur){var opts='<option value="">— no date —</option>',found=false;upcomingMeetings.forEach(function(m){var isCur=(m.date===cur);if(isCur)found=true;var disabled=(!m.available&&!isCur)?' disabled':'';var label=m.available?(esc(m.dateLabel)+(m.time?' '+m.time:'')):(esc(m.dateLabel)+' — taken'+(m.mainSpeaker?' ('+esc(m.mainSpeaker)+')':''));opts+='<option value="'+esc(m.date)+'"'+(isCur?' selected':'')+disabled+'>'+label+'</option>';});if(cur&&!found)opts+='<option value="'+esc(cur)+'" selected>'+esc(cur)+' (custom)</option>';return opts;}
+function showPhotoPreview(id){var el=document.getElementById(id);if(!el)return;var v=el.value||'';var prev=document.getElementById(id+'-prev');if(!prev)return;prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(v)+'" style="max-width:120px;max-height:120px;border-radius:4px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';}
+async function uploadPhoto(input,targetId,ro){var file=input.files[0];if(!file)return;var prev=document.getElementById(targetId+'-prev');if(file.size>8*1024*1024){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Image too large (max 8 MB)</span>';input.value='';return;}if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#888">Uploading…</span>';try{var dataUrl=await new Promise(function(res,rej){var r=new FileReader();r.onload=function(ev){res(ev.target.result);};r.onerror=rej;r.readAsDataURL(file);});var sn=(document.getElementById('ef-name-'+ro)||{}).value||'speaker';var resp=await gs3('uploadPipelinePhoto',dataUrl,file.name,sn);document.getElementById(targetId).value=resp.url;showPhotoPreview(targetId);}catch(e){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Upload failed</span>';}}
 async function saveRow(ro){
   var msg=document.getElementById('ef-msg-'+ro);
   var changes={speakerName:document.getElementById('ef-name-'+ro).value.trim(),
@@ -3384,7 +3522,12 @@ async function saveRow(ro){
     speakerPhone:document.getElementById('ef-phone-'+ro).value.trim(),
     speakerCity:document.getElementById('ef-city-'+ro).value.trim(),
     preferredDates:document.getElementById('ef-pref-'+ro).value.trim(),
-    bio:document.getElementById('ef-bio-'+ro).value.trim()};
+    bio:document.getElementById('ef-bio-'+ro).value.trim(),
+    summary:document.getElementById('ef-summary-'+ro).value.trim(),
+    speakerUrl:document.getElementById('ef-url-'+ro).value.trim(),
+    introducer:document.getElementById('ef-introducer-'+ro).value.trim(),
+    photoTop:document.getElementById('ef-phototop-'+ro).value.trim(),
+    photoBottom:document.getElementById('ef-photobottom-'+ro).value.trim()};
   try{await gs3('savePipelineCard',ro,changes,currentUser);
     var card=allCards.find(function(c){return c.rowIndex===ro;});if(card)Object.assign(card,changes);
     msg.className='row-msg ok';msg.textContent='Saved ✓';
@@ -3481,8 +3624,8 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
 </div>
 <header>
   <h1>🎤 SLV Rotary — Speaker Pipeline</h1>
-  <a href="?app=kanban" class="hbtn">Kanban →</a>
-  <a href="?app=pipeline" class="hbtn">Table →</a>
+  <a href="__EXEC_URL__?app=kanban" target="_top" class="hbtn">Kanban →</a>
+  <a href="__EXEC_URL__?app=pipeline" target="_top" class="hbtn">Table →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
 <div id="content"><p style="color:#888;padding:1em">Loading…</p></div>
