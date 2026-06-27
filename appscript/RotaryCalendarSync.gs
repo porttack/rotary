@@ -177,8 +177,12 @@ const CP = {
   SUMMARY:            32,   // AF - newsletter narrative paragraph
   INTRODUCER:         33,   // AG - who introduces the speaker at the meeting
   PHOTO_BOTTOM:       34,   // AH - second photo (PHOTO_URL col 15 is the top photo)
+  PRIORITY:           35,   // AI - Low | Medium | High
+  IS_ROTARIAN:        36,   // AJ - Yes if speaker is a Rotarian
+  IS_LOCAL:           37,   // AK - Yes if speaker is local to SLV area
+  FUNDRAISING_LITERATURE: 38, // AL - Yes if may bring fundraising/donation materials
 };
-const NUM_PIPE_COLS = 34;
+const NUM_PIPE_COLS = 38;
 
 // ── MENU ─────────────────────────────────────────────────────
 function onOpen() {
@@ -1420,6 +1424,7 @@ function doPost(e) {
     const boolFields = [
       "spokeToOrganizer", "spokeToPresident",
       "availMorning", "availEvening", "zoomOnly", "otherSuggestions",
+      "isRotarian", "isLocal", "fundraisingLiterature",
     ];
     boolFields.forEach(function (k) { p[k] = p[k] === "true"; });
 
@@ -1949,6 +1954,10 @@ function buildPipelineRow_(source, data, photoUrl, ts) {
   row[CP.ZOOM_ONLY - 1]           = data.zoomOnly         ? 'Yes' : '';
   row[CP.OTHER_SUGGESTIONS - 1]   = data.otherSuggestions ? 'Yes' : '';
   row[CP.COMMENTS - 1]            = data.comments         || '';
+  row[CP.PRIORITY - 1]            = data.priority              || '';
+  row[CP.IS_ROTARIAN - 1]         = data.isRotarian            ? 'Yes' : '';
+  row[CP.IS_LOCAL - 1]            = data.isLocal               ? 'Yes' : '';
+  row[CP.FUNDRAISING_LITERATURE - 1] = data.fundraisingLiterature ? 'Yes' : '';
   row[CP.SUBMITTED_AT - 1]        = ts;
   row[CP.UPDATED_AT - 1]          = ts;
   row[CP.UPDATED_BY - 1]          = 'form submission';
@@ -2610,6 +2619,7 @@ function setupSpeakerPipeline() {
     'Submitted At', 'Updated At', 'Updated By',
     'Tags', 'Interested (+1s)',
     'Speaker URL', 'Summary', 'Introducer', 'Photo Bottom',
+    'Priority', 'Is Rotarian', 'Is Local', 'Fundraising Literature',
   ];
 
   const hdr = sheet.getRange(1, 1, 1, headers.length);
@@ -2623,7 +2633,7 @@ function setupSpeakerPipeline() {
 
   const colWidths = [80,90,160,180,120,120,220,110,300,300,
                      130,180,110,80,220,140,180,120,80,80,70,70,70,80,220,130,130,130,200,200,
-                     280,300,150,220];
+                     280,300,150,220,80,80,70,110];
   colWidths.forEach((w,i) => sheet.setColumnWidth(i+1, w));
   sheet.setColumnWidth(CP.BIO, 300);
   sheet.setColumnWidth(CP.NOTES, 300);
@@ -2721,6 +2731,10 @@ function getPipelineData() {
         introducer:        String(row[CP.INTRODUCER - 1]          || ''),
         photoTop:          String(row[CP.PHOTO_URL - 1]           || ''),
         photoBottom:       String(row[CP.PHOTO_BOTTOM - 1]        || ''),
+        priority:          String(row[CP.PRIORITY - 1]            || ''),
+        isRotarian:        row[CP.IS_ROTARIAN - 1] === 'Yes',
+        isLocal:           row[CP.IS_LOCAL - 1] === 'Yes',
+        fundraisingLiterature: row[CP.FUNDRAISING_LITERATURE - 1] === 'Yes',
       });
     });
   }
@@ -2741,6 +2755,9 @@ function savePipelineCard(rowIndex, changes, updatedBy) {
     comments: CP.COMMENTS, tags: CP.TAGS,
     speakerUrl: CP.SPEAKER_URL, summary: CP.SUMMARY, introducer: CP.INTRODUCER,
     photoTop: CP.PHOTO_URL, photoBottom: CP.PHOTO_BOTTOM,
+    priority: CP.PRIORITY,
+    zoomOnly: CP.ZOOM_ONLY, isRotarian: CP.IS_ROTARIAN,
+    isLocal: CP.IS_LOCAL, fundraisingLiterature: CP.FUNDRAISING_LITERATURE,
   };
   const labelMap = {
     status: 'Status', speakerName: 'Speaker', speakerEmail: 'Email', speakerPhone: 'Phone',
@@ -2748,7 +2765,9 @@ function savePipelineCard(rowIndex, changes, updatedBy) {
     preferredDates: 'Preferred dates', tentativeDate: 'Date', speakerUrl: 'Speaker URL',
     introducer: 'Introducer', tags: 'Tags', comments: 'Comments', bio: 'Bio',
     summary: 'Summary', photoTop: 'Top photo', photoBottom: 'Bottom photo',
-    photoUrl: 'Photo', eventsRow: 'Events row',
+    photoUrl: 'Photo', eventsRow: 'Events row', priority: 'Priority',
+    zoomOnly: 'Zoom only', isRotarian: 'Is Rotarian', isLocal: 'Is Local',
+    fundraisingLiterature: 'Fundraising lit.',
   };
   // Long/opaque fields: note that they changed, not the full (often huge) value.
   const longFields = { bio: true, summary: true, photoTop: true, photoBottom: true, photoUrl: true };
@@ -3140,6 +3159,9 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 .badge.offer{background:#d1fae5;color:#065f46}
 .badge.request{background:#dbeafe;color:#1e3a8a}
 .badge.manual{background:#f3f4f6;color:#555}
+.priority-low{background:#f3f4f6;color:#4b5563}
+.priority-medium{background:#bfdbfe;color:#1e40af}
+.priority-high{background:#fed7aa;color:#9a3412}
 /* Status column colors */
 .hd-new{background:#6b7280}
 .hd-in-progress{background:#2563eb}
@@ -3168,10 +3190,14 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 #panel-hd{background:#17458F;color:#fff;padding:0.7em 1em;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
 #panel-hd h2{font-size:1em}
 #panel-close{background:none;border:none;color:#fff;font-size:1.3em;cursor:pointer;line-height:1}
+#panel-save-hd{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.5);color:#fff;padding:3px 10px;border-radius:4px;font-size:0.82em;cursor:pointer}
+#panel-save-hd:hover{background:rgba(255,255,255,0.3)}
+.panel-hd-btns{display:flex;align-items:center;gap:0.5em}
 #panel-body{flex:1;overflow-y:auto;padding:1em}
 .pfield{margin-bottom:0.7em}
 .pfield label{display:block;font-weight:bold;color:#17458F;font-size:0.82em;margin-bottom:2px}
 .pfield input,.pfield textarea,.pfield select{width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-size:0.88em;font-family:Arial,sans-serif}
+.pfield input[type=checkbox]{width:auto;padding:0;border:none;box-shadow:none}
 .pfield textarea{resize:vertical;min-height:60px}
 .notes-display{background:#f8f9fa;border:1px solid #e0e0e0;border-radius:4px;padding:0.5em 0.7em;font-size:0.8em;white-space:pre-wrap;max-height:120px;overflow-y:auto;color:#333;margin-bottom:0.4em}
 .pbtn{background:#17458F;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;margin-right:0.4em}
@@ -3315,7 +3341,7 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 
 <!-- Detail Panel -->
 <div id="panel">
-  <div id="panel-hd"><h2 id="panel-title">Speaker Detail</h2><button id="panel-close" onclick="closePanel()">✕</button></div>
+  <div id="panel-hd"><h2 id="panel-title">Speaker Detail</h2><div class="panel-hd-btns"><button id="panel-save-hd" onclick="savePanel()">Save</button><button id="panel-close" onclick="closePanel()">✕</button></div></div>
   <div id="panel-body"></div>
 </div>
 
@@ -3633,8 +3659,15 @@ function buildCard(card) {
     '<div class="card-topic">' + esc(card.topic || '—') + '</div>' +
     '<div class="card-meta">' +
       '<span class="badge ' + card.source + '">' + card.source + '</span>' +
+      (card.priority ? '<span class="badge priority-' + card.priority.toLowerCase() + '">' + esc(card.priority) + '</span>' : '') +
     '</div>' +
     (tagChips ? '<div class="card-tags">' + tagChips + '</div>' : '') +
+    ((card.isRotarian || card.isLocal || card.fundraisingLiterature) ?
+      '<div class="card-tags">' +
+        (card.isRotarian ? '<span class="badge" style="background:#e0e7ff;color:#3730a3">Rotarian</span>' : '') +
+        (card.isLocal ? '<span class="badge" style="background:#dcfce7;color:#166534">Local</span>' : '') +
+        (card.fundraisingLiterature ? '<span class="badge" style="background:#fef9c3;color:#854d0e">&#9888; Fundraising lit.</span>' : '') +
+      '</div>' : '') +
     '<select class="card-status">' +
       statuses.map(function(s) { return '<option value="' + s + '"' + (s === card.status ? ' selected' : '') + '>' + esc(statusLabels[s] || s) + '</option>'; }).join('') +
     '</select>' +
@@ -3724,6 +3757,13 @@ function openPanel(rowIndex) {
       '<input id="pn-topic" value="' + esc(card.topic) + '"></div>' +
     '<div class="pfield"><label>Status</label>' +
       '<select id="pn-status">' + statusOpts + '</select></div>' +
+    '<div class="pfield"><label>Priority</label>' +
+      '<select id="pn-priority">' +
+        '<option value="">— none —</option>' +
+        '<option value="Low">Low — Idea</option>' +
+        '<option value="Medium">Medium — Recommended</option>' +
+        '<option value="High">High — Strongly Recommended</option>' +
+      '</select></div>' +
     '<div class="pfield"><label>Manager (Assigned To)</label>' +
       '<select id="pn-assigned">' + memberOpts + '</select></div>' +
     '<div class="pfield"><label>Tentative Date <span style="font-weight:normal;color:#888;font-size:0.9em">(open meeting dates)</span></label>' +
@@ -3755,10 +3795,13 @@ function openPanel(rowIndex) {
       '<input id="pn-tags" value="' + esc(card.tags) + '" placeholder="e.g. environment, local, tech"></div>' +
     '<div class="pfield"><label>Comments <span style="font-weight:normal;color:#888;font-size:0.9em">(internal — from the submitter)</span></label>' +
       '<textarea id="pn-comments" rows="2">' + esc(card.comments) + '</textarea></div>' +
-    ((card.zoomOnly || card.availMorning || card.availEvening) ?
-      '<div class="pfield"><label>Availability / Format</label><span style="font-size:0.88em">' +
-        [card.availMorning ? 'Mornings' : '', card.availEvening ? 'Evenings' : '', card.zoomOnly ? '💻 Zoom only (not in person)' : '']
-          .filter(Boolean).join(' · ') + '</span></div>' : '') +
+    '<div class="pfield"><label>Format &amp; Speaker Details</label>' +
+      '<div style="margin-top:0.4em">' +
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-zoom-only"> Zoom only (not in person)</label>' +
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-is-rotarian"> Rotarian</label>' +
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-is-local"> Local to Santa Cruz County</label>' +
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-fundraising"> May bring fundraising or donation materials</label>' +
+      '</div></div>' +
     (card.requestorName ? '<div class="pfield"><label>Submitted by</label><span style="font-size:0.88em">' + esc(card.requestorName) + ' &lt;' + esc(card.requestorEmail) + '&gt;</span></div>' : '') +
     (card.interested ? '<div class="pfield"><label>Interested members</label><span style="font-size:0.88em">' + esc(card.interested) + '</span></div>' : '') +
     '<button class="pbtn" onclick="savePanel()">Save</button>' +
@@ -3776,6 +3819,11 @@ function openPanel(rowIndex) {
     '<button class="pbtn sec" onclick="addNote()">Add Note</button>';
 
   document.getElementById('pn-role').value = card.speakerRole || 'Main Speaker';
+  document.getElementById('pn-priority').value = card.priority || '';
+  document.getElementById('pn-zoom-only').checked = !!card.zoomOnly;
+  document.getElementById('pn-is-rotarian').checked = !!card.isRotarian;
+  document.getElementById('pn-is-local').checked = !!card.isLocal;
+  document.getElementById('pn-fundraising').checked = !!card.fundraisingLiterature;
   showPhotoPreview('pn-phototop');
   showPhotoPreview('pn-photobottom');
   document.getElementById('panel').classList.add('open');
@@ -3878,6 +3926,7 @@ async function savePanel() {
     assignedTo:  document.getElementById('pn-assigned').value,
     tentativeDate: document.getElementById('pn-date').value,
     speakerRole: document.getElementById('pn-role').value,
+    priority:    document.getElementById('pn-priority').value,
     speakerEmail: document.getElementById('pn-email').value.trim(),
     speakerPhone: document.getElementById('pn-phone').value.trim(),
     speakerCity:  document.getElementById('pn-city').value.trim(),
@@ -3890,21 +3939,33 @@ async function savePanel() {
     photoBottom:  document.getElementById('pn-photobottom').value.trim(),
     tags:         document.getElementById('pn-tags').value.trim(),
     comments:     document.getElementById('pn-comments').value.trim(),
+    zoomOnly:     document.getElementById('pn-zoom-only').checked ? 'Yes' : '',
+    isRotarian:   document.getElementById('pn-is-rotarian').checked ? 'Yes' : '',
+    isLocal:      document.getElementById('pn-is-local').checked ? 'Yes' : '',
+    fundraisingLiterature: document.getElementById('pn-fundraising').checked ? 'Yes' : '',
   };
   try {
     var res = await gs3('savePipelineCard', panelRow, changes, currentUser);
     var card = allCards.find(function(c) { return c.rowIndex === panelRow; });
-    if (card) Object.assign(card, changes);
+    if (card) {
+      Object.assign(card, changes);
+      card.zoomOnly = changes.zoomOnly === 'Yes';
+      card.isRotarian = changes.isRotarian === 'Yes';
+      card.isLocal = changes.isLocal === 'Yes';
+      card.fundraisingLiterature = changes.fundraisingLiterature === 'Yes';
+    }
     if (res && res.notes != null) {
       if (card) card.notes = res.notes;
       var nd = document.getElementById('pn-notes-display');
       if (nd) nd.textContent = res.notes;
     }
     renderBoard();
-    msg.className = 'pmsg ok';
-    msg.textContent = (res && res.noted) ? 'Saved ✓ (' + res.noted + ' change' + (res.noted === 1 ? '' : 's') + ' logged)' : 'Saved ✓';
+    var okText = (res && res.noted) ? 'Saved ✓ (' + res.noted + ' change' + (res.noted === 1 ? '' : 's') + ' logged)' : 'Saved ✓';
+    msg.className = 'pmsg ok'; msg.textContent = okText;
     setTimeout(function() { msg.textContent = ''; }, 2500);
-  } catch(e) { msg.className = 'pmsg err'; msg.textContent = 'Error: ' + e.message; }
+  } catch(e) {
+    msg.className = 'pmsg err'; msg.textContent = 'Error: ' + e.message;
+  }
 }
 
 async function addNote() {
@@ -4520,6 +4581,9 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
 .badge-offer{background:#d1fae5;color:#065f46}
 .badge-request{background:#dbeafe;color:#1e3a8a}
 .badge-manual{background:#f3f4f6;color:#555}
+.priority-low{background:#f3f4f6;color:#4b5563}
+.priority-medium{background:#bfdbfe;color:#1e40af}
+.priority-high{background:#fed7aa;color:#9a3412}
 .empty{color:#aaa;font-size:0.88em;font-style:italic;padding:0.3em 0}
 /* AI command line */
 #ai-bar{max-width:1040px;margin:0.9em auto 0;padding:0 1em;display:flex;gap:0.5em}
@@ -4571,10 +4635,14 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
 #panel-hd{background:#17458F;color:#fff;padding:0.7em 1em;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
 #panel-hd h2{font-size:1em}
 #panel-close{background:none;border:none;color:#fff;font-size:1.3em;cursor:pointer;line-height:1}
+#panel-save-hd{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.5);color:#fff;padding:3px 10px;border-radius:4px;font-size:0.82em;cursor:pointer}
+#panel-save-hd:hover{background:rgba(255,255,255,0.3)}
+.panel-hd-btns{display:flex;align-items:center;gap:0.5em}
 #panel-body{flex:1;overflow-y:auto;padding:1em}
 .pfield{margin-bottom:0.7em}
 .pfield label{display:block;font-weight:bold;color:#17458F;font-size:0.82em;margin-bottom:2px}
 .pfield input,.pfield textarea,.pfield select{width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-size:0.88em;font-family:Arial,sans-serif}
+.pfield input[type=checkbox]{width:auto;padding:0;border:none;box-shadow:none}
 .pfield textarea{resize:vertical;min-height:60px}
 .notes-display{background:#f8f9fa;border:1px solid #e0e0e0;border-radius:4px;padding:0.5em 0.7em;font-size:0.8em;white-space:pre-wrap;max-height:120px;overflow-y:auto;color:#333;margin-bottom:0.4em}
 .pbtn{background:#17458F;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;margin-right:0.4em;margin-bottom:0.3em}
@@ -4639,7 +4707,7 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
 
 <!-- Detail Panel -->
 <div id="panel">
-  <div id="panel-hd"><h2 id="panel-title">Speaker Detail</h2><button id="panel-close" onclick="closePanel()">✕</button></div>
+  <div id="panel-hd"><h2 id="panel-title">Speaker Detail</h2><div class="panel-hd-btns"><button id="panel-save-hd" onclick="savePanel()">Save</button><button id="panel-close" onclick="closePanel()">✕</button></div></div>
   <div id="panel-body"></div>
 </div>
 
@@ -4749,16 +4817,17 @@ function aiSubmit(){
 }
 function render(){
   var sections=[
-    {key:'scheduled',icon:'🗓️',desc:'Booked on the calendar'},
+    {key:'new',         icon:'💡',desc:'New lead — not yet contacted'},
     {key:'in-progress', icon:'📞',desc:'Actively working on it (incl. speakers who have agreed)'},
-    {key:'limbo',    icon:'⏳',desc:'Waiting / stalled'},
-    {key:'new',      icon:'💡',desc:'New lead — not yet contacted'},
-    {key:'done',     icon:'🎤',desc:'Recently presented'},
+    {key:'scheduled',   icon:'🗓️',desc:'Booked on the calendar'},
+    {key:'done',        icon:'🎤',desc:'Recently presented'},
+    {key:'limbo',       icon:'⏳',desc:'Waiting / stalled'},
   ];
   var stageOpts=statuses.filter(function(s){return s!=='deleted';});
   var main='';
   sections.forEach(function(sec){
     var cards=allCards.filter(function(c){return c.status===sec.key&&matchAssignee(c);});
+    if(sec.key==='new') cards=cards.slice().sort(function(a,b){return b.rowIndex-a.rowIndex;});
     main+='<div class="section"><div class="sec-hd">'+sec.icon+' '+(statusLabels[sec.key]||sec.key)+
       '<span class="sec-count">'+cards.length+'</span></div>';
     if(sec.desc) main+='<div class="sec-desc">'+esc(sec.desc)+'</div>';
@@ -4778,6 +4847,10 @@ function render(){
             (card.tentativeDate?'<span>📅 '+esc(card.tentativeDate)+((card.status!=='scheduled'&&card.status!=='done')?' (tentative)':'')+'</span>':'')+
             (card.speakerCity?'<span>📍 '+esc(card.speakerCity)+'</span>':'')+
             '<span class="badge badge-'+card.source+'">'+card.source+'</span>'+
+            (card.priority?'<span class="badge priority-'+card.priority.toLowerCase()+'">'+esc(card.priority)+'</span>':'')+
+            (card.isRotarian?'<span class="badge" style="background:#e0e7ff;color:#3730a3">Rotarian</span>':'')+
+            (card.isLocal?'<span class="badge" style="background:#dcfce7;color:#166534">Local</span>':'')+
+            (card.fundraisingLiterature?'<span class="badge" style="background:#fef9c3;color:#854d0e">&#9888; Fundraising lit.</span>':'')+
             voteHtml(card)+
           '</div>'+
           stageSel+
@@ -4842,6 +4915,7 @@ function openPanel(rowIndex){
     '<div class="pfield"><label>Speaker Name</label><input id="pn-name" value="'+esc(card.speakerName)+'"></div>'+
     '<div class="pfield"><label>Topic</label><input id="pn-topic" value="'+esc(card.topic)+'"></div>'+
     '<div class="pfield"><label>Status</label><select id="pn-status">'+statusOpts+'</select></div>'+
+    '<div class="pfield"><label>Priority</label><select id="pn-priority"><option value="">— none —</option><option value="Low">Low — Idea</option><option value="Medium">Medium — Recommended</option><option value="High">High — Strongly Recommended</option></select></div>'+
     '<div class="pfield"><label>Manager (Assigned To)</label><select id="pn-assigned">'+memberOpts+'</select></div>'+
     '<div class="pfield"><label>Tentative Date <span style="font-weight:normal;color:#888;font-size:0.9em">(open meeting dates)</span></label><select id="pn-date">'+buildDateOptions(card.tentativeDate)+'</select></div>'+
     '<div class="pfield"><label>Speaker Role</label><select id="pn-role"><option>Opening Speaker</option><option>Main Speaker</option><option>Either</option><option>Unsure</option></select></div>'+
@@ -4861,9 +4935,13 @@ function openPanel(rowIndex){
       '<div id="pn-photobottom-prev" class="photo-prev"></div></div>'+
     '<div class="pfield"><label>Tags <span style="font-weight:normal;color:#888;font-size:0.9em">(comma-separated)</span></label><input id="pn-tags" value="'+esc(card.tags)+'" placeholder="e.g. environment, local, tech"></div>'+
     '<div class="pfield"><label>Comments <span style="font-weight:normal;color:#888;font-size:0.9em">(internal — from the submitter)</span></label><textarea id="pn-comments" rows="2">'+esc(card.comments)+'</textarea></div>'+
-    ((card.zoomOnly||card.availMorning||card.availEvening)?
-      '<div class="pfield"><label>Availability / Format</label><span style="font-size:0.88em">'+
-        [card.availMorning?'Mornings':'',card.availEvening?'Evenings':'',card.zoomOnly?'💻 Zoom only (not in person)':''].filter(Boolean).join(' · ')+'</span></div>':'')+
+    '<div class="pfield"><label>Format &amp; Speaker Details</label>'+
+      '<div style="margin-top:0.4em">'+
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-zoom-only"> Zoom only (not in person)</label>'+
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-is-rotarian"> Rotarian</label>'+
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-is-local"> Local to Santa Cruz County</label>'+
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-fundraising"> May bring fundraising or donation materials</label>'+
+      '</div></div>'+
     (card.requestorName?'<div class="pfield"><label>Submitted by</label><span style="font-size:0.88em">'+esc(card.requestorName)+' &lt;'+esc(card.requestorEmail)+'&gt;</span></div>':'')+
     (card.interested?'<div class="pfield"><label>Interested members</label><span style="font-size:0.88em">'+esc(card.interested)+'</span></div>':'')+
     '<button class="pbtn" onclick="savePanel()">Save</button>'+
@@ -4877,6 +4955,11 @@ function openPanel(rowIndex){
     '<div class="pfield"><label>Add Note</label><textarea id="pn-note-input" rows="2" placeholder="Type a note…"></textarea></div>'+
     '<button class="pbtn sec" onclick="panelAddNote()">Add Note</button>';
   document.getElementById('pn-role').value=card.speakerRole||'Main Speaker';
+  document.getElementById('pn-priority').value=card.priority||'';
+  document.getElementById('pn-zoom-only').checked=!!card.zoomOnly;
+  document.getElementById('pn-is-rotarian').checked=!!card.isRotarian;
+  document.getElementById('pn-is-local').checked=!!card.isLocal;
+  document.getElementById('pn-fundraising').checked=!!card.fundraisingLiterature;
   showPhotoPreview('pn-phototop');showPhotoPreview('pn-photobottom');
   document.getElementById('panel').classList.add('open');
 }
@@ -4916,6 +4999,7 @@ async function savePanel(){
     speakerName:document.getElementById('pn-name').value.trim(),
     topic:document.getElementById('pn-topic').value.trim(),
     status:document.getElementById('pn-status').value,
+    priority:document.getElementById('pn-priority').value,
     assignedTo:document.getElementById('pn-assigned').value,
     tentativeDate:document.getElementById('pn-date').value,
     speakerRole:document.getElementById('pn-role').value,
@@ -4930,12 +5014,22 @@ async function savePanel(){
     photoTop:document.getElementById('pn-phototop').value.trim(),
     photoBottom:document.getElementById('pn-photobottom').value.trim(),
     tags:document.getElementById('pn-tags').value.trim(),
-    comments:document.getElementById('pn-comments').value.trim()
+    comments:document.getElementById('pn-comments').value.trim(),
+    zoomOnly:document.getElementById('pn-zoom-only').checked?'Yes':'',
+    isRotarian:document.getElementById('pn-is-rotarian').checked?'Yes':'',
+    isLocal:document.getElementById('pn-is-local').checked?'Yes':'',
+    fundraisingLiterature:document.getElementById('pn-fundraising').checked?'Yes':''
   };
   try{
     var res=await gs3('savePipelineCard',panelRow,changes,currentUser);
     var card=allCards.find(function(c){return c.rowIndex===panelRow;});
-    if(card)Object.assign(card,changes);
+    if(card){
+      Object.assign(card,changes);
+      card.zoomOnly=changes.zoomOnly==='Yes';
+      card.isRotarian=changes.isRotarian==='Yes';
+      card.isLocal=changes.isLocal==='Yes';
+      card.fundraisingLiterature=changes.fundraisingLiterature==='Yes';
+    }
     if(res&&res.notes!=null){if(card)card.notes=res.notes;var nd=document.getElementById('pn-notes-display');if(nd)nd.textContent=res.notes;}
     render();
     msg.className='pmsg ok';

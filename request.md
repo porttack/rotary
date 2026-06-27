@@ -44,7 +44,6 @@ permalink: /request/
   #rq-status { margin-top: 1em; font-size: 0.95em; min-height: 1.4em; }
   #rq-status.ok  { color: #166534; font-weight: bold; }
   #rq-status.err { color: #b91c1c; }
-  /* honeypot */
   input[type=file] {
     width: 100%; box-sizing: border-box;
     padding: 5px 0; font-size: 0.95em; font-family: inherit;
@@ -58,6 +57,16 @@ permalink: /request/
   }
   #photo-size-warn { color: #b91c1c; font-size: 0.88em; margin-top: 0.3em; display: none; }
   .rq-pot { display: none; }
+  .rq-optional {
+    border: 1px solid #ddd; border-radius: 4px;
+    padding: 0 1em; margin: 1.4em 0 0.4em;
+  }
+  .rq-optional > summary {
+    cursor: pointer; padding: 0.7em 0;
+    color: #17458F; font-weight: bold; font-size: 1em;
+    user-select: none;
+  }
+  .rq-optional[open] > summary { border-bottom: 1px solid #eee; margin-bottom: 0.9em; }
   @media (max-width: 520px) { .rq-form .two-col { grid-template-columns: 1fr; } }
 </style>
 
@@ -113,23 +122,19 @@ A quick note: SLV Rotary is non-political and non-religious, and we don't use ou
     <input type="text" name="topic" required placeholder="What would they speak about?">
   </div>
   <div class="field">
-    <label>Speaker Role</label>
+    <label>How strongly do you want this? <span class="hint">(select one)</span></label>
     <div class="radio-group">
-      <label><input type="radio" name="speakerRole" value="Main Speaker" checked> Main Speaker <span class="hint">(~20 min)</span></label>
-      <label><input type="radio" name="speakerRole" value="Opening Speaker"> Opening Speaker <span class="hint">(5–10 min)</span></label>
-      <label><input type="radio" name="speakerRole" value="Either"> Either</label>
-      <label><input type="radio" name="speakerRole" value="Unsure"> Unsure</label>
+      <label><input type="radio" name="priority" value="Low"> Low <span class="hint">— Just an idea</span></label>
+      <label><input type="radio" name="priority" value="Medium" checked> Medium <span class="hint">— Recommendation</span></label>
+      <label><input type="radio" name="priority" value="High"> High <span class="hint">— Strongly recommended</span></label>
     </div>
   </div>
   <div class="field">
-    <label>Speaker Photo <span class="hint">(optional — JPEG or PNG, max 4 MB)</span></label>
-    <input type="file" name="speakerPhoto" accept="image/jpeg,image/png,image/webp">
-    <div id="photo-preview" style="display:none;"><img id="photo-thumb" alt="preview"></div>
-    <div id="photo-size-warn">Image is too large — please choose a file under 4 MB.</div>
-  </div>
-  <div class="field">
-    <label>Brief Bio <span class="hint">(who are they and why would members enjoy this?)</span></label>
-    <textarea name="bio" rows="3"></textarea>
+    <div class="check-group">
+      <label><input type="checkbox" name="isRotarian"> Speaker is a Rotarian</label>
+      <label><input type="checkbox" name="isLocal"> Local to the Santa Cruz Mountains area</label>
+      <label><input type="checkbox" name="fundraisingLiterature"> Speaker may want to leave fundraising or donation materials on the table</label>
+    </div>
   </div>
 
   <div class="section-head">Scheduling</div>
@@ -139,41 +144,37 @@ A quick note: SLV Rotary is non-political and non-religious, and we don't use ou
       placeholder="e.g. Spring 2026, after March, avoids summer…"></textarea>
   </div>
   <div class="field">
-    <label>Preferred Meeting Time</label>
-    <div class="radio-group">
-      <label><input type="radio" name="timePreference" value="Morning"> Morning</label>
-      <label><input type="radio" name="timePreference" value="Evening"> Evening</label>
-      <label><input type="radio" name="timePreference" value="Either"> Either</label>
-      <label><input type="radio" name="timePreference" value="Unsure" checked> Unsure</label>
-    </div>
-  </div>
-  <div class="field">
-    <label>Speaker Availability / Format</label>
     <div class="check-group">
-      <label><input type="checkbox" name="availMorning"> Available mornings</label>
-      <label><input type="checkbox" name="availEvening"> Available evenings</label>
       <label><input type="checkbox" name="zoomOnly"> Zoom only (not in person)</label>
     </div>
   </div>
 
-  <div class="section-head">Coordination</div>
+  <div class="section-head">Comments <span class="hint">(optional)</span></div>
   <div class="field">
-    <label>Have you already spoken with&hellip;</label>
-    <div class="check-group">
-      <label><input type="checkbox" name="spokeToOrganizer"> The speaker organizer</label>
-      <label><input type="checkbox" name="spokeToPresident"> The president</label>
-    </div>
-  </div>
-
-  <div class="section-head">Anything Else?</div>
-  <div class="field">
-    <div class="check-group" style="margin-bottom:0.6em;">
-      <label><input type="checkbox" name="otherSuggestions"> I have other suggestions (see comments)</label>
-    </div>
-    <label>Comments <span class="hint">(optional)</span></label>
     <textarea name="comments" rows="3"
       placeholder="Anything else we should know…"></textarea>
   </div>
+
+  <details class="rq-optional">
+    <summary>Optional details &rsaquo;</summary>
+    <div class="field">
+      <label>Have you already spoken with&hellip;</label>
+      <div class="check-group">
+        <label><input type="checkbox" name="spokeToOrganizer"> The speaker organizer</label>
+        <label><input type="checkbox" name="spokeToPresident"> The president</label>
+      </div>
+    </div>
+    <div class="field">
+      <label>Speaker Photo <span class="hint">(optional — JPEG or PNG, max 4 MB)</span></label>
+      <input type="file" name="speakerPhoto" accept="image/jpeg,image/png,image/webp">
+      <div id="photo-preview" style="display:none;"><img id="photo-thumb" alt="preview"></div>
+      <div id="photo-size-warn">Image is too large — please choose a file under 4 MB.</div>
+    </div>
+    <div class="field">
+      <label>Brief Bio <span class="hint">(who are they and why would members enjoy this?)</span></label>
+      <textarea name="bio" rows="3"></textarea>
+    </div>
+  </details>
 
   <!-- honeypot: bots fill this, humans don't see it -->
   <div class="rq-pot">
@@ -197,7 +198,6 @@ A quick note: SLV Rotary is non-political and non-religious, and we don't use ou
 <script>
 const RQ_URL = '{{ site.apps_script_url }}';
 
-// Show thumbnail preview when a photo is chosen
 document.getElementById('rq-form').speakerPhoto.addEventListener('change', function () {
   const file    = this.files[0];
   const preview = document.getElementById('photo-preview');
@@ -223,10 +223,8 @@ document.getElementById('rq-form').addEventListener('submit', async function (e)
   const form   = e.target;
   const status = document.getElementById('rq-status');
 
-  // Honeypot check
   if (form._pot && form._pot.value) return;
 
-  // Basic required-field validation
   const missing = ['requestorName', 'requestorEmail', 'speakerName', 'topic']
     .filter(n => !form[n].value.trim());
   if (missing.length) {
@@ -236,7 +234,6 @@ document.getElementById('rq-form').addEventListener('submit', async function (e)
     return;
   }
 
-  // Photo: read as base64 if provided and within size limit
   let photoBase64 = '', photoMime = '', photoName = '';
   const photoFile = form.speakerPhoto.files[0];
   if (photoFile) {
@@ -273,20 +270,16 @@ document.getElementById('rq-form').addEventListener('submit', async function (e)
     speakerPhone:     form.speakerPhone.value.trim(),
     speakerCity:      form.speakerCity.value.trim(),
     topic:            form.topic.value.trim(),
-    speakerRole:      [...form.querySelectorAll('[name=speakerRole]')].find(r => r.checked)?.value || '',
+    priority:         [...form.querySelectorAll('[name=priority]')].find(r => r.checked)?.value || '',
+    isRotarian:       form.isRotarian.checked,
+    isLocal:          form.isLocal.checked,
+    fundraisingLiterature: form.fundraisingLiterature.checked,
     bio:              form.bio.value.trim(),
     suggestedDates:   form.suggestedDates.value.trim(),
-    timePreference:   (form.timePreference
-                        ? [...form.querySelectorAll('[name=timePreference]')]
-                            .find(r => r.checked)?.value || ''
-                        : ''),
     comments:         form.comments.value.trim(),
     spokeToOrganizer: form.spokeToOrganizer.checked,
     spokeToPresident: form.spokeToPresident.checked,
-    availMorning:     form.availMorning.checked,
-    availEvening:     form.availEvening.checked,
     zoomOnly:         form.zoomOnly.checked,
-    otherSuggestions: form.otherSuggestions.checked,
     photoBase64,
     photoMime,
     photoName,

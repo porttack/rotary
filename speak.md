@@ -30,10 +30,9 @@ expertise. Talks are typically **10–20 minutes**.
   .sp-form input:focus, .sp-form textarea:focus {
     outline: 2px solid #17458F; border-color: #17458F;
   }
-  .sp-form .radio-group, .sp-form .check-group {
+  .sp-form .check-group {
     display: flex; flex-wrap: wrap; gap: 0.5em 1.4em; margin-top: 0.3em;
   }
-  .sp-form .radio-group label,
   .sp-form .check-group label {
     font-weight: normal; display: flex; align-items: center; gap: 0.35em; cursor: pointer;
   }
@@ -48,18 +47,6 @@ expertise. Talks are typically **10–20 minutes**.
   #sp-status { margin-top: 1em; font-size: 0.95em; min-height: 1.4em; }
   #sp-status.ok  { color: #166534; font-weight: bold; }
   #sp-status.err { color: #b91c1c; }
-  input[type=file] {
-    width: 100%; box-sizing: border-box;
-    padding: 5px 0; font-size: 0.95em; font-family: inherit;
-    border: none; color: #444;
-  }
-  #sp-photo-preview { margin-top: 0.5em; }
-  #sp-photo-preview img {
-    max-width: 200px; max-height: 200px;
-    border-radius: 4px; border: 1px solid #ddd;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-  }
-  #sp-photo-size-warn { color: #b91c1c; font-size: 0.88em; margin-top: 0.3em; display: none; }
   .sp-pot { display: none; }
   @media (max-width: 520px) { .sp-form .two-col { grid-template-columns: 1fr; } }
 </style>
@@ -101,22 +88,11 @@ SLV Rotary is non-political and non-religious. Your presentation should focus on
     <input type="text" name="topic" required placeholder="What would you speak about?">
   </div>
   <div class="field">
-    <label>Preferred Role</label>
-    <div class="radio-group">
-      <label><input type="radio" name="speakerRole" value="Main Speaker" checked> Main Speaker <span class="hint">(~20 min)</span></label>
-      <label><input type="radio" name="speakerRole" value="Opening Speaker"> Opening Speaker <span class="hint">(5–10 min)</span></label>
-      <label><input type="radio" name="speakerRole" value="Either"> Either</label>
+    <div class="check-group">
+      <label><input type="checkbox" name="isRotarian"> I am a Rotarian</label>
+      <label><input type="checkbox" name="isLocal"> Local to the Santa Cruz Mountains area</label>
+      <label><input type="checkbox" name="fundraisingLiterature"> I may want to leave fundraising or donation materials on the table for attendees</label>
     </div>
-  </div>
-  <div class="field">
-    <label>Brief Bio / Description <span class="hint">(optional — helps us introduce you)</span></label>
-    <textarea name="bio" rows="3" placeholder="Who are you and why would members enjoy this talk?"></textarea>
-  </div>
-  <div class="field">
-    <label>Your Photo <span class="hint">(optional — JPEG or PNG, max 4 MB)</span></label>
-    <input type="file" name="speakerPhoto" accept="image/jpeg,image/png,image/webp">
-    <div id="sp-photo-preview" style="display:none;"><img id="sp-photo-thumb" alt="preview"></div>
-    <div id="sp-photo-size-warn">Image is too large — please choose a file under 4 MB.</div>
   </div>
 
   <div class="section-head">Scheduling</div>
@@ -126,25 +102,13 @@ SLV Rotary is non-political and non-religious. Your presentation should focus on
       placeholder="e.g. Any Tuesday evening, prefer fall 2026, not available July…"></textarea>
   </div>
   <div class="field">
-    <label>Meeting Format Preference</label>
-    <div class="radio-group">
-      <label><input type="radio" name="timePreference" value="Morning"> Morning</label>
-      <label><input type="radio" name="timePreference" value="Evening"> Evening</label>
-      <label><input type="radio" name="timePreference" value="Either" checked> Either</label>
-    </div>
-  </div>
-  <div class="field">
-    <label>Format</label>
     <div class="check-group">
-      <label><input type="checkbox" name="availMorning"> Available mornings</label>
-      <label><input type="checkbox" name="availEvening"> Available evenings</label>
       <label><input type="checkbox" name="zoomOnly"> Zoom only (not in person)</label>
     </div>
   </div>
 
-  <div class="section-head">Anything Else?</div>
+  <div class="section-head">Comments <span class="hint">(optional)</span></div>
   <div class="field">
-    <label>Comments <span class="hint">(optional)</span></label>
     <textarea name="comments" rows="3"
       placeholder="Questions, special needs, equipment requests…"></textarea>
   </div>
@@ -170,27 +134,7 @@ SLV Rotary is non-political and non-religious. Your presentation should focus on
 <script>
 const SP_URL = '{{ site.apps_script_url }}';
 
-document.getElementById('sp-form').speakerPhoto.addEventListener('change', function () {
-  const file    = this.files[0];
-  const preview = document.getElementById('sp-photo-preview');
-  const warn    = document.getElementById('sp-photo-size-warn');
-  const thumb   = document.getElementById('sp-photo-thumb');
-  warn.style.display = 'none';
-  if (!file) { preview.style.display = 'none'; return; }
-  if (file.size > 4 * 1024 * 1024) {
-    warn.style.display = 'block';
-    preview.style.display = 'none';
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = function (ev) {
-    thumb.src = ev.target.result;
-    preview.style.display = 'block';
-  };
-  reader.readAsDataURL(file);
-});
-
-document.getElementById('sp-form').addEventListener('submit', async function (e) {
+document.getElementById('sp-form').addEventListener('submit', function (e) {
   e.preventDefault();
   const form   = e.target;
   const status = document.getElementById('sp-status');
@@ -206,29 +150,9 @@ document.getElementById('sp-form').addEventListener('submit', async function (e)
     return;
   }
 
-  let photoBase64 = '', photoMime = '', photoName = '';
-  const photoFile = form.speakerPhoto.files[0];
-  if (photoFile) {
-    if (photoFile.size > 4 * 1024 * 1024) {
-      status.className = 'err';
-      status.textContent = 'Photo must be under 4 MB — please choose a smaller image.';
-      return;
-    }
-    try {
-      photoBase64 = await new Promise(function (resolve, reject) {
-        const reader = new FileReader();
-        reader.onload  = function (ev) { resolve(ev.target.result); };
-        reader.onerror = reject;
-        reader.readAsDataURL(photoFile);
-      });
-      photoMime = photoFile.type;
-      photoName = photoFile.name;
-    } catch (_) {}
-  }
-
   const btn = form.querySelector('button[type=submit]');
   btn.disabled    = true;
-  btn.textContent = photoFile ? 'Uploading…' : 'Submitting…';
+  btn.textContent = 'Submitting…';
   status.className = '';
   status.textContent = '';
 
@@ -239,17 +163,12 @@ document.getElementById('sp-form').addEventListener('submit', async function (e)
     speakerPhone:   form.speakerPhone.value.trim(),
     speakerCity:    form.speakerCity.value.trim(),
     topic:          form.topic.value.trim(),
-    speakerRole:    [...form.querySelectorAll('[name=speakerRole]')].find(r => r.checked)?.value || '',
-    bio:            form.bio.value.trim(),
+    isRotarian:     form.isRotarian.checked,
+    isLocal:        form.isLocal.checked,
+    fundraisingLiterature: form.fundraisingLiterature.checked,
     suggestedDates: form.suggestedDates.value.trim(),
-    timePreference: [...form.querySelectorAll('[name=timePreference]')].find(r => r.checked)?.value || '',
     comments:       form.comments.value.trim(),
-    availMorning:   form.availMorning.checked,
-    availEvening:   form.availEvening.checked,
     zoomOnly:       form.zoomOnly.checked,
-    photoBase64,
-    photoMime,
-    photoName,
   };
 
   const iframeName = 'sp-iframe-' + Date.now();
