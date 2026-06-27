@@ -202,6 +202,7 @@ function onOpen() {
     .addItem("📋  Setup / Reset Sheet Headers", "setupSheet")
     .addItem("🎤  Setup Speaker Pipeline Tab",  "setupSpeakerPipeline")
     .addItem("🔧  Migrate Confirmed → In Progress", "migratePipelineConfirmedStatus")
+    .addItem("🧹  Purge Old Rate Counters",         "purgeOldRateCounters")
     .addItem("⚡  Install Edit Trigger (run once)", "installEditTrigger")
     .addToUi();
 }
@@ -1518,6 +1519,33 @@ function jsonOut_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+/**
+ * Remove daily "sub_YYYY-MM-DD" rate-limit counters from earlier days, keeping
+ * today's (so the current day's running count isn't reset). These are created
+ * by isRateLimited_() on each form POST and otherwise accumulate forever.
+ * Safe to run anytime — deleting an old counter has no effect on rate limiting.
+ */
+function purgeOldRateCounters() {
+  const props = PropertiesService.getScriptProperties();
+  const all   = props.getProperties();
+  const today = "sub_" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+
+  const stale = Object.keys(all).filter(function(k) {
+    return k.indexOf("sub_") === 0 && k !== today;
+  });
+  stale.forEach(function(k) { props.deleteProperty(k); });
+
+  try {
+    SpreadsheetApp.getUi().alert(
+      stale.length
+        ? "Purged " + stale.length + " old rate counter" + (stale.length === 1 ? "" : "s") +
+          ".\n(Today's counter, " + today + ", was kept.)"
+        : "No old rate counters to purge."
+    );
+  } catch (_) {}
+  return { ok: true, purged: stale.length };
+}
+
 /** Open the deployed web app URL from the sheet menu */
 function openDutyEditor() {
   let url;
@@ -1968,6 +1996,7 @@ function handleSpeakerRequest_(data) {
   const sheet = getPipelineSheet_();
   const row = buildPipelineRow_('request', data, photoUrl, ts);
   sheet.appendRow(row);
+  notifySubmission_('request', data, photoUrl, ts);
   return jsonOut_({ ok: true });
 }
 
@@ -1977,7 +2006,96 @@ function handleSpeakerOffer_(data) {
   const sheet = getPipelineSheet_();
   const row = buildPipelineRow_('offer', data, photoUrl, ts);
   sheet.appendRow(row);
+  notifySubmission_('offer', data, photoUrl, ts);
   return jsonOut_({ ok: true });
+}
+
+/**
+ * Email a notification for a new speaker form submission. Recipients come from
+ * the NOTIFY_EMAILS script property (comma- or whitespace-separated). A no-op
+ * if the property is unset or empty. Wrapped so a mail failure never blocks the
+ * submission — the appended sheet row is the source of truth.
+ */
+function notifySubmission_(source, data, photoUrl, ts) {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty('NOTIFY_EMAILS') || '';
+    const recipients = raw.split(/[\s,]+/).map(function(s) { return s.trim(); }).filter(Boolean);
+    if (!recipients.length) return;
+
+    const isOffer = source === 'offer';
+    const speaker = data.speakerName || '(no name)';
+    const subject = (isOffer ? '🎤 New speaker offer: ' : '🎤 New speaker request: ') + speaker;
+
+    // Build a label → value list, skipping empty fields.
+    const rows = [];
+    const add = function(label, val) {
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        rows.push([label, String(val).trim()]);
+      }
+    };
+    const yn = function(v) { return v ? 'Yes' : ''; };
+
+    add(isOffer ? 'Submitted by' : 'Requested by', data.requestorName);
+    add('Requestor email', data.requestorEmail);
+    add('Requestor phone', data.requestorPhone);
+    add('Speaker', speaker);
+    add('Speaker email', data.speakerEmail);
+    add('Speaker phone', data.speakerPhone);
+    add('Speaker city', data.speakerCity);
+    add('Topic', data.topic);
+    add('Speaker role', data.speakerRole);
+    add('Priority', data.priority);
+    add('Is Rotarian', yn(data.isRotarian));
+    add('Local', yn(data.isLocal));
+    add('Fundraising materials', yn(data.fundraisingLiterature));
+    add('Zoom only', yn(data.zoomOnly));
+    add('Avail morning', yn(data.availMorning));
+    add('Avail evening', yn(data.availEvening));
+    add('Preferred / suggested dates', data.suggestedDates);
+    add('Spoke to organizer', yn(data.spokeToOrganizer));
+    add('Spoke to president', yn(data.spokeToPresident));
+    add('Bio', data.bio);
+    add('Comments', data.comments);
+    add('Photo', photoUrl);
+    add('Submitted at', ts);
+
+    const esc = function(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    };
+    const tableRows = rows.map(function(r) {
+      return '<tr><td style="padding:3px 10px 3px 0;vertical-align:top;color:#555;font-weight:bold;white-space:nowrap">' +
+        esc(r[0]) + '</td><td style="padding:3px 0;vertical-align:top">' + esc(r[1]) + '</td></tr>';
+    }).join('');
+
+    // Link to the Speaker Pipeline status page so the recipient can open the
+    // new card and start working it. Best-effort — skip the link if the web
+    // app URL isn't available.
+    let statusUrl = '';
+    try { statusUrl = ScriptApp.getService().getUrl() || ''; } catch (_) {}
+    if (statusUrl) statusUrl += '?app=speaker-pipeline';
+
+    const htmlBody =
+      '<div style="font-family:Arial,sans-serif;color:#222">' +
+      '<h2 style="color:#17458F;margin:0 0 0.4em">' + esc(subject) + '</h2>' +
+      '<table style="border-collapse:collapse;font-size:14px">' + tableRows + '</table>' +
+      (statusUrl
+        ? '<p style="margin-top:1em"><a href="' + esc(statusUrl) +
+          '" style="display:inline-block;background:#17458F;color:#fff;text-decoration:none;' +
+          'padding:8px 16px;border-radius:4px;font-size:14px">Open the Speaker Pipeline →</a></p>'
+        : '') +
+      '<p style="margin-top:1em;font-size:12px;color:#888">Sent automatically from the SLV Rotary website speaker form.</p>' +
+      '</div>';
+    const textBody = rows.map(function(r) { return r[0] + ': ' + r[1]; }).join('\n') +
+      (statusUrl ? '\n\nOpen the Speaker Pipeline to start working this card:\n' + statusUrl : '');
+
+    const replyTo = (data.requestorEmail || data.speakerEmail || '').trim();
+    const options = { htmlBody: htmlBody };
+    if (replyTo) options.replyTo = replyTo;
+
+    MailApp.sendEmail(recipients.join(','), subject, textBody, options);
+  } catch (err) {
+    Logger.log('notifySubmission_ failed: ' + err.toString());
+  }
 }
 
 function handleHeartSpeaker_(p) {
