@@ -8,6 +8,11 @@ const CALENDAR_ID   = "primary"; // <-- CHANGE THIS to your calendar ID
 const PULL_DAYS_AHEAD = 180;     // how many days ahead to pull
 const SHEET_NAME    = "Events";
 
+// Feature flag: show the "✨ Tell me what to change…" AI command line on the
+// Kanban and Status pipeline pages. Set to true to re-enable (Gemini-backed;
+// needs GEMINI_API_KEY in Script Properties).
+const PIPELINE_AI_ENABLED = false;
+
 // ── CALENDAR ASSISTANT — SYSTEM PROMPT ───────────────────────
 // Edit this to update what the AI knows about the club.
 const ASSISTANT_SYSTEM_PROMPT = `
@@ -128,11 +133,14 @@ const ROLE_FIELDS = [
 
 // ── SPEAKER PIPELINE ─────────────────────────────────────────
 const PIPELINE_SHEET = 'Speaker Pipeline';
-const PIPELINE_STATUSES = ['new', 'in-progress', 'limbo', 'confirmed', 'scheduled', 'done', 'declined'];
+const PIPELINE_STATUSES = ['new', 'in-progress', 'limbo', 'scheduled', 'done', 'declined', 'deleted'];
 const PIPELINE_STATUS_LABELS = {
   new: 'New', 'in-progress': 'In Progress', limbo: 'Limbo',
-  confirmed: 'Confirmed', scheduled: 'Scheduled', done: 'Done ✓', declined: 'Declined',
+  scheduled: 'Scheduled', done: 'Done ✓', declined: 'Declined',
+  deleted: 'Deleted 🗑',
 };
+// Legacy statuses that were merged away — normalized to a current status on read.
+const PIPELINE_STATUS_ALIASES = { confirmed: 'in-progress' };
 
 const CP = {
   SOURCE:              1,   // A - offer | request | manual
@@ -188,6 +196,7 @@ function onOpen() {
     .addSeparator()
     .addItem("📋  Setup / Reset Sheet Headers", "setupSheet")
     .addItem("🎤  Setup Speaker Pipeline Tab",  "setupSpeakerPipeline")
+    .addItem("🔧  Migrate Confirmed → In Progress", "migratePipelineConfirmedStatus")
     .addItem("⚡  Install Edit Trigger (run once)", "installEditTrigger")
     .addToUi();
 }
@@ -1369,25 +1378,30 @@ function doGet(e) {
   // inside the Apps Script sandbox iframe (relative links would 404/blank).
   let execUrl = '';
   try { execUrl = ScriptApp.getService().getUrl() || ''; } catch (_) {}
-  const inject = (html) => html.replace(/__EXEC_URL__/g, execUrl);
+  const inject = (html) => html
+    .replace(/__EXEC_URL__/g, execUrl)
+    .replace(/__AI_ENABLED__/g, String(PIPELINE_AI_ENABLED));
+  // Apps Script serves pages inside its own wrapper iframe and controls the
+  // outer <head>, so a <meta viewport> inside the page HTML is ignored — phones
+  // then render at a ~980px desktop width (tiny text, no media queries firing).
+  // addMetaTag() injects the viewport into the real top-level page, fixing it.
+  const out = (html, title) => HtmlService.createHtmlOutput(html)
+    .setTitle(title)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(mode);
   if (app === 'assistant') {
-    return HtmlService.createHtmlOutput(getCalendarAssistantHtml())
-      .setTitle("SLV Rotary — Calendar Assistant").setXFrameOptionsMode(mode);
+    return out(getCalendarAssistantHtml(), "SLV Rotary — Calendar Assistant");
   }
   if (app === 'kanban') {
-    return HtmlService.createHtmlOutput(inject(getKanbanHtml()))
-      .setTitle("SLV Rotary — Speaker Pipeline (Kanban)").setXFrameOptionsMode(mode);
+    return out(inject(getKanbanHtml()), "SLV Rotary — Speaker Pipeline (Kanban)");
   }
   if (app === 'pipeline') {
-    return HtmlService.createHtmlOutput(inject(getPipelineTableHtml()))
-      .setTitle("SLV Rotary — Speaker Pipeline (Table)").setXFrameOptionsMode(mode);
+    return out(inject(getPipelineTableHtml()), "SLV Rotary — Speaker Pipeline (Table)");
   }
   if (app === 'speaker-pipeline') {
-    return HtmlService.createHtmlOutput(inject(getSpeakerStatusHtml()))
-      .setTitle("SLV Rotary — Speaker Pipeline Status").setXFrameOptionsMode(mode);
+    return out(inject(getSpeakerStatusHtml()), "SLV Rotary — Speaker Pipeline Status");
   }
-  return HtmlService.createHtmlOutput(getDutyEditorHtml())
-    .setTitle("SLV Rotary — Duty Editor").setXFrameOptionsMode(mode);
+  return out(getDutyEditorHtml(), "SLV Rotary — Duty Editor");
 }
 
 // Maximum form submissions accepted per calendar day across all form types.
@@ -2082,72 +2096,165 @@ const ASSISTANT_TOOLS = [
   },
 ];
 
+// Which AI powers the Calendar Assistant by default. The client can override
+// per-session ('gemini' or 'claude'); Gemini needs GEMINI_API_KEY, Claude
+// needs ANTHROPIC_API_KEY (both in Script Properties).
+const ASSISTANT_PROVIDER_DEFAULT = 'gemini';
+
+// Event fields shared by add_event and update_event, in Gemini's schema dialect
+// (UPPERCASE types). Gemini needs a concrete typed object for the `changes` arg.
+const GEMINI_EVENT_FIELDS = {
+  eventType:      { type: 'STRING' }, date:           { type: 'STRING' },
+  time:           { type: 'STRING' }, duration:       { type: 'NUMBER' },
+  location:       { type: 'STRING' }, openingSpeaker: { type: 'STRING' },
+  mainSpeaker:    { type: 'STRING' }, mainTopic:      { type: 'STRING' },
+  speakerUrl:     { type: 'STRING' }, summary:        { type: 'STRING' },
+  mc:             { type: 'STRING' }, setupTeardown:  { type: 'STRING' },
+  avZoom:         { type: 'STRING' }, greeter:        { type: 'STRING' },
+  fourWayTest:    { type: 'STRING' }, thought:        { type: 'STRING' },
+  detective:      { type: 'STRING' }, bagPerson:      { type: 'STRING' },
+  comments:       { type: 'STRING' },
+};
+
+// Same tools as ASSISTANT_TOOLS, expressed as Gemini functionDeclarations.
+const GEMINI_ASSISTANT_TOOLS = [
+  { name: 'read_events', description: 'Read events from the Events sheet. Always call this before making changes.',
+    parameters: { type: 'OBJECT', properties: { filter: { type: 'STRING', description: 'Optional date range like "2026-07 to 2027-06", an event type, or a keyword.' } } } },
+  { name: 'read_members', description: 'Read the member name list from the Members tab.',
+    parameters: { type: 'OBJECT', properties: {} } },
+  { name: 'add_event', description: 'Queue a new event row to be added (pending user confirmation).',
+    parameters: { type: 'OBJECT', required: ['eventType', 'date'], properties: GEMINI_EVENT_FIELDS } },
+  { name: 'update_event', description: 'Queue an update to an existing event row. Use rowIndex from read_events.',
+    parameters: { type: 'OBJECT', required: ['rowIndex', 'changes'], properties: {
+      rowIndex: { type: 'INTEGER' }, reason: { type: 'STRING' }, changes: { type: 'OBJECT', properties: GEMINI_EVENT_FIELDS } } } },
+  { name: 'cancel_event', description: 'Queue cancellation of an event (sets the Cancelled checkbox). Safer than delete.',
+    parameters: { type: 'OBJECT', required: ['rowIndex'], properties: { rowIndex: { type: 'INTEGER' }, reason: { type: 'STRING' } } } },
+  { name: 'delete_event', description: 'Queue deletion of an event row. Only for true duplicates; prefer cancel_event.',
+    parameters: { type: 'OBJECT', required: ['rowIndex'], properties: { rowIndex: { type: 'INTEGER' }, reason: { type: 'STRING' } } } },
+];
+
 /**
- * Main AI function. Runs the tool-use loop and returns either a plain message
- * or a proposal (pending changes for the user to confirm).
+ * Main AI function for the Calendar Assistant. Runs a tool-use loop with the
+ * chosen provider (Gemini by default, or Claude) and returns either a plain
+ * message or a proposal (pending changes for the user to confirm).
+ * History is provider-neutral: [{ role:'user'|'assistant', text }].
  * Called from the client via google.script.run.
  */
-function processMessage(history) {
+function processMessage(history, provider) {
+  provider = (provider === 'claude' || provider === 'gemini') ? provider : ASSISTANT_PROVIDER_DEFAULT;
   try {
-    const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
-    if (!apiKey) return { error: 'ANTHROPIC_API_KEY not set. Add it in Apps Script → Project Settings → Script Properties.' };
-
-    const messages = history.slice();
-    const pending  = [];
-
-    for (let iter = 0; iter < 20; iter++) {
-      const resp = callAssistantApi_(messages);
-      messages.push({ role: 'assistant', content: resp.content });
-
-      if (resp.stop_reason === 'end_turn') {
-        const text = resp.content
-          .filter(function(b) { return b.type === 'text'; })
-          .map(function(b) { return b.text; })
-          .join('\n').trim();
-        return { type: pending.length ? 'proposal' : 'message', text: text, pending: pending, updatedHistory: messages };
-      }
-
-      // Process tool calls
-      const toolResults = [];
-      for (var ti = 0; ti < resp.content.length; ti++) {
-        const block = resp.content[ti];
-        if (block.type !== 'tool_use') continue;
-        const inp = block.input;
-        let result;
-
-        if (block.name === 'read_events') {
-          result = assistantReadEvents_(inp.filter);
-        } else if (block.name === 'read_members') {
-          result = assistantReadMembers_();
-        } else if (block.name === 'add_event') {
-          pending.push({ action: 'add', data: inp,
-            description: '➕ Add ' + (inp.eventType || 'event') + ' on ' + inp.date + (inp.time ? ' at ' + inp.time : '') });
-          result = { queued: true, index: pending.length - 1 };
-        } else if (block.name === 'update_event') {
-          const fields = Object.keys(inp.changes || {}).join(', ');
-          pending.push({ action: 'update', rowIndex: inp.rowIndex, changes: inp.changes,
-            description: '✏️ ' + (inp.reason || 'Update row ' + inp.rowIndex) + (fields ? ' (' + fields + ')' : '') });
-          result = { queued: true, index: pending.length - 1 };
-        } else if (block.name === 'cancel_event') {
-          pending.push({ action: 'cancel', rowIndex: inp.rowIndex,
-            description: '🚫 Cancel event at row ' + inp.rowIndex + (inp.reason ? ' — ' + inp.reason : '') });
-          result = { queued: true, index: pending.length - 1 };
-        } else if (block.name === 'delete_event') {
-          pending.push({ action: 'delete', rowIndex: inp.rowIndex,
-            description: '🗑️ Delete row ' + inp.rowIndex + (inp.reason ? ' — ' + inp.reason : '') });
-          result = { queued: true, index: pending.length - 1 };
-        } else {
-          result = { error: 'Unknown tool: ' + block.name };
-        }
-
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) });
-      }
-      messages.push({ role: 'user', content: toolResults });
-    }
-    return { error: 'Reached maximum iterations without completing.' };
+    // Normalise history to the neutral { role, text } shape (tolerate older
+    // {content} entries so a stale client doesn't break things).
+    const hist = (history || []).map(function(h) {
+      var text = (h.text != null) ? h.text
+        : (typeof h.content === 'string' ? h.content
+          : (Array.isArray(h.content)
+              ? h.content.filter(function(b){ return b && b.type === 'text'; }).map(function(b){ return b.text; }).join('\n')
+              : ''));
+      return { role: h.role === 'assistant' ? 'assistant' : 'user', text: String(text || '') };
+    });
+    const pending = [];
+    const text = (provider === 'claude')
+      ? runClaudeAssistant_(hist, pending)
+      : runGeminiAssistant_(hist, pending);
+    const updatedHistory = hist.concat([{ role: 'assistant', text: text }]);
+    return { type: pending.length ? 'proposal' : 'message', text: text, pending: pending, updatedHistory: updatedHistory };
   } catch (err) {
-    return { error: String(err) };
+    return { error: String((err && err.message) || err) };
   }
+}
+
+/** Execute one Events tool call; write tools queue into `pending` (no writes here). */
+function executeAssistantTool_(name, inp, pending) {
+  inp = inp || {};
+  if (name === 'read_events')  return assistantReadEvents_(inp.filter);
+  if (name === 'read_members') return assistantReadMembers_();
+  if (name === 'add_event') {
+    pending.push({ action: 'add', data: inp,
+      description: '➕ Add ' + (inp.eventType || 'event') + ' on ' + inp.date + (inp.time ? ' at ' + inp.time : '') });
+    return { queued: true, index: pending.length - 1 };
+  }
+  if (name === 'update_event') {
+    const fields = Object.keys(inp.changes || {}).join(', ');
+    pending.push({ action: 'update', rowIndex: inp.rowIndex, changes: inp.changes,
+      description: '✏️ ' + (inp.reason || 'Update row ' + inp.rowIndex) + (fields ? ' (' + fields + ')' : '') });
+    return { queued: true, index: pending.length - 1 };
+  }
+  if (name === 'cancel_event') {
+    pending.push({ action: 'cancel', rowIndex: inp.rowIndex,
+      description: '🚫 Cancel event at row ' + inp.rowIndex + (inp.reason ? ' — ' + inp.reason : '') });
+    return { queued: true, index: pending.length - 1 };
+  }
+  if (name === 'delete_event') {
+    pending.push({ action: 'delete', rowIndex: inp.rowIndex,
+      description: '🗑️ Delete row ' + inp.rowIndex + (inp.reason ? ' — ' + inp.reason : '') });
+    return { queued: true, index: pending.length - 1 };
+  }
+  return { error: 'Unknown tool: ' + name };
+}
+
+/** Claude (Anthropic) agentic loop over the neutral history. */
+function runClaudeAssistant_(hist, pending) {
+  const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set. Add it in Apps Script → Project Settings → Script Properties.');
+  const messages = hist.map(function(h) { return { role: h.role, content: h.text }; });
+  for (let iter = 0; iter < 20; iter++) {
+    const resp = callAssistantApi_(messages);
+    messages.push({ role: 'assistant', content: resp.content });
+    if (resp.stop_reason === 'end_turn') {
+      return resp.content.filter(function(b){ return b.type === 'text'; }).map(function(b){ return b.text; }).join('\n').trim();
+    }
+    const toolResults = [];
+    resp.content.forEach(function(block) {
+      if (block.type !== 'tool_use') return;
+      const result = executeAssistantTool_(block.name, block.input, pending);
+      toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) });
+    });
+    messages.push({ role: 'user', content: toolResults });
+  }
+  return 'Reached the maximum number of steps. Any queued changes are shown below — please review.';
+}
+
+/** Gemini agentic loop (function calling) over the neutral history. */
+function runGeminiAssistant_(hist, pending) {
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) throw new Error('GEMINI_API_KEY not set. Add it in Apps Script → Project Settings → Script Properties.');
+  const contents = hist.map(function(h) { return { role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.text }] }; });
+  const tools = [{ functionDeclarations: GEMINI_ASSISTANT_TOOLS }];
+  for (let iter = 0; iter < 20; iter++) {
+    const body  = callGeminiAssistantApi_(apiKey, contents, tools);
+    const cand  = (body.candidates || [])[0];
+    const parts = (cand && cand.content && cand.content.parts) || [];
+    const calls = parts.filter(function(p) { return p.functionCall; });
+    if (!calls.length) {
+      return parts.filter(function(p){ return p.text; }).map(function(p){ return p.text; }).join('\n').trim() || 'Done.';
+    }
+    // Echo the model's function-call turn, then return one result per call.
+    contents.push({ role: 'model', parts: calls.map(function(p){ return { functionCall: p.functionCall }; }) });
+    contents.push({ role: 'user', parts: calls.map(function(p) {
+      const result = executeAssistantTool_(p.functionCall.name, p.functionCall.args || {}, pending);
+      return { functionResponse: { name: p.functionCall.name, response: { result: result } } };
+    }) });
+  }
+  return 'Reached the maximum number of steps. Any queued changes are shown below — please review.';
+}
+
+function callGeminiAssistantApi_(apiKey, contents, tools) {
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL +
+    ':generateContent?key=' + encodeURIComponent(apiKey);
+  const payload = {
+    systemInstruction: { parts: [{ text: ASSISTANT_SYSTEM_PROMPT }] },
+    contents: contents,
+    tools: tools,
+    generationConfig: { temperature: 0 },
+  };
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json',
+    muteHttpExceptions: true, payload: JSON.stringify(payload),
+  });
+  const body = JSON.parse(resp.getContentText());
+  if (body.error) throw new Error(body.error.message || JSON.stringify(body.error));
+  return body;
 }
 
 /**
@@ -2370,12 +2477,14 @@ function getCalendarAssistantHtml() {
 '</style>\n' +
 '</head>\n' +
 '<body>\n' +
-'<header><h1>📅 SLV Rotary — Calendar Assistant</h1><button id="snap-btn" onclick="takeSnapshot()">📸 Snapshot</button></header>\n' +
+'<header><h1>📅 SLV Rotary — Calendar Assistant</h1><div style="display:flex;gap:0.5em;align-items:center"><select id="prov" onchange="setProvider(this.value)" title="Which AI answers" style="font-size:0.8em;padding:3px 6px;border-radius:4px;border:none"><option value="gemini">Gemini</option><option value="claude">Claude</option></select><button id="snap-btn" onclick="takeSnapshot()">📸 Snapshot</button></div></header>\n' +
 '<div id="chat"><div class="msg note">Hi Eric! Describe what you\'d like to add, move, update, or cancel. I\'ll show you a plan before changing anything.  <em>Ctrl+Enter to send</em></div></div>\n' +
 '<div id="proposal"><h3>📋 Proposed changes — please review before applying</h3><div id="prop-list"></div><div class="pbtns"><button id="apply-btn" onclick="applyChanges()">✅ Apply changes</button><button id="discard-btn" onclick="discardChanges()">✗ Discard</button></div></div>\n' +
 '<div id="input-row"><textarea id="user-input" placeholder="e.g. Add board meeting every first Thursday at 7pm at Scopazzis, July through June…"></textarea><button id="send-btn" onclick="sendMessage()">➤</button></div>\n' +
 '<script>\n' +
 'var chatHistory = [], pending = null, busy = false;\n' +
+'var provider = localStorage.getItem("assistantProvider") || "gemini";\n' +
+'function setProvider(v) { provider = v; localStorage.setItem("assistantProvider", v); }\n' +
 '\n' +
 'function addMsg(cls, text) {\n' +
 '  var c = document.getElementById("chat");\n' +
@@ -2411,6 +2520,11 @@ function getCalendarAssistantHtml() {
 '    google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](arg);\n' +
 '  });\n' +
 '}\n' +
+'function gs2(fn, a, b) {\n' +
+'  return new Promise(function(ok, fail) {\n' +
+'    google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a, b);\n' +
+'  });\n' +
+'}\n' +
 '\n' +
 'async function sendMessage() {\n' +
 '  if (busy) return;\n' +
@@ -2421,10 +2535,10 @@ function getCalendarAssistantHtml() {
 '  inp.value = ""; busy = true;\n' +
 '  document.getElementById("send-btn").disabled = true;\n' +
 '  addMsg("user", txt);\n' +
-'  chatHistory.push({ role: "user", content: txt });\n' +
+'  chatHistory.push({ role: "user", text: txt });\n' +
 '  setTyping(true);\n' +
 '  try {\n' +
-'    var res = await gs("processMessage", chatHistory);\n' +
+'    var res = await gs2("processMessage", chatHistory, provider);\n' +
 '    setTyping(false);\n' +
 '    if (res.error) { addMsg("err", "⚠️ " + res.error); }\n' +
 '    else {\n' +
@@ -2450,8 +2564,8 @@ function getCalendarAssistantHtml() {
 '      ", cancelled " + res.cancelled + ", deleted " + res.deleted + "." +\n' +
 '      (res.backupName ? " Backup: " + res.backupName : "");\n' +
 '    addMsg("note", msg);\n' +
-'    chatHistory.push({ role: "user", content: "Changes were applied successfully." });\n' +
-'    chatHistory.push({ role: "assistant", content: [{ type: "text", text: msg }] });\n' +
+'    chatHistory.push({ role: "user", text: "Changes were applied successfully." });\n' +
+'    chatHistory.push({ role: "assistant", text: msg });\n' +
 '  } catch(e) { setTyping(false); addMsg("err", "⚠️ Apply failed: " + (e.message || String(e))); }\n' +
 '  busy = false;\n' +
 '  document.getElementById("send-btn").disabled = false;\n' +
@@ -2467,6 +2581,7 @@ function getCalendarAssistantHtml() {
 '  catch(e) { addMsg("err", "⚠️ Snapshot failed: " + (e.message || String(e))); }\n' +
 '}\n' +
 '\n' +
+'document.getElementById("prov").value = provider;\n' +
 'document.getElementById("user-input").addEventListener("keydown", function(e) {\n' +
 '  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); sendMessage(); }\n' +
 '});\n' +
@@ -2516,13 +2631,39 @@ function setupSpeakerPipeline() {
   try { SpreadsheetApp.getUi().alert('Speaker Pipeline tab is ready!'); } catch(_) {}
 }
 
+/**
+ * One-time cleanup after the 'confirmed' stage was merged into 'in-progress'.
+ * Rewrites any 'confirmed' values in the Speaker Pipeline STATUS column.
+ * Safe to run repeatedly (no-op once there are none left).
+ */
+function migratePipelineConfirmedStatus() {
+  const sheet = getPipelineSheet_();
+  const last = sheet.getLastRow();
+  if (last < 2) { try { SpreadsheetApp.getUi().alert('No pipeline rows to migrate.'); } catch(_) {} return; }
+  const range = sheet.getRange(2, CP.STATUS, last - 1, 1);
+  const vals = range.getValues();
+  let changed = 0;
+  for (let i = 0; i < vals.length; i++) {
+    if (String(vals[i][0]) === 'confirmed') { vals[i][0] = 'in-progress'; changed++; }
+  }
+  if (changed) range.setValues(vals);
+  try {
+    SpreadsheetApp.getUi().alert(
+      changed
+        ? 'Migrated ' + changed + ' "confirmed" card' + (changed === 1 ? '' : 's') + ' to "in-progress".'
+        : 'No "confirmed" cards found — nothing to migrate.'
+    );
+  } catch(_) {}
+  return { ok: true, migrated: changed };
+}
+
 function openSpeakerPipeline() {
   let url;
   try { url = ScriptApp.getService().getUrl(); } catch(_) { url = null; }
   if (!url) { SpreadsheetApp.getUi().alert('Deploy the web app first.'); return; }
   const html = HtmlService.createHtmlOutput(
     '<p style="font-family:sans-serif">Opening Speaker Pipeline…</p>' +
-    '<script>window.open("' + url + '?app=kanban","_blank");google.script.host.close();</script>'
+    '<script>window.open("' + url + '?app=speaker-pipeline","_blank");google.script.host.close();</script>'
   ).setWidth(320).setHeight(60);
   SpreadsheetApp.getUi().showModalDialog(html, 'Speaker Pipeline');
 }
@@ -2546,7 +2687,7 @@ function getPipelineData() {
       cards.push({
         rowIndex:          i + 2,
         source:            String(row[CP.SOURCE - 1]              || ''),
-        status:            String(row[CP.STATUS - 1]              || 'new'),
+        status:            (function(s){ s = String(s || 'new'); return PIPELINE_STATUS_ALIASES[s] || s; })(row[CP.STATUS - 1]),
         speakerName:       String(row[CP.SPEAKER_NAME - 1]        || ''),
         speakerEmail:      String(row[CP.SPEAKER_EMAIL - 1]       || ''),
         speakerPhone:      String(row[CP.SPEAKER_PHONE - 1]       || ''),
@@ -2640,6 +2781,15 @@ function savePipelineCard(rowIndex, changes, updatedBy) {
   sheet.getRange(rowIndex, CP.UPDATED_AT).setValue(ts);
   sheet.getRange(rowIndex, CP.UPDATED_BY).setValue(updatedBy || '');
   return { ok: true, noted: diffs.length, notes: notes };
+}
+
+/** Permanently delete a pipeline row. Removing the row shifts all rows below
+ *  it up by one, so clients must reload after calling this. */
+function deletePipelineCard(rowIndex) {
+  const sheet = getPipelineSheet_();
+  if (!rowIndex || rowIndex < 2) throw new Error('Invalid row index.');
+  sheet.deleteRow(rowIndex);
+  return { ok: true };
 }
 
 /** Toggle a +1 vote for memberName on a pipeline card. Returns updated interested string. */
@@ -2801,6 +2951,150 @@ function getMemberNames_() {
 
 
 // ═══════════════════════════════════════════════════════════════
+//  PIPELINE AI COMMAND LINE  (Gemini — proposes, never auto-applies)
+//  Requires: Script Properties → GEMINI_API_KEY
+// ═══════════════════════════════════════════════════════════════
+
+const GEMINI_MODEL = 'gemini-2.0-flash';
+
+/**
+ * Turn one plain-language instruction into a list of proposed pipeline actions.
+ * Returns { actions: [...], message } — the client shows these for confirmation
+ * and only calls applyPipelineActions() if the user clicks Apply. Nothing is
+ * written here.
+ */
+function pipelineAssistantCommand(text, updatedBy) {
+  try {
+    const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+    if (!apiKey) return { error: 'GEMINI_API_KEY not set. Add it in Apps Script → Project Settings → Script Properties.' };
+    if (!text || !String(text).trim()) return { actions: [], message: 'Type a command first.' };
+
+    const cards    = getPipelineData().cards.filter(function(c) { return c.status !== 'deleted'; });
+    const meetings = getUpcomingEventsForPicker();
+    const members  = getMemberNames_();
+
+    const cardLines = cards.map(function(c) {
+      return '[' + c.rowIndex + '] ' + (c.speakerName || '(no name)') +
+        ' — status=' + c.status +
+        (c.assignedTo ? ', assignedTo=' + c.assignedTo : '') +
+        (c.topic ? ', topic=' + c.topic : '') +
+        (c.tentativeDate ? ', date=' + c.tentativeDate : '');
+    }).join('\n');
+    const meetingLines = meetings.map(function(m) {
+      return '[' + m.rowIndex + '] ' + m.date + ' ' + (m.available ? '(open)' : '(taken: ' + m.mainSpeaker + ')');
+    }).join('\n');
+
+    const sys =
+      'You convert ONE short instruction from a Rotary club officer into structured actions on a speaker pipeline. ' +
+      'Only use the speakers (each shown with a rowIndex) and meetings (each shown with an eventsRow) from the context. ' +
+      'Match speaker names case-insensitively and tolerantly (a first name alone is fine if it is unambiguous). ' +
+      'Valid statuses: ' + PIPELINE_STATUSES.join(', ') + '. ' +
+      'Valid member names for assignedTo: ' + (members.join(', ') || '(none)') + '.\n' +
+      'Action kinds:\n' +
+      '- "update": change a card. Set rowIndex and any of: status, assignedTo, tentativeDate (YYYY-MM-DD), topic.\n' +
+      '- "note": add a note. Set rowIndex and note.\n' +
+      '- "assign": book a speaker into a meeting date. Set rowIndex (the speaker) and eventsRow (the meeting).\n' +
+      '- "none": when the request is unclear, or the speaker/meeting is not found. Explain why in message.\n' +
+      'To DELETE or REMOVE a speaker, use an "update" action with status "deleted" (this moves the card to ' +
+      'the Deleted trash and is reversible). To restore one, update status to "new".\n' +
+      'Give every action a short human description like "Move Jane Smith → Scheduled" or "Delete John Doe (move to trash)". ' +
+      'Only do what was asked. If a name is ambiguous or not found, return a single "none" action and explain in message.';
+    const user = 'SPEAKERS:\n' + (cardLines || '(none)') +
+      '\n\nMEETINGS (open speaker slots):\n' + (meetingLines || '(none)') +
+      '\n\nINSTRUCTION:\n' + String(text).trim();
+
+    const schema = {
+      type: 'OBJECT',
+      properties: {
+        actions: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              kind:          { type: 'STRING' },
+              rowIndex:      { type: 'INTEGER' },
+              status:        { type: 'STRING' },
+              assignedTo:    { type: 'STRING' },
+              tentativeDate: { type: 'STRING' },
+              topic:         { type: 'STRING' },
+              note:          { type: 'STRING' },
+              eventsRow:     { type: 'INTEGER' },
+              description:   { type: 'STRING' },
+            },
+            required: ['kind', 'description'],
+          },
+        },
+        message: { type: 'STRING' },
+      },
+      required: ['actions'],
+    };
+
+    const parsed = callGeminiJson_(apiKey, sys, user, schema);
+    const raw = (parsed && parsed.actions) || [];
+
+    // Validate every proposed action against real rows before showing it.
+    const validCards = {}; cards.forEach(function(c) { validCards[c.rowIndex] = c; });
+    const validMtgs  = {}; meetings.forEach(function(m) { validMtgs[m.rowIndex] = m; });
+    const actions = [];
+    raw.forEach(function(a) {
+      if (!a || a.kind === 'none') return;
+      if (a.kind === 'update') {
+        if (!validCards[a.rowIndex]) return;
+        const changes = {};
+        if (a.status && PIPELINE_STATUSES.indexOf(a.status) !== -1) changes.status = a.status;
+        if (a.assignedTo) changes.assignedTo = a.assignedTo;
+        if (a.tentativeDate) changes.tentativeDate = a.tentativeDate;
+        if (a.topic) changes.topic = a.topic;
+        if (!Object.keys(changes).length) return;
+        actions.push({ kind: 'update', rowIndex: a.rowIndex, changes: changes, description: a.description || 'Update row ' + a.rowIndex });
+      } else if (a.kind === 'note') {
+        if (!validCards[a.rowIndex] || !a.note) return;
+        actions.push({ kind: 'note', rowIndex: a.rowIndex, note: a.note, description: a.description || 'Add a note' });
+      } else if (a.kind === 'assign') {
+        if (!validCards[a.rowIndex] || !validMtgs[a.eventsRow]) return;
+        actions.push({ kind: 'assign', rowIndex: a.rowIndex, eventsRow: a.eventsRow, description: a.description || 'Assign to a meeting' });
+      }
+    });
+    return { ok: true, actions: actions, message: (parsed && parsed.message) || '' };
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+}
+
+/** Apply actions confirmed by the user. Reuses the existing write functions. */
+function applyPipelineActions(actions, updatedBy) {
+  if (!actions || !actions.length) return { ok: true, applied: 0 };
+  let applied = 0;
+  actions.forEach(function(a) {
+    if (a.kind === 'update')      { savePipelineCard(a.rowIndex, a.changes, updatedBy); applied++; }
+    else if (a.kind === 'note')   { appendPipelineNote(a.rowIndex, a.note, updatedBy);  applied++; }
+    else if (a.kind === 'assign') { assignSpeakerToEvent(a.rowIndex, a.eventsRow, updatedBy); applied++; }
+  });
+  return { ok: true, applied: applied };
+}
+
+function callGeminiJson_(apiKey, systemText, userText, schema) {
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL +
+    ':generateContent?key=' + encodeURIComponent(apiKey);
+  const payload = {
+    systemInstruction: { parts: [{ text: systemText }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema },
+  };
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json',
+    muteHttpExceptions: true, payload: JSON.stringify(payload),
+  });
+  const body = JSON.parse(resp.getContentText());
+  if (body.error) throw new Error(body.error.message || JSON.stringify(body.error));
+  const cand  = (body.candidates || [])[0];
+  const parts = cand && cand.content && cand.content.parts;
+  if (!parts || !parts[0] || parts[0].text == null) throw new Error('No response from Gemini.');
+  return JSON.parse(parts[0].text);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 //  SPEAKER PIPELINE — KANBAN VIEW  (?app=kanban)
 // ═══════════════════════════════════════════════════════════════
 function getKanbanHtml() {
@@ -2817,6 +3111,13 @@ header{background:#17458F;color:#fff;padding:0.6em 1em;display:flex;align-items:
 header h1{font-size:1em;font-weight:bold;flex:1}
 .hbtn{font-size:0.8em;padding:3px 10px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;cursor:pointer}
 .hbtn:hover{background:rgba(255,255,255,0.28)}
+/* Columns show/hide menu */
+#cols-wrap{position:relative}
+#cols-menu{position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.18);padding:0.3em 0;min-width:180px;display:none;z-index:120}
+#cols-menu.open{display:block}
+#cols-menu label{display:flex;align-items:center;gap:0.55em;padding:5px 12px;font-size:0.83em;color:#333;cursor:pointer;white-space:nowrap}
+#cols-menu label:hover{background:#f0f4ff}
+#cols-menu .cm-count{margin-left:auto;color:#999;font-size:0.9em}
 #board{flex:1;overflow-x:auto;display:flex;gap:0.6em;padding:0.7em;align-items:flex-start}
 .col{background:#e8eaf0;border-radius:8px;width:200px;flex-shrink:0;display:flex;flex-direction:column;max-height:100%}
 .col-hd{padding:0.5em 0.7em;font-weight:bold;font-size:0.82em;color:#fff;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center}
@@ -2831,6 +3132,8 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 .card-date{font-weight:bold;font-size:0.9em;color:#15803d;margin-bottom:3px}
 .card-date.conflict{color:#dc2626}
 .card-name{font-weight:bold;color:#17458F;margin-bottom:2px}
+.card-sub{color:#444;font-size:0.85em;margin-bottom:2px}
+.who-lbl{color:#888;font-weight:normal;font-size:0.88em}
 .card-topic{color:#444;font-size:0.92em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-meta{color:#888;font-size:0.8em;margin-top:3px;display:flex;gap:0.4em;flex-wrap:wrap}
 .badge{background:#e8eaf0;border-radius:3px;padding:1px 5px;font-size:0.78em}
@@ -2845,6 +3148,20 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 .hd-scheduled{background:#16a34a}
 .hd-done{background:#059669}
 .hd-declined{background:#dc2626}
+.hd-deleted{background:#4b5563}
+.hd-upcoming{background:#0f766e}
+/* Upcoming-meetings column cards (informational; from the Events calendar) */
+.mtg-card{background:#fff;border-radius:6px;padding:0.45em 0.6em;border-left:3px solid #0f766e;font-size:0.82em}
+.mtg-card.clickable{cursor:pointer}
+.mtg-card.clickable:hover{box-shadow:0 2px 6px rgba(0,0,0,0.12)}
+.mtg-card.empty{background:#f3f4f6;border-left-color:#cbd5e1;opacity:0.9;padding:0.35em 0.6em}
+.mtg-card.tentative{background:#fffbeb;border-left-color:#f59e0b;opacity:1}
+.mtg-date{font-weight:bold;color:#0f766e;font-size:0.9em}
+.mtg-time{font-weight:normal;color:#888;font-size:0.92em}
+.mtg-speaker{font-weight:bold;color:#17458F;margin-top:2px}
+.mtg-topic{color:#555;font-size:0.92em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.mtg-empty{color:#9ca3af;font-style:italic;margin-top:1px}
+.mtg-tent{color:#b45309;font-size:0.78em;margin-top:2px}
 /* Panel */
 #panel{position:fixed;right:-420px;top:0;width:420px;height:100%;background:#fff;box-shadow:-3px 0 16px rgba(0,0,0,0.12);transition:right 0.2s;display:flex;flex-direction:column;z-index:100}
 #panel.open{right:0}
@@ -2882,8 +3199,11 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 /* Quick status changer on each card (tap-friendly on phones) */
 .card-status{width:100%;margin-top:5px;font-size:0.76em;padding:3px 4px;border:1px solid #d1d5db;border-radius:4px;background:#fff;color:#374151;cursor:pointer}
 /* Modal */
-#modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:150;align-items:center;justify-content:center}
-#modal-overlay.show{display:flex}
+#modal-overlay,#fill-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:150;align-items:center;justify-content:center}
+#modal-overlay.show,#fill-overlay.show{display:flex}
+#fill-list{flex:1;overflow-y:auto;max-height:340px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:0.6em}
+.ev-item.wanted{background:#fffbeb}
+.ev-item.wanted:hover{background:#fef3c7}
 .modal{background:#fff;border-radius:8px;padding:1.2em;width:440px;max-height:80vh;display:flex;flex-direction:column}
 .modal h3{color:#17458F;margin-bottom:0.5em}
 .modal-desc{font-size:0.82em;color:#555;margin-bottom:0.6em}
@@ -2902,14 +3222,59 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 .ev-open{color:#16a34a;font-size:0.85em;margin-left:auto}
 .ev-tentative{color:#b45309;font-size:0.82em;margin-left:auto;text-align:right}
 .modal-btns{display:flex;gap:0.5em}
+/* AI command line (sits between header and board) */
+#ai-wrap{flex-shrink:0;background:#fff;border-bottom:1px solid #e0e0e0;padding:0.5em 0.7em}
+#ai-bar{display:flex;gap:0.5em}
+#ai-input{flex:1;min-width:0;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.9em}
+#ai-input:focus{outline:none;border-color:#17458F}
+#ai-go{background:#17458F;color:#fff;border:none;border-radius:6px;padding:0 16px;font-size:0.9em;cursor:pointer;white-space:nowrap}
+#ai-go:disabled{background:#aaa;cursor:default}
+#ai-proposal{display:none;margin-top:0.5em;padding:0.6em 0.8em;background:#f8faff;border:1px solid #c5cae9;border-left:3px solid #17458F;border-radius:6px}
+#ai-proposal.show{display:block}
+#ai-prop-list{font-size:0.88em;color:#333;margin-bottom:0.5em;line-height:1.6}
+#ai-prop-list div{padding:1px 0}
+.ai-btns{display:flex;gap:0.5em}
+.ai-btns button{border:none;border-radius:4px;padding:6px 14px;font-size:0.88em;cursor:pointer}
+.ai-btns .apply{background:#17458F;color:#fff}
+.ai-btns .cancel{background:#f4f4f4;color:#444;border:1px solid #ccc}
+#ai-msg{font-size:0.85em;margin-top:0.4em;min-height:1em}
+#ai-msg.ok{color:#166534}#ai-msg.err{color:#b91c1c}
 /* Phone layout: stack the columns and make the detail panel full-width */
 @media (max-width:600px){
-  header{flex-wrap:wrap;gap:0.4em;padding:0.5em 0.7em}
-  header h1{font-size:0.95em;flex:1 0 100%;margin-bottom:0.2em}
-  #assignee-filter{flex:1 1 auto}
+  /* Bump the base size so all the em-based text scales up for phones.
+     ≥16px inputs also stop iOS Safari from auto-zooming on focus. */
+  body{font-size:18px}
+  header{flex-wrap:wrap;gap:0.45em;padding:0.6em 0.8em}
+  header h1{font-size:1.15em;flex:1 0 100%;margin-bottom:0.2em}
+  #assignee-filter{flex:1 1 auto;font-size:0.95em;padding:7px 8px}
+  .hbtn{font-size:0.9em;padding:7px 12px}
   #board{flex-direction:column;overflow-x:hidden;overflow-y:auto}
   .col{width:100%;max-height:none}
-  .col-body{min-height:0}
+  /* Let columns grow to full height; #board is the single scroll container
+     (avoids the nested column-scroll-inside-board-scroll that felt broken). */
+  .col-body{min-height:0;flex:none;overflow:visible}
+  .col-hd{font-size:1em;padding:0.7em 0.85em}
+  /* Larger cards, full topic (no ellipsis truncation), bigger tap targets. */
+  .card{font-size:0.95em;padding:0.75em 0.9em}
+  .card-name{font-size:1.05em}
+  .card-topic{font-size:1em;white-space:normal}
+  .badge{font-size:0.85em;padding:2px 7px}
+  .card-status{font-size:0.95em;padding:9px 8px;margin-top:8px}
+  .vote-btn{font-size:0.95em;padding:5px 12px}
+  .mtg-card{font-size:0.95em;padding:0.65em 0.8em}
+  .mtg-date{font-size:1em}
+  .mtg-empty,.mtg-tent{font-size:0.92em}
+  /* Detail panel + modals: comfortable form fields and buttons. */
+  .pfield label{font-size:0.92em}
+  .pfield input,.pfield textarea,.pfield select{font-size:1em;padding:9px 10px}
+  .pbtn{font-size:1em;padding:10px 16px;margin-bottom:0.3em}
+  .ev-item{font-size:1em;padding:0.7em 0.85em}
+  .modal h3{font-size:1.15em}
+  .modal-desc{font-size:0.92em}
+  #cols-menu{min-width:60vw}
+  #cols-menu label{font-size:1em;padding:9px 14px}
+  #ai-input{font-size:1em;padding:11px 12px}
+  #ai-go{font-size:1em;padding:0 18px}
   #panel{width:100%;right:-100%}
   .modal{width:94vw}
 }
@@ -2932,11 +3297,20 @@ header h1{font-size:1em;font-weight:bold;flex:1}
   <span id="hdr-user" style="font-size:0.85em;opacity:0.8"></span>
   <select id="assignee-filter" onchange="setAssignee(this.value)" style="font-size:0.8em;padding:3px 6px;border-radius:4px;border:none"><option value="">All assignees</option></select>
   <a class="hbtn" href="https://rotary.porttack.com/request/" target="_blank">+ Request Speaker</a>
-  <button class="hbtn" onclick="toggleDeclined()">Declined</button>
+  <span id="cols-wrap">
+    <button class="hbtn" onclick="toggleColsMenu(event)">Columns ▾</button>
+    <div id="cols-menu"></div>
+  </span>
   <a href="__EXEC_URL__?app=pipeline" target="_top" class="hbtn">Table →</a>
   <a href="__EXEC_URL__?app=speaker-pipeline" target="_top" class="hbtn">Status →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
+<div id="ai-wrap" style="display:none">
+  <div id="ai-bar">
+    <input id="ai-input" placeholder="✨ Tell me what to change — e.g. “move Jane to scheduled” or “delete John Doe”">
+    <button id="ai-go" onclick="aiSubmit()">Ask</button>
+  </div>
+</div>
 <div id="board"></div>
 
 <!-- Detail Panel -->
@@ -2959,10 +3333,35 @@ header h1{font-size:1em;font-weight:bold;flex:1}
   </div>
 </div>
 
+<!-- Fill-Slot Modal (assign a pipeline speaker to an open meeting date) -->
+<div id="fill-overlay">
+  <div class="modal">
+    <h3 id="fill-title">Assign a Speaker</h3>
+    <p class="modal-desc">Pick a pipeline speaker to put in this open meeting slot. ⭐ marks speakers who listed this as a tentative date. This writes the speaker into the Events calendar.</p>
+    <div id="fill-list"><p style="padding:0.6em;color:#888;font-size:0.85em">Loading…</p></div>
+    <div class="modal-btns">
+      <button class="pbtn" onclick="confirmFill()">Assign</button>
+      <button class="pbtn sec" onclick="closeFill()">Cancel</button>
+    </div>
+    <div class="pmsg" id="fill-msg"></div>
+  </div>
+</div>
+
 <script>
 var currentUser = '', allCards = [], members = [], statuses = [], statusLabels = {};
-var panelRow = null, showDeclined = false, upcomingMeetings = [], dateConflicts = {};
+var panelRow = null, upcomingMeetings = [], dateConflicts = {};
 var assigneeFilter = '';
+// Columns the user has hidden (persisted). Declined is hidden by default.
+var HIDDEN_COLS_KEY = 'kanbanHiddenCols';
+function loadHiddenCols() {
+  try {
+    var v = JSON.parse(localStorage.getItem(HIDDEN_COLS_KEY) || 'null');
+    if (Array.isArray(v)) return v;
+  } catch(e) {}
+  return ['declined', 'deleted'];
+}
+var hiddenCols = loadHiddenCols();
+var AI_ENABLED = __AI_ENABLED__; // server-injected feature flag
 
 function gs(fn, arg) {
   return new Promise(function(ok, fail) {
@@ -3019,23 +3418,60 @@ window.addEventListener('load', function() {
   document.getElementById('auth-pw').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') doLogin();
   });
+  var ai = document.getElementById('ai-input');
+  if (ai) ai.addEventListener('keydown', function(e) { if (e.key === 'Enter') aiSubmit(); });
+  if (AI_ENABLED) { var w = document.getElementById('ai-wrap'); if (w) w.style.display = ''; }
 });
 
 // ── Board ─────────────────────────────────────────────────────
-async function loadBoard() {
+// localStorage stash so the board paints instantly on load (stale-while-
+// revalidate): render the last-known board, then fetch fresh and reconcile.
+// Same-browser only — never a cross-user sync mechanism, so we always refetch.
+var KANBAN_CACHE_KEY = 'kanbanBoardCache';
+function saveBoardCache() {
   try {
-    var data = await gs('getPipelineData', null);
-    allCards = data.cards;
-    members  = data.members;
-    statuses = data.statuses;
-    statusLabels = data.statusLabels;
-    upcomingMeetings = await gs('getUpcomingEventsForPicker', null);
-    populateAssigneeFilter();
-    renderBoard();
+    localStorage.setItem(KANBAN_CACHE_KEY, JSON.stringify({
+      cards: allCards, members: members, statuses: statuses,
+      statusLabels: statusLabels, meetings: upcomingMeetings
+    }));
+  } catch(e) { /* quota / private mode — caching is best-effort */ }
+}
+function applyBoardData(data, meetings) {
+  allCards = data.cards;
+  members  = data.members;
+  statuses = data.statuses;
+  statusLabels = data.statusLabels;
+  if (meetings) upcomingMeetings = meetings;
+  populateAssigneeFilter();
+  renderBoard();
+}
+
+async function loadBoard() {
+  // 1. Paint immediately from cache if we have one.
+  var paintedFromCache = false;
+  try {
+    var cached = JSON.parse(localStorage.getItem(KANBAN_CACHE_KEY) || 'null');
+    if (cached && cached.cards) {
+      applyBoardData(cached, cached.meetings);
+      paintedFromCache = true;
+    }
+  } catch(e) { /* corrupt cache — ignore and load fresh */ }
+
+  // 2. Fetch fresh in parallel and reconcile.
+  try {
+    var results = await Promise.all([
+      gs('getPipelineData', null),
+      gs('getUpcomingEventsForPicker', null)
+    ]);
+    applyBoardData(results[0], results[1]);
+    saveBoardCache();
   } catch(e) {
-    document.getElementById('board').innerHTML =
-      '<p style="color:#b91c1c;padding:1.2em;font-family:Arial,sans-serif">⚠️ ' + e.message +
-      '<br><br>Run <strong>Setup Speaker Pipeline Tab</strong> from the Rotary Sync menu in the spreadsheet, then reload.</p>';
+    if (!paintedFromCache) {
+      document.getElementById('board').innerHTML =
+        '<p style="color:#b91c1c;padding:1.2em;font-family:Arial,sans-serif">⚠️ ' + e.message +
+        '<br><br>Run <strong>Setup Speaker Pipeline Tab</strong> from the Rotary Sync menu in the spreadsheet, then reload.</p>';
+    }
+    // If we already painted from cache, keep showing it rather than blanking.
   }
 }
 
@@ -3079,11 +3515,72 @@ function matchAssignee(c) {
   return c.assignedTo === assigneeFilter;
 }
 
+// The Upcoming column is a synthetic, non-droppable column keyed '__upcoming__'.
+var UPCOMING_COL = '__upcoming__';
+var UPCOMING_LIMIT = 12;
+
+// Build a compact, date-sorted card for one Events-calendar meeting slot.
+function buildMeetingCard(m) {
+  var div = document.createElement('div');
+  var dateShort = String(m.dateLabel || '').split(',')[0] || fmtMonthDay(m.date);
+  var dateLine = '<div class="mtg-date">' + esc(dateShort) +
+    (m.time ? ' <span class="mtg-time">' + esc(m.time) + '</span>' : '') + '</div>';
+  var baseTitle = dateShort + (m.time ? ' · ' + m.time : '') + (m.location ? ' · ' + m.location : '');
+  // Pipeline cards eyeing this exact date (excludes already-scheduled cards).
+  var tent = (dateConflicts[m.date] || []).slice();
+
+  if (m.available) {
+    // Open slot — clickable to assign a speaker from the pipeline.
+    div.className = 'mtg-card empty clickable' + (tent.length ? ' tentative' : '');
+    div.title = baseTitle + ' — no speaker yet (click to assign a speaker)';
+    div.innerHTML = dateLine + '<div class="mtg-empty">— no speaker —</div>' +
+      (tent.length ? '<div class="mtg-tent" title="' + esc(tent.join(', ')) + '">⭐ ' +
+        tent.length + ' tentative: ' + esc(tent.join(', ')) + '</div>' : '');
+    div.addEventListener('click', function() { openFillModal(m); });
+  } else {
+    // Filled slot — clickable to open the linked pipeline card, if any.
+    var linked = allCards.filter(function(c) { return String(c.eventsRow) === String(m.rowIndex); })[0];
+    div.className = 'mtg-card' + (linked ? ' clickable' : '');
+    div.title = baseTitle + (m.mainTopic ? ' — ' + m.mainTopic : '') + (linked ? ' (click to open card)' : '');
+    div.innerHTML = dateLine +
+      '<div class="mtg-speaker">' + esc(m.mainSpeaker) + '</div>' +
+      (m.mainTopic ? '<div class="mtg-topic">' + esc(m.mainTopic) + '</div>' : '');
+    if (linked) div.addEventListener('click', function() { openPanel(linked.rowIndex); });
+  }
+  return div;
+}
+
+// Build the informational "Upcoming" column from the Events calendar data.
+function buildUpcomingColumn() {
+  var meetings = upcomingMeetings.slice()
+    .sort(function(a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); })
+    .slice(0, UPCOMING_LIMIT);
+  var filled = meetings.filter(function(m) { return !m.available; }).length;
+  var col = document.createElement('div');
+  col.className = 'col';
+  col.innerHTML =
+    '<div class="col-hd hd-upcoming">' +
+      '<span>📅 Upcoming</span>' +
+      '<span style="background:rgba(255,255,255,0.3);border-radius:10px;padding:1px 7px;font-size:0.9em" ' +
+        'title="' + filled + ' of ' + meetings.length + ' have a speaker">' + filled + '/' + meetings.length + '</span>' +
+    '</div>' +
+    '<div class="col-body" id="col-upcoming"></div>';
+  var body = col.querySelector('.col-body');
+  if (!meetings.length) {
+    body.innerHTML = '<p style="color:#888;font-size:0.8em;padding:0.4em">No upcoming meetings.</p>';
+  } else {
+    meetings.forEach(function(m) { body.appendChild(buildMeetingCard(m)); });
+  }
+  return col;
+}
+
 function renderBoard() {
   computeConflicts();
+  buildColsMenu();
   var board = document.getElementById('board');
   board.innerHTML = '';
-  var visibleStatuses = statuses.filter(function(s) { return showDeclined || s !== 'declined'; });
+  if (hiddenCols.indexOf(UPCOMING_COL) === -1) board.appendChild(buildUpcomingColumn());
+  var visibleStatuses = statuses.filter(function(s) { return hiddenCols.indexOf(s) === -1; });
   visibleStatuses.forEach(function(status) {
     var cards = allCards.filter(function(c) { return c.status === status && matchAssignee(c); });
     var col = document.createElement('div');
@@ -3114,10 +3611,13 @@ function buildCard(card) {
   var others = dateStr ? (dateConflicts[dateStr] || []).filter(function(n){ return n !== (card.speakerName || '(no name)'); }) : [];
   var isConflict = others.length > 0;
   if (isConflict) div.className += ' conflict';
+  // The date is only tentative until the card is actually scheduled (booked
+  // into the Events calendar) or done.
+  var isTentative = dateStr && card.status !== 'scheduled' && card.status !== 'done';
   var dateBlock = dateStr
     ? '<div class="card-date' + (isConflict ? ' conflict' : '') + '"' +
         (isConflict ? ' title="Same date as: ' + esc(others.join(', ')) + '"' : '') + '>📅 ' +
-        esc(fmtMonthDay(dateStr)) + (isConflict ? ' ⚠️ conflict' : '') + '</div>'
+        esc(fmtMonthDay(dateStr)) + (isTentative ? ' (tentative)' : '') + (isConflict ? ' ⚠️ conflict' : '') + '</div>'
     : '';
   var thumb = '';
   if (card.photoTop) {
@@ -3127,11 +3627,12 @@ function buildCard(card) {
   div.innerHTML =
     thumb +
     dateBlock +
-    '<div class="card-name">' + esc(card.speakerName || '(no name)') + '</div>' +
+    '<div class="card-name"><span class="who-lbl">Speaker:</span> ' + esc(card.speakerName || '(no name)') + '</div>' +
+    (card.requestorName ? '<div class="card-sub"><span class="who-lbl">Requestor:</span> ' + esc(card.requestorName) + '</div>' : '') +
+    (card.assignedTo ? '<div class="card-sub"><span class="who-lbl">Manager:</span> ' + esc(card.assignedTo) + '</div>' : '') +
     '<div class="card-topic">' + esc(card.topic || '—') + '</div>' +
     '<div class="card-meta">' +
       '<span class="badge ' + card.source + '">' + card.source + '</span>' +
-      (card.assignedTo ? '<span class="badge">👤 ' + esc(card.assignedTo) + '</span>' : '') +
     '</div>' +
     (tagChips ? '<div class="card-tags">' + tagChips + '</div>' : '') +
     '<select class="card-status">' +
@@ -3160,6 +3661,7 @@ function buildCard(card) {
     if (newStatus === card.status) return;
     card.status = newStatus;
     renderBoard();
+    saveBoardCache();
     gs3('savePipelineCard', card.rowIndex, { status: newStatus }, currentUser)
       .catch(function(err) { alert('Save failed: ' + err.message); loadBoard(); });
   });
@@ -3172,6 +3674,7 @@ function buildCard(card) {
       var voted = names.indexOf(currentUser) !== -1;
       btn.className = 'vote-btn' + (voted ? ' voted' : '');
       btn.textContent = (voted ? '❤️' : '🤍') + ' ' + names.length;
+      saveBoardCache();
     });
   });
   div.addEventListener('dragstart', function(e) {
@@ -3193,6 +3696,7 @@ function setupDrop(el, status) {
     if (!card || card.status === status) return;
     card.status = status;
     renderBoard();
+    saveBoardCache();
     gs3('savePipelineCard', rowIndex, { status: status }, currentUser)
       .catch(function(err) { alert('Save failed: ' + err.message); loadBoard(); });
   });
@@ -3220,7 +3724,7 @@ function openPanel(rowIndex) {
       '<input id="pn-topic" value="' + esc(card.topic) + '"></div>' +
     '<div class="pfield"><label>Status</label>' +
       '<select id="pn-status">' + statusOpts + '</select></div>' +
-    '<div class="pfield"><label>Assigned To</label>' +
+    '<div class="pfield"><label>Manager (Assigned To)</label>' +
       '<select id="pn-assigned">' + memberOpts + '</select></div>' +
     '<div class="pfield"><label>Tentative Date <span style="font-weight:normal;color:#888;font-size:0.9em">(open meeting dates)</span></label>' +
       '<select id="pn-date">' + buildDateOptions(card.tentativeDate) + '</select></div>' +
@@ -3258,8 +3762,12 @@ function openPanel(rowIndex) {
     (card.requestorName ? '<div class="pfield"><label>Submitted by</label><span style="font-size:0.88em">' + esc(card.requestorName) + ' &lt;' + esc(card.requestorEmail) + '&gt;</span></div>' : '') +
     (card.interested ? '<div class="pfield"><label>Interested members</label><span style="font-size:0.88em">' + esc(card.interested) + '</span></div>' : '') +
     '<button class="pbtn" onclick="savePanel()">Save</button>' +
-    (card.status === 'confirmed' || card.status === 'scheduled' ?
+    (['in-progress', 'limbo', 'scheduled'].indexOf(card.status) !== -1 ?
       '<button class="pbtn" style="background:#16a34a" onclick="openAssignModal()">Assign to Event</button>' : '') +
+    (card.status === 'deleted'
+      ? '<button class="pbtn sec" onclick="restoreCard()">↩︎ Restore</button>' +
+        '<button class="pbtn danger" onclick="deleteCard()">🗑 Delete permanently</button>'
+      : '<button class="pbtn danger" onclick="deleteCard()">🗑 Delete</button>') +
     '<div class="pmsg" id="panel-msg"></div>' +
     '<div class="sec-title">Notes</div>' +
     '<div class="notes-display" id="pn-notes-display">' + esc(card.notes) + '</div>' +
@@ -3321,6 +3829,44 @@ async function uploadPhoto(input, targetId) {
 }
 
 function closePanel() { document.getElementById('panel').classList.remove('open'); panelRow = null; }
+
+// Soft-delete (move to the hidden Deleted column) or, if already there,
+// permanently remove the sheet row.
+async function deleteCard() {
+  if (!panelRow) return;
+  var card = allCards.find(function(c) { return c.rowIndex === panelRow; });
+  if (!card) return;
+  var msg = document.getElementById('panel-msg');
+  if (card.status === 'deleted') {
+    if (!confirm('Permanently delete this card? This removes the row and cannot be undone.')) return;
+    try {
+      await gs('deletePipelineCard', panelRow);
+      closePanel();
+      loadBoard(); // row indexes shift after a delete — reload fresh
+    } catch(e) { msg.className = 'pmsg err'; msg.textContent = 'Error: ' + e.message; }
+    return;
+  }
+  if (!confirm('Move this card to Deleted? You can restore it from the Deleted column.')) return;
+  card.status = 'deleted';
+  renderBoard();
+  saveBoardCache();
+  gs3('savePipelineCard', panelRow, { status: 'deleted' }, currentUser)
+    .catch(function(err) { alert('Delete failed: ' + err.message); loadBoard(); });
+  closePanel();
+}
+
+// Restore a deleted card back to New.
+function restoreCard() {
+  if (!panelRow) return;
+  var card = allCards.find(function(c) { return c.rowIndex === panelRow; });
+  if (!card) return;
+  card.status = 'new';
+  renderBoard();
+  saveBoardCache();
+  gs3('savePipelineCard', panelRow, { status: 'new' }, currentUser)
+    .catch(function(err) { alert('Restore failed: ' + err.message); loadBoard(); });
+  closePanel();
+}
 
 async function savePanel() {
   if (!panelRow) return;
@@ -3452,12 +3998,135 @@ async function confirmAssign() {
   } catch(e) { msg.className = 'pmsg err'; msg.textContent = 'Error: ' + e.message; }
 }
 
-function toggleDeclined() { showDeclined = !showDeclined; renderBoard(); }
+// ── Fill-Slot Modal (from the Upcoming column) ────────────────
+// Reverse of the Assign modal: here the meeting date is fixed and we pick a
+// pipeline speaker to drop into it.
+var fillMeeting = null, fillSelectedRow = null;
+var FILL_STATUS_ORDER = { 'in-progress': 0, limbo: 1, new: 2 };
+
+function openFillModal(m) {
+  fillMeeting = m; fillSelectedRow = null;
+  document.getElementById('fill-overlay').classList.add('show');
+  document.getElementById('fill-msg').textContent = '';
+  var dateShort = String(m.dateLabel || '').split(',')[0] || fmtMonthDay(m.date);
+  document.getElementById('fill-title').textContent = 'Assign a Speaker — ' + dateShort;
+  var list = document.getElementById('fill-list');
+
+  // Candidates: any pipeline card with a name that isn't already booked/closed.
+  var cands = allCards.filter(function(c) {
+    return ['scheduled', 'done', 'declined'].indexOf(c.status) === -1 && (c.speakerName || '').trim();
+  });
+  cands.sort(function(a, b) {
+    var aw = a.tentativeDate === m.date ? 0 : 1, bw = b.tentativeDate === m.date ? 0 : 1;
+    if (aw !== bw) return aw - bw;                       // wanted-this-date first
+    var ao = FILL_STATUS_ORDER[a.status]; ao = (ao == null ? 9 : ao);
+    var bo = FILL_STATUS_ORDER[b.status]; bo = (bo == null ? 9 : bo);
+    if (ao !== bo) return ao - bo;                       // then by pipeline stage
+    return (a.speakerName || '').localeCompare(b.speakerName || '');
+  });
+
+  if (!cands.length) {
+    list.innerHTML = '<p style="padding:0.6em;color:#888;font-size:0.85em">No assignable speakers in the pipeline. Add or confirm a speaker first.</p>';
+    return;
+  }
+  list.innerHTML = '';
+  cands.forEach(function(c) {
+    var wants = (c.tentativeDate === m.date);
+    var div = document.createElement('div');
+    div.className = 'ev-item available' + (wants ? ' wanted' : '');
+    div.innerHTML =
+      '<span class="ev-date" style="min-width:120px">' + esc(c.speakerName) + '</span>' +
+      '<span class="ev-type">' + esc(statusLabels[c.status] || c.status) + (c.topic ? ' · ' + esc(c.topic) : '') + '</span>' +
+      (wants ? '<span class="ev-tentative">⭐ wanted this date</span>' : '');
+    div.addEventListener('click', function() {
+      list.querySelectorAll('.ev-item').forEach(function(el) { el.classList.remove('selected'); });
+      div.classList.add('selected');
+      fillSelectedRow = c.rowIndex;
+    });
+    list.appendChild(div);
+  });
+}
+
+function closeFill() {
+  document.getElementById('fill-overlay').classList.remove('show');
+  fillMeeting = null; fillSelectedRow = null;
+}
+
+async function confirmFill() {
+  var msg = document.getElementById('fill-msg');
+  if (!fillSelectedRow || !fillMeeting) { msg.className = 'pmsg err'; msg.textContent = 'Pick a speaker first.'; return; }
+  try {
+    var res = await gs3('assignSpeakerToEvent', fillSelectedRow, fillMeeting.rowIndex, currentUser);
+    msg.className = 'pmsg ok'; msg.textContent = '✓ Assigned ' + res.speakerName;
+    var results = await Promise.all([ gs('getPipelineData', null), gs('getUpcomingEventsForPicker', null) ]);
+    applyBoardData(results[0], results[1]);
+    saveBoardCache();
+    setTimeout(closeFill, 1200);
+  } catch(e) { msg.className = 'pmsg err'; msg.textContent = 'Error: ' + e.message; }
+}
+
+// ── Column show/hide menu ─────────────────────────────────────
+function saveHiddenCols() {
+  try { localStorage.setItem(HIDDEN_COLS_KEY, JSON.stringify(hiddenCols)); } catch(e) {}
+}
+function buildColsMenu() {
+  var menu = document.getElementById('cols-menu');
+  if (!menu) return;
+  var counts = {};
+  allCards.forEach(function(c) { counts[c.status] = (counts[c.status] || 0) + 1; });
+  var defs = [{ key: UPCOMING_COL, label: '📅 Upcoming', count: upcomingMeetings.length }];
+  statuses.forEach(function(s) { defs.push({ key: s, label: statusLabels[s] || s, count: counts[s] || 0 }); });
+  menu.innerHTML = defs.map(function(d) {
+    var checked = hiddenCols.indexOf(d.key) === -1 ? ' checked' : '';
+    return '<label><input type="checkbox"' + checked +
+      ' onchange="toggleCol(&#39;' + d.key + '&#39;)">' +
+      '<span>' + esc(d.label) + '</span>' +
+      '<span class="cm-count">' + d.count + '</span></label>';
+  }).join('');
+}
+function toggleColsMenu(e) {
+  if (e) e.stopPropagation();
+  document.getElementById('cols-menu').classList.toggle('open');
+}
+function toggleCol(status) {
+  var i = hiddenCols.indexOf(status);
+  if (i === -1) hiddenCols.push(status); else hiddenCols.splice(i, 1);
+  saveHiddenCols();
+  renderBoard();
+}
+// Close the menu when clicking anywhere outside it.
+document.addEventListener('click', function(e) {
+  var wrap = document.getElementById('cols-wrap');
+  var menu = document.getElementById('cols-menu');
+  if (menu && wrap && !wrap.contains(e.target)) menu.classList.remove('open');
+});
 
 function logout() {
   localStorage.removeItem('pipelinePw');
   localStorage.removeItem('pipelineName');
   location.reload();
+}
+
+// ── AI command line (Gemini; proposes via a confirm dialog) ───
+function aiSubmit() {
+  var inp = document.getElementById('ai-input');
+  var t = (inp.value || '').trim();
+  if (!t) return;
+  var go = document.getElementById('ai-go');
+  go.disabled = true; go.textContent = '…';
+  gs3('pipelineAssistantCommand', t, currentUser).then(function(res) {
+    go.disabled = false; go.textContent = 'Ask';
+    if (res && res.error) { alert('⚠️ ' + res.error); return; }
+    var actions = (res && res.actions) || [];
+    if (!actions.length) { alert((res && res.message) || 'I could not find a matching change. Try the speaker’s exact name.'); return; }
+    var summary = actions.map(function(a) { return '• ' + a.description; }).join('\\n');
+    if (!confirm('Apply these changes?\\n\\n' + summary)) return;
+    go.disabled = true; go.textContent = '…';
+    gs3('applyPipelineActions', actions, currentUser).then(function() {
+      go.disabled = false; go.textContent = 'Ask'; inp.value = '';
+      loadBoard();
+    }).catch(function(e) { go.disabled = false; go.textContent = 'Ask'; alert('Apply failed: ' + (e.message || e)); });
+  }).catch(function(e) { go.disabled = false; go.textContent = 'Ask'; alert('Error: ' + (e.message || e)); });
 }
 
 // Build <option>s for a tentative-date dropdown from upcoming meeting slots.
@@ -3529,13 +4198,21 @@ tr:hover td{background:#f8f9ff}
 .expand-row td{background:#f8faff!important;padding:0}
 .expand-inner{padding:0.8em 1em;display:grid;grid-template-columns:1fr 1fr;gap:0.5em 1.5em}
 @media (max-width:600px){
-  header{flex-wrap:wrap;gap:0.4em}
-  header h1{flex:1 0 100%;font-size:0.95em}
+  /* Bump base size so the em-based text scales up; ≥16px inputs avoid iOS zoom. */
+  body{font-size:18px}
+  header{flex-wrap:wrap;gap:0.45em}
+  header h1{flex:1 0 100%;font-size:1.15em}
+  .hbtn{font-size:0.9em;padding:7px 12px}
   #toolbar{gap:0.5em}
-  #search{width:100%}
+  #search{width:100%;font-size:1em;padding:8px 9px}
+  .filter-btn{font-size:0.9em;padding:6px 12px}
   #content{overflow-x:auto}
-  table{font-size:0.78em;min-width:560px}
+  table{font-size:0.9em;min-width:560px}
+  /* Editable expand form: single column with comfortable fields. */
   .expand-inner{grid-template-columns:1fr}
+  .ef label{font-size:0.9em}
+  .ef input,.ef textarea,.ef select{font-size:1em;padding:8px 9px}
+  .btn{font-size:0.95em;padding:9px 16px}
 }
 .ef label{display:block;font-size:0.78em;font-weight:bold;color:#17458F;margin-bottom:2px}
 .ef input,.ef textarea,.ef select{width:100%;padding:4px 7px;border:1px solid #ccc;border-radius:3px;font-size:0.85em;font-family:Arial,sans-serif}
@@ -3582,7 +4259,6 @@ tr:hover td{background:#f8f9ff}
   <button class="filter-btn" onclick="setFilter('new',this)">New</button>
   <button class="filter-btn" onclick="setFilter('in-progress',this)">In Progress</button>
   <button class="filter-btn" onclick="setFilter('limbo',this)">Limbo</button>
-  <button class="filter-btn" onclick="setFilter('confirmed',this)">Confirmed</button>
   <button class="filter-btn" onclick="setFilter('scheduled',this)">Scheduled</button>
   <button class="filter-btn" onclick="setFilter('done',this)">Done</button>
   <span style="font-size:0.82em;color:#666;margin-left:0.4em">Assigned to:</span>
@@ -3648,7 +4324,7 @@ function renderTable(){
   var q=(document.getElementById('search').value||'').toLowerCase();
   var rows=allCards.filter(function(c){
     if(filterStatus!=='all'&&c.status!==filterStatus)return false;
-    if(filterStatus==='all'&&c.status==='declined')return false;
+    if(filterStatus==='all'&&(c.status==='declined'||c.status==='deleted'))return false;
     if(!matchAssignee(c))return false;
     if(q&&!(c.speakerName+c.topic+c.assignedTo).toLowerCase().includes(q))return false;
     return true;
@@ -3712,7 +4388,7 @@ function buildExpandRow(card,memberOpts,statusOpts){
     '<div class="row-btns">'+
       '<button class="btn btn-save" onclick="saveRow('+ro+')">Save</button>'+
       '<button class="btn btn-sec" onclick="addRowNote('+ro+')">Add Note</button>'+
-      ((card.status==='confirmed'||card.status==='scheduled')?
+      (['in-progress','limbo','scheduled'].indexOf(card.status)!==-1?
         '<button class="btn btn-assign" onclick="assignRow('+ro+')">Assign to Event</button>':'')+
     '</div><div class="row-msg" id="ef-msg-'+ro+'"></div>'+
     '</div></td>';
@@ -3804,13 +4480,36 @@ header h1{font-size:1.05em;font-weight:bold;flex:1}
 header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
 .hbtn{font-size:0.8em;padding:3px 10px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;cursor:pointer;text-decoration:none}
 .hbtn:hover{background:rgba(255,255,255,0.28)}
-#content{max-width:720px;margin:1.2em auto;padding:0 1em}
+#content{max-width:1040px;margin:1.2em auto;padding:0 1em}
+/* Two-column layout: calendar sidebar (desktop) + the status list. */
+#layout{display:flex;gap:1.2em;align-items:flex-start}
+#main{flex:1;min-width:0}
+#cal-side{width:240px;flex-shrink:0;position:sticky;top:1em;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.07);padding:0.7em 0.8em}
+#cal-side h2{font-size:0.92em;color:#17458F;margin-bottom:0.5em;display:flex;align-items:center;gap:0.4em}
+#cal-side .cal-tot{margin-left:auto;background:#0f766e;color:#fff;font-size:0.78em;border-radius:10px;padding:1px 7px}
+.cal-item{display:flex;flex-direction:column;padding:0.35em 0;border-bottom:1px solid #f0f0f0;font-size:0.84em}
+.cal-item:last-child{border-bottom:none}
+.cal-date{font-weight:bold;color:#0f766e}
+.cal-spk{color:#17458F}
+.cal-open{color:#9ca3af;font-style:italic}
+.cal-tent{color:#b45309}
+.cal-empty{color:#999;font-size:0.84em;font-style:italic}
 .section{margin-bottom:1.8em}
-.sec-hd{font-size:1.05em;font-weight:bold;color:#17458F;border-bottom:2px solid #17458F;padding-bottom:0.25em;margin-bottom:0.7em;display:flex;align-items:center;gap:0.5em}
+.sec-hd{font-size:1.05em;font-weight:bold;color:#17458F;border-bottom:2px solid #17458F;padding-bottom:0.25em;margin-bottom:0.2em;display:flex;align-items:center;gap:0.5em}
 .sec-count{background:#17458F;color:#fff;font-size:0.75em;border-radius:10px;padding:1px 8px}
+.sec-desc{font-size:0.82em;color:#888;margin:0 0 0.7em}
+/* Per-card stage changer (no dragging needed) */
+.stage-row{margin-top:6px;display:flex;align-items:center;gap:6px}
+.stage-lbl{font-size:0.8em;color:#666;font-weight:bold}
+.stage-sel{font-size:0.85em;padding:4px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer}
 .card{background:#fff;border-radius:7px;padding:0.8em 1em;margin-bottom:0.55em;box-shadow:0 1px 3px rgba(0,0,0,0.07);display:flex;gap:1em;align-items:flex-start}
 .card-left{flex:1}
 .card-name{font-weight:bold;font-size:0.97em;color:#17458F}
+.card-name.card-open{cursor:pointer}
+.card-name.card-open:hover{text-decoration:underline}
+.open-hint{font-weight:normal;font-size:0.78em;color:#9ca3af}
+.card-sub{color:#444;font-size:0.86em;margin-top:1px}
+.who-lbl{color:#888;font-weight:normal;font-size:0.88em}
 .card-topic{color:#444;font-size:0.88em;margin-top:2px}
 .card-meta{color:#888;font-size:0.8em;margin-top:4px;display:flex;flex-wrap:wrap;gap:0.6em}
 .card-notes{background:#f8f9fa;border-radius:4px;padding:0.35em 0.6em;font-size:0.78em;color:#555;margin-top:0.5em;white-space:pre-wrap;max-height:80px;overflow-y:auto}
@@ -3822,14 +4521,91 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
 .badge-request{background:#dbeafe;color:#1e3a8a}
 .badge-manual{background:#f3f4f6;color:#555}
 .empty{color:#aaa;font-size:0.88em;font-style:italic;padding:0.3em 0}
+/* AI command line */
+#ai-bar{max-width:1040px;margin:0.9em auto 0;padding:0 1em;display:flex;gap:0.5em}
+#ai-input{flex:1;min-width:0;padding:9px 11px;border:1px solid #ccc;border-radius:6px;font-size:0.95em}
+#ai-input:focus{outline:none;border-color:#17458F}
+#ai-go{background:#17458F;color:#fff;border:none;border-radius:6px;padding:0 16px;font-size:0.95em;cursor:pointer;white-space:nowrap}
+#ai-go:disabled{background:#aaa;cursor:default}
+#ai-proposal{max-width:1040px;margin:0.5em auto 0;padding:0.7em 1em;display:none;background:#fff;border:1px solid #c5cae9;border-left:3px solid #17458F;border-radius:6px}
+#ai-proposal.show{display:block}
+#ai-prop-list{font-size:0.9em;color:#333;margin-bottom:0.5em;line-height:1.6}
+#ai-prop-list div{padding:1px 0}
+.ai-btns{display:flex;gap:0.5em}
+.ai-btns button{border:none;border-radius:4px;padding:7px 16px;font-size:0.9em;cursor:pointer}
+.ai-btns .apply{background:#17458F;color:#fff}
+.ai-btns .cancel{background:#f4f4f4;color:#444;border:1px solid #ccc}
+#ai-msg{font-size:0.85em;margin-top:0.4em;min-height:1em}
+#ai-msg.ok{color:#166534}#ai-msg.err{color:#b91c1c}
 @media (max-width:600px){
-  header{flex-wrap:wrap;gap:0.4em}
-  header h1{flex:1 0 100%;font-size:1em}
-  #assignee-filter{flex:1 1 auto}
+  /* Bump base size so the em-based text scales up; ≥16px inputs avoid iOS zoom. */
+  body{font-size:18px}
+  #ai-input{font-size:1em;padding:11px 12px}
+  #ai-go{font-size:1em;padding:0 18px}
+  header{flex-wrap:wrap;gap:0.45em}
+  header h1{flex:1 0 100%;font-size:1.15em}
+  #assignee-filter{flex:1 1 auto;font-size:0.95em;padding:7px 8px}
+  .hbtn{font-size:0.9em;padding:7px 12px}
   #content{margin:0.8em auto}
+  /* Calendar sidebar is desktop-only; stack to a single column on phones. */
+  #layout{display:block}
+  #cal-side{display:none}
+  .sec-hd{font-size:1.15em}
+  .sec-desc{font-size:0.9em}
   .card{flex-direction:column-reverse;align-items:stretch}
   .card img{align-self:flex-start}
+  .card-name{font-size:1.05em}
+  .card-topic{font-size:0.95em}
+  .card-meta{font-size:0.9em}
+  .card-notes{font-size:0.88em}
+  .note-form input{font-size:1em;padding:8px 9px}
+  .note-form button{font-size:0.95em;padding:8px 14px}
+  .stage-lbl{font-size:0.9em}
+  .stage-sel{font-size:1em;padding:8px 9px}
+  #panel{width:100%;right:-100%}
+  .modal{width:94vw}
 }
+/* Detail panel (slide-in editor) */
+#panel{position:fixed;right:-440px;top:0;width:440px;height:100%;background:#fff;box-shadow:-3px 0 16px rgba(0,0,0,0.12);transition:right 0.2s;display:flex;flex-direction:column;z-index:100}
+#panel.open{right:0}
+#panel-hd{background:#17458F;color:#fff;padding:0.7em 1em;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+#panel-hd h2{font-size:1em}
+#panel-close{background:none;border:none;color:#fff;font-size:1.3em;cursor:pointer;line-height:1}
+#panel-body{flex:1;overflow-y:auto;padding:1em}
+.pfield{margin-bottom:0.7em}
+.pfield label{display:block;font-weight:bold;color:#17458F;font-size:0.82em;margin-bottom:2px}
+.pfield input,.pfield textarea,.pfield select{width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-size:0.88em;font-family:Arial,sans-serif}
+.pfield textarea{resize:vertical;min-height:60px}
+.notes-display{background:#f8f9fa;border:1px solid #e0e0e0;border-radius:4px;padding:0.5em 0.7em;font-size:0.8em;white-space:pre-wrap;max-height:120px;overflow-y:auto;color:#333;margin-bottom:0.4em}
+.pbtn{background:#17458F;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;margin-right:0.4em;margin-bottom:0.3em}
+.pbtn:hover{background:#1a56db}
+.pbtn.sec{background:#f4f4f4;color:#444;border:1px solid #ccc}
+.pbtn.sec:hover{background:#e8e8e8}
+.pbtn.danger{background:#dc2626}
+.pmsg{font-size:0.8em;margin-top:0.4em;min-height:1em}
+.pmsg.ok{color:#166534}.pmsg.err{color:#b91c1c}
+.sec-title{font-weight:bold;color:#17458F;font-size:0.85em;border-bottom:1px solid #e0e0e0;padding-bottom:3px;margin:0.8em 0 0.5em}
+/* Assign-to-event modal */
+#modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:150;align-items:center;justify-content:center}
+#modal-overlay.show{display:flex}
+.modal{background:#fff;border-radius:8px;padding:1.2em;width:440px;max-height:80vh;display:flex;flex-direction:column}
+.modal h3{color:#17458F;margin-bottom:0.5em}
+.modal-desc{font-size:0.82em;color:#555;margin-bottom:0.6em}
+#event-list{flex:1;overflow-y:auto;max-height:340px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:0.6em}
+.ev-item{padding:0.5em 0.75em;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:0.84em;display:flex;gap:0.5em;align-items:baseline}
+.ev-item:last-child{border-bottom:none}
+.ev-item.available:hover{background:#f0f7ff}
+.ev-item.available.selected{background:#dbeafe;border-left:3px solid #2563eb}
+.ev-item.taken{color:#9ca3af;cursor:default}
+.ev-item.taken .ev-speaker{text-decoration:line-through;font-size:0.9em}
+.ev-item.tentative{background:#fffbeb}
+.ev-item.tentative:hover{background:#fef3c7}
+.ev-date{font-weight:bold;white-space:nowrap;min-width:130px}
+.ev-type{color:#6b7280;font-size:0.9em}
+.ev-speaker{color:#b91c1c;font-size:0.85em;margin-left:auto}
+.ev-open{color:#16a34a;font-size:0.85em;margin-left:auto}
+.ev-tentative{color:#b45309;font-size:0.82em;margin-left:auto;text-align:right}
+.modal-btns{display:flex;gap:0.5em}
 #auth{position:fixed;inset:0;background:#17458F;display:flex;align-items:center;justify-content:center;z-index:200}
 .auth-box{background:#fff;border-radius:10px;padding:2em;width:300px;text-align:center}
 .auth-box h2{color:#17458F;margin-bottom:1em;font-size:1.1em}
@@ -3855,9 +4631,36 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
   <a href="__EXEC_URL__?app=pipeline" target="_top" class="hbtn">Table →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
+<div id="ai-bar" style="display:none">
+  <input id="ai-input" placeholder="✨ Tell me what to change — e.g. “move Jane to scheduled” or “assign Bob to the first open date”">
+  <button id="ai-go" onclick="aiSubmit()">Ask</button>
+</div>
 <div id="content"><p style="color:#888;padding:1em">Loading…</p></div>
+
+<!-- Detail Panel -->
+<div id="panel">
+  <div id="panel-hd"><h2 id="panel-title">Speaker Detail</h2><button id="panel-close" onclick="closePanel()">✕</button></div>
+  <div id="panel-body"></div>
+</div>
+
+<!-- Event Picker Modal -->
+<div id="modal-overlay">
+  <div class="modal">
+    <h3>Assign to Event</h3>
+    <p class="modal-desc">Green = open · Amber = open but another card has it as a tentative date · Gray/strikethrough = already has a speaker. Click an open date to select, then Assign.</p>
+    <div id="event-list"><p style="padding:0.6em;color:#888;font-size:0.85em">Loading…</p></div>
+    <div class="modal-btns">
+      <button class="pbtn" onclick="confirmAssign()">Assign</button>
+      <button class="pbtn sec" onclick="closeModal()">Cancel</button>
+    </div>
+    <div class="pmsg" id="modal-msg"></div>
+  </div>
+</div>
+
 <script>
-var currentUser='',allCards=[],statusLabels={},assigneeFilter='';
+var currentUser='',allCards=[],members=[],statuses=[],statusLabels={},upcomingMeetings=[],assigneeFilter='';
+var panelRow=null,selectedEventsRow=null;
+var AI_ENABLED=__AI_ENABLED__; // server-injected feature flag
 function gs(fn,a){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a);})}
 function gs3(fn,a,b,c){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c);})}
 function doLogin(){
@@ -3877,44 +4680,107 @@ window.addEventListener('load',function(){
     else{localStorage.removeItem('pipelinePw');}
   }).catch(function(){localStorage.removeItem('pipelinePw');});}
   document.getElementById('auth-pw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+  var ai=document.getElementById('ai-input');
+  if(ai)ai.addEventListener('keydown',function(e){if(e.key==='Enter')aiSubmit();});
+  if(AI_ENABLED){var b=document.getElementById('ai-bar');if(b)b.style.display='';}
 });
 async function loadData(){
   try{
-    var d=await gs('getPipelineData',null);
-    allCards=d.cards;statusLabels=d.statusLabels;populateAssigneeFilter();render();
+    var r=await Promise.all([gs('getPipelineData',null),gs('getUpcomingEventsForPicker',null)]);
+    allCards=r[0].cards;members=r[0].members||[];statuses=r[0].statuses;statusLabels=r[0].statusLabels;upcomingMeetings=r[1]||[];
+    populateAssigneeFilter();render();
   }catch(e){
     document.getElementById('content').innerHTML=
       '<p style="color:#b91c1c;padding:1.2em">⚠️ '+e.message+
       '<br><br>Run <strong>Setup Speaker Pipeline Tab</strong> from the Rotary Sync menu in the spreadsheet, then reload.</p>';
   }
 }
+// Compact, date-sorted calendar sidebar (next 12 meetings; open vs. booked).
+function buildCalSidebar(){
+  var ms=upcomingMeetings.slice().sort(function(a,b){return a.date<b.date?-1:(a.date>b.date?1:0);}).slice(0,12);
+  if(!ms.length) return '<h2>📅 Upcoming</h2><div class="cal-empty">No upcoming meetings.</div>';
+  var filled=ms.filter(function(m){return !m.available;}).length;
+  // Map open meeting dates -> pipeline speakers eyeing them (tentative), so an
+  // open slot shows who is being considered for it (mirrors the Kanban board).
+  var tentByDate={};
+  allCards.forEach(function(c){
+    if(c.status==='scheduled'||c.status==='declined'||c.status==='deleted')return;
+    if(!c.tentativeDate)return;
+    (tentByDate[c.tentativeDate]=tentByDate[c.tentativeDate]||[]).push(c.speakerName||'(no name)');
+  });
+  var rows=ms.map(function(m){
+    var d=String(m.dateLabel||'').split(',')[0]||m.date;
+    var tent=tentByDate[m.date]||[];
+    var second=m.available
+      ? (tent.length?'<span class="cal-tent">⭐ '+esc(tent.join(', '))+' (tentative)</span>':'<span class="cal-open">— open —</span>')
+      : '<span class="cal-spk">'+esc(m.mainSpeaker)+'</span>';
+    return '<div class="cal-item"><span class="cal-date">'+esc(d)+(m.time?' '+esc(m.time):'')+'</span>'+second+'</div>';
+  }).join('');
+  return '<h2>📅 Upcoming <span class="cal-tot" title="'+filled+' of '+ms.length+' have a speaker">'+filled+'/'+ms.length+'</span></h2>'+rows;
+}
+// Change a card's stage from the status list (no dragging needed).
+function setStage(ro,val){
+  var card=allCards.find(function(c){return c.rowIndex===ro;});
+  if(!card||card.status===val)return;
+  card.status=val;render();
+  gs3('savePipelineCard',ro,{status:val},currentUser).catch(function(e){alert('Save failed: '+e.message);loadData();});
+}
+
+// ── AI command line (Gemini; proposes via a confirm dialog) ───
+function aiSubmit(){
+  var inp=document.getElementById('ai-input');
+  var t=(inp.value||'').trim();
+  if(!t)return;
+  var go=document.getElementById('ai-go');
+  go.disabled=true;go.textContent='…';
+  gs3('pipelineAssistantCommand',t,currentUser).then(function(res){
+    go.disabled=false;go.textContent='Ask';
+    if(res&&res.error){alert('⚠️ '+res.error);return;}
+    var actions=(res&&res.actions)||[];
+    if(!actions.length){alert((res&&res.message)||'I could not find a matching change. Try the speaker’s exact name.');return;}
+    var summary=actions.map(function(a){return '• '+a.description;}).join('\\n');
+    if(!confirm('Apply these changes?\\n\\n'+summary))return;
+    go.disabled=true;go.textContent='…';
+    gs3('applyPipelineActions',actions,currentUser).then(function(){
+      go.disabled=false;go.textContent='Ask';inp.value='';
+      loadData();
+    }).catch(function(e){go.disabled=false;go.textContent='Ask';alert('Apply failed: '+(e.message||e));});
+  }).catch(function(e){go.disabled=false;go.textContent='Ask';alert('Error: '+(e.message||e));});
+}
 function render(){
   var sections=[
-    {key:'scheduled',icon:'🗓️',desc:'Confirmed and on the calendar'},
-    {key:'confirmed',icon:'✅',desc:'Speaker agreed — date TBD'},
-    {key:'in-progress', icon:'📞',desc:'Actively working on it'},
+    {key:'scheduled',icon:'🗓️',desc:'Booked on the calendar'},
+    {key:'in-progress', icon:'📞',desc:'Actively working on it (incl. speakers who have agreed)'},
     {key:'limbo',    icon:'⏳',desc:'Waiting / stalled'},
     {key:'new',      icon:'💡',desc:'New lead — not yet contacted'},
     {key:'done',     icon:'🎤',desc:'Recently presented'},
   ];
-  var html='';
+  var stageOpts=statuses.filter(function(s){return s!=='deleted';});
+  var main='';
   sections.forEach(function(sec){
     var cards=allCards.filter(function(c){return c.status===sec.key&&matchAssignee(c);});
-    html+='<div class="section"><div class="sec-hd">'+sec.icon+' '+(statusLabels[sec.key]||sec.key)+
+    main+='<div class="section"><div class="sec-hd">'+sec.icon+' '+(statusLabels[sec.key]||sec.key)+
       '<span class="sec-count">'+cards.length+'</span></div>';
-    if(!cards.length){html+='<div class="empty">None at this stage</div></div>';return;}
+    if(sec.desc) main+='<div class="sec-desc">'+esc(sec.desc)+'</div>';
+    if(!cards.length){main+='<div class="empty">None at this stage</div></div>';return;}
     cards.forEach(function(card){
-      html+='<div class="card">'+
+      var stageSel='<div class="stage-row"><span class="stage-lbl">Stage:</span>'+
+        '<select class="stage-sel" onchange="setStage('+card.rowIndex+',this.value)">'+
+          stageOpts.map(function(s){return '<option value="'+s+'"'+(s===card.status?' selected':'')+'>'+esc(statusLabels[s]||s)+'</option>';}).join('')+
+        '</select></div>';
+      main+='<div class="card">'+
         '<div class="card-left">'+
-          '<div class="card-name">'+esc(card.speakerName||'(no name)')+'</div>'+
+          '<div class="card-name card-open" title="Open full details" onclick="openPanel('+card.rowIndex+')"><span class="who-lbl">Speaker:</span> '+esc(card.speakerName||'(no name)')+' <span class="open-hint">✎ details</span></div>'+
+          (card.requestorName?'<div class="card-sub"><span class="who-lbl">Requestor:</span> '+esc(card.requestorName)+'</div>':'')+
+          (card.assignedTo?'<div class="card-sub"><span class="who-lbl">Manager:</span> '+esc(card.assignedTo)+'</div>':'')+
           (card.topic?'<div class="card-topic">'+esc(card.topic)+'</div>':'')+
           '<div class="card-meta">'+
-            (card.tentativeDate?'<span>📅 '+esc(card.tentativeDate)+'</span>':'')+
-            (card.assignedTo?'<span>👤 '+esc(card.assignedTo)+'</span>':'')+
+            (card.tentativeDate?'<span>📅 '+esc(card.tentativeDate)+((card.status!=='scheduled'&&card.status!=='done')?' (tentative)':'')+'</span>':'')+
             (card.speakerCity?'<span>📍 '+esc(card.speakerCity)+'</span>':'')+
             '<span class="badge badge-'+card.source+'">'+card.source+'</span>'+
             voteHtml(card)+
           '</div>'+
+          stageSel+
           (card.tags?'<div style="margin-top:4px">'+card.tags.split(',').map(function(t){t=t.trim();return t?'<span class="badge" style="background:#e0e7ff;color:#3730a3;font-size:0.76em">'+esc(t)+'</span> ':''}).join('')+'</div>':'')+
           (card.notes?'<div class="card-notes">'+esc(card.notes)+'</div>':'')+
           '<div class="note-form">'+
@@ -3925,9 +4791,9 @@ function render(){
         (card.photoUrl?'<img src="'+esc(driveThumb(card.photoUrl,150))+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;flex-shrink:0" onerror="this.style.display=&#39;none&#39;">':'')+
       '</div>';
     });
-    html+='</div>';
+    main+='</div>';
   });
-  document.getElementById('content').innerHTML=html;
+  document.getElementById('content').innerHTML='<div id="layout"><aside id="cal-side">'+buildCalSidebar()+'</aside><div id="main">'+main+'</div></div>';
 }
 function driveThumb(u,size){if(!u)return'';var id='';var i=u.indexOf('id=');if(i>=0){id=u.substring(i+3).split('&')[0];}else{var j=u.indexOf('/d/');if(j>=0)id=u.substring(j+3).split('/')[0];}return id?'https://drive.google.com/thumbnail?id='+id+'&sz=w'+(size||200):u;}
 async function addNote(ro){
@@ -3962,6 +4828,197 @@ function matchAssignee(c){
   if(!assigneeFilter)return true;
   if(assigneeFilter==='__UNASSIGNED__')return !c.assignedTo;
   return c.assignedTo===assigneeFilter;
+}
+// ── Detail Panel (full editor, shared design with the Kanban view) ──
+function openPanel(rowIndex){
+  var card=allCards.find(function(c){return c.rowIndex===rowIndex;});
+  if(!card)return;
+  panelRow=rowIndex;
+  var b=document.getElementById('panel-body');
+  document.getElementById('panel-title').textContent=card.speakerName||'Speaker Detail';
+  var memberOpts=[''].concat(members).map(function(m){return '<option value="'+esc(m)+'"'+(m===card.assignedTo?' selected':'')+'>'+esc(m||'— unassigned —')+'</option>';}).join('');
+  var statusOpts=statuses.map(function(s){return '<option value="'+s+'"'+(s===card.status?' selected':'')+'>'+(statusLabels[s]||s)+'</option>';}).join('');
+  b.innerHTML=
+    '<div class="pfield"><label>Speaker Name</label><input id="pn-name" value="'+esc(card.speakerName)+'"></div>'+
+    '<div class="pfield"><label>Topic</label><input id="pn-topic" value="'+esc(card.topic)+'"></div>'+
+    '<div class="pfield"><label>Status</label><select id="pn-status">'+statusOpts+'</select></div>'+
+    '<div class="pfield"><label>Manager (Assigned To)</label><select id="pn-assigned">'+memberOpts+'</select></div>'+
+    '<div class="pfield"><label>Tentative Date <span style="font-weight:normal;color:#888;font-size:0.9em">(open meeting dates)</span></label><select id="pn-date">'+buildDateOptions(card.tentativeDate)+'</select></div>'+
+    '<div class="pfield"><label>Speaker Role</label><select id="pn-role"><option>Opening Speaker</option><option>Main Speaker</option><option>Either</option><option>Unsure</option></select></div>'+
+    '<div class="pfield"><label>Email</label><input id="pn-email" value="'+esc(card.speakerEmail)+'"></div>'+
+    '<div class="pfield"><label>Phone</label><input id="pn-phone" value="'+esc(card.speakerPhone)+'"></div>'+
+    '<div class="pfield"><label>City</label><input id="pn-city" value="'+esc(card.speakerCity)+'"></div>'+
+    '<div class="pfield"><label>Preferred Dates</label><input id="pn-pref" value="'+esc(card.preferredDates)+'"></div>'+
+    '<div class="pfield"><label>Bio</label><textarea id="pn-bio" rows="3">'+esc(card.bio)+'</textarea></div>'+
+    '<div class="pfield"><label>Summary <span style="font-weight:normal;color:#888;font-size:0.9em">(newsletter narrative)</span></label><textarea id="pn-summary" rows="3">'+esc(card.summary)+'</textarea></div>'+
+    '<div class="pfield"><label>Speaker URL</label><input id="pn-url" value="'+esc(card.speakerUrl)+'" placeholder="https://…"></div>'+
+    '<div class="pfield"><label>Introducer</label><input id="pn-introducer" value="'+esc(card.introducer)+'" placeholder="Who introduces the speaker"></div>'+
+    '<div class="pfield"><label>Top Photo</label><input id="pn-phototop" value="'+esc(card.photoTop)+'" placeholder="paste an image URL, or upload below">'+
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,&#39;pn-phototop&#39;)">'+
+      '<div id="pn-phototop-prev" class="photo-prev"></div></div>'+
+    '<div class="pfield"><label>Bottom Photo</label><input id="pn-photobottom" value="'+esc(card.photoBottom)+'" placeholder="paste an image URL, or upload below">'+
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,&#39;pn-photobottom&#39;)">'+
+      '<div id="pn-photobottom-prev" class="photo-prev"></div></div>'+
+    '<div class="pfield"><label>Tags <span style="font-weight:normal;color:#888;font-size:0.9em">(comma-separated)</span></label><input id="pn-tags" value="'+esc(card.tags)+'" placeholder="e.g. environment, local, tech"></div>'+
+    '<div class="pfield"><label>Comments <span style="font-weight:normal;color:#888;font-size:0.9em">(internal — from the submitter)</span></label><textarea id="pn-comments" rows="2">'+esc(card.comments)+'</textarea></div>'+
+    ((card.zoomOnly||card.availMorning||card.availEvening)?
+      '<div class="pfield"><label>Availability / Format</label><span style="font-size:0.88em">'+
+        [card.availMorning?'Mornings':'',card.availEvening?'Evenings':'',card.zoomOnly?'💻 Zoom only (not in person)':''].filter(Boolean).join(' · ')+'</span></div>':'')+
+    (card.requestorName?'<div class="pfield"><label>Submitted by</label><span style="font-size:0.88em">'+esc(card.requestorName)+' &lt;'+esc(card.requestorEmail)+'&gt;</span></div>':'')+
+    (card.interested?'<div class="pfield"><label>Interested members</label><span style="font-size:0.88em">'+esc(card.interested)+'</span></div>':'')+
+    '<button class="pbtn" onclick="savePanel()">Save</button>'+
+    (['in-progress','limbo','scheduled'].indexOf(card.status)!==-1?'<button class="pbtn" style="background:#16a34a" onclick="openAssignModal()">Assign to Event</button>':'')+
+    (card.status==='deleted'
+      ?'<button class="pbtn sec" onclick="restoreCard()">↩︎ Restore</button><button class="pbtn danger" onclick="deleteCard()">🗑 Delete permanently</button>'
+      :'<button class="pbtn danger" onclick="deleteCard()">🗑 Delete</button>')+
+    '<div class="pmsg" id="panel-msg"></div>'+
+    '<div class="sec-title">Notes</div>'+
+    '<div class="notes-display" id="pn-notes-display">'+esc(card.notes)+'</div>'+
+    '<div class="pfield"><label>Add Note</label><textarea id="pn-note-input" rows="2" placeholder="Type a note…"></textarea></div>'+
+    '<button class="pbtn sec" onclick="panelAddNote()">Add Note</button>';
+  document.getElementById('pn-role').value=card.speakerRole||'Main Speaker';
+  showPhotoPreview('pn-phototop');showPhotoPreview('pn-photobottom');
+  document.getElementById('panel').classList.add('open');
+}
+function closePanel(){document.getElementById('panel').classList.remove('open');panelRow=null;}
+function buildDateOptions(cur){
+  var opts='<option value="">— no date —</option>',found=false;
+  upcomingMeetings.forEach(function(m){
+    var isCur=(m.date===cur);if(isCur)found=true;
+    var disabled=(!m.available&&!isCur)?' disabled':'';
+    var label=m.available?(esc(m.dateLabel)+(m.time?' '+m.time:'')):(esc(m.dateLabel)+' — taken'+(m.mainSpeaker?' ('+esc(m.mainSpeaker)+')':''));
+    opts+='<option value="'+esc(m.date)+'"'+(isCur?' selected':'')+disabled+'>'+label+'</option>';
+  });
+  if(cur&&!found)opts+='<option value="'+esc(cur)+'" selected>'+esc(cur)+' (custom)</option>';
+  return opts;
+}
+function showPhotoPreview(inputId){
+  var el=document.getElementById(inputId);if(!el)return;var v=el.value||'';
+  var prev=document.getElementById(inputId+'-prev');if(!prev)return;
+  prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(driveThumb(v,250))+'" style="max-width:140px;max-height:140px;border-radius:4px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';
+}
+async function uploadPhoto(input,targetId){
+  var file=input.files[0];if(!file)return;
+  var target=document.getElementById(targetId);var prev=document.getElementById(targetId+'-prev');
+  if(file.size>8*1024*1024){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Image too large (max 8 MB)</span>';input.value='';return;}
+  if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#888">Uploading…</span>';
+  try{
+    var dataUrl=await new Promise(function(resolve,reject){var r=new FileReader();r.onload=function(ev){resolve(ev.target.result);};r.onerror=reject;r.readAsDataURL(file);});
+    var speakerName=(document.getElementById('pn-name')||{}).value||'speaker';
+    var res=await gs3('uploadPipelinePhoto',dataUrl,file.name,speakerName);
+    target.value=res.url;showPhotoPreview(targetId);
+  }catch(e){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Upload failed: '+(e.message||e)+'</span>';}
+}
+async function savePanel(){
+  if(!panelRow)return;
+  var msg=document.getElementById('panel-msg');
+  var changes={
+    speakerName:document.getElementById('pn-name').value.trim(),
+    topic:document.getElementById('pn-topic').value.trim(),
+    status:document.getElementById('pn-status').value,
+    assignedTo:document.getElementById('pn-assigned').value,
+    tentativeDate:document.getElementById('pn-date').value,
+    speakerRole:document.getElementById('pn-role').value,
+    speakerEmail:document.getElementById('pn-email').value.trim(),
+    speakerPhone:document.getElementById('pn-phone').value.trim(),
+    speakerCity:document.getElementById('pn-city').value.trim(),
+    preferredDates:document.getElementById('pn-pref').value.trim(),
+    bio:document.getElementById('pn-bio').value.trim(),
+    summary:document.getElementById('pn-summary').value.trim(),
+    speakerUrl:document.getElementById('pn-url').value.trim(),
+    introducer:document.getElementById('pn-introducer').value.trim(),
+    photoTop:document.getElementById('pn-phototop').value.trim(),
+    photoBottom:document.getElementById('pn-photobottom').value.trim(),
+    tags:document.getElementById('pn-tags').value.trim(),
+    comments:document.getElementById('pn-comments').value.trim()
+  };
+  try{
+    var res=await gs3('savePipelineCard',panelRow,changes,currentUser);
+    var card=allCards.find(function(c){return c.rowIndex===panelRow;});
+    if(card)Object.assign(card,changes);
+    if(res&&res.notes!=null){if(card)card.notes=res.notes;var nd=document.getElementById('pn-notes-display');if(nd)nd.textContent=res.notes;}
+    render();
+    msg.className='pmsg ok';
+    msg.textContent=(res&&res.noted)?'Saved ✓ ('+res.noted+' change'+(res.noted===1?'':'s')+' logged)':'Saved ✓';
+    setTimeout(function(){msg.textContent='';},2500);
+  }catch(e){msg.className='pmsg err';msg.textContent='Error: '+e.message;}
+}
+async function panelAddNote(){
+  if(!panelRow)return;
+  var inp=document.getElementById('pn-note-input');var text=inp.value.trim();if(!text)return;
+  try{
+    await gs3('appendPipelineNote',panelRow,text,currentUser);inp.value='';
+    var data=await gs('getPipelineData',null);
+    var updated=data.cards.find(function(c){return c.rowIndex===panelRow;});
+    var card=allCards.find(function(c){return c.rowIndex===panelRow;});
+    if(updated&&card)card.notes=updated.notes;
+    document.getElementById('pn-notes-display').textContent=updated?updated.notes:'';
+    allCards=data.cards;render();
+  }catch(e){alert('Note failed: '+e.message);}
+}
+async function deleteCard(){
+  if(!panelRow)return;
+  var card=allCards.find(function(c){return c.rowIndex===panelRow;});if(!card)return;
+  var msg=document.getElementById('panel-msg');
+  if(card.status==='deleted'){
+    if(!confirm('Permanently delete this card? This removes the row and cannot be undone.'))return;
+    try{await gs('deletePipelineCard',panelRow);closePanel();loadData();}
+    catch(e){msg.className='pmsg err';msg.textContent='Error: '+e.message;}
+    return;
+  }
+  if(!confirm('Move this card to Deleted? You can restore it from the Kanban view.'))return;
+  card.status='deleted';render();
+  gs3('savePipelineCard',panelRow,{status:'deleted'},currentUser).catch(function(err){alert('Delete failed: '+err.message);loadData();});
+  closePanel();
+}
+function restoreCard(){
+  if(!panelRow)return;
+  var card=allCards.find(function(c){return c.rowIndex===panelRow;});if(!card)return;
+  card.status='new';render();
+  gs3('savePipelineCard',panelRow,{status:'new'},currentUser).catch(function(err){alert('Restore failed: '+err.message);loadData();});
+  closePanel();
+}
+// ── Assign-to-Event modal ────────────────────────────────────
+async function openAssignModal(){
+  selectedEventsRow=null;
+  document.getElementById('modal-overlay').classList.add('show');
+  document.getElementById('modal-msg').textContent='';
+  var list=document.getElementById('event-list');
+  list.innerHTML='<p style="padding:0.6em;color:#888;font-size:0.85em">Loading…</p>';
+  var events=await gs('getUpcomingEventsForPicker',null);
+  if(!events.length){list.innerHTML='<p style="padding:0.6em;color:#888;font-size:0.85em">No upcoming meetings found.</p>';return;}
+  var tentMap={};
+  allCards.forEach(function(c){
+    if(c.status==='declined'||c.status==='scheduled')return;
+    if(c.rowIndex===panelRow)return;
+    if(!c.tentativeDate)return;
+    (tentMap[c.tentativeDate]=tentMap[c.tentativeDate]||[]).push(c.speakerName||'(no name)');
+  });
+  list.innerHTML='';
+  events.forEach(function(ev){
+    var tentNames=tentMap[ev.date]||[];
+    var div=document.createElement('div');
+    var cls=ev.available?(tentNames.length?'available tentative':'available'):'taken';
+    div.className='ev-item '+cls;div.dataset.row=ev.rowIndex;
+    var speakerHtml;
+    if(!ev.available){speakerHtml='<span class="ev-speaker">'+esc(ev.mainSpeaker)+(ev.mainTopic?': '+esc(ev.mainTopic):'')+'</span>';}
+    else if(tentNames.length){speakerHtml='<span class="ev-tentative">⚠️ tentative: '+esc(tentNames.join(', '))+'</span>';}
+    else{speakerHtml='<span class="ev-open">open</span>';}
+    div.innerHTML='<span class="ev-date">'+esc(ev.dateLabel)+'</span><span class="ev-type">'+esc(ev.eventType)+(ev.time?' '+ev.time:'')+'</span>'+speakerHtml;
+    if(ev.available){div.addEventListener('click',function(){list.querySelectorAll('.ev-item').forEach(function(el){el.classList.remove('selected');});div.classList.add('selected');selectedEventsRow=ev.rowIndex;});}
+    list.appendChild(div);
+  });
+}
+function closeModal(){document.getElementById('modal-overlay').classList.remove('show');selectedEventsRow=null;}
+async function confirmAssign(){
+  if(!selectedEventsRow||!panelRow){document.getElementById('modal-msg').textContent='Please select an available date first.';return;}
+  var msg=document.getElementById('modal-msg');
+  try{
+    var res=await gs3('assignSpeakerToEvent',panelRow,selectedEventsRow,currentUser);
+    msg.className='pmsg ok';msg.textContent='✓ Assigned '+res.speakerName;
+    await loadData();
+    setTimeout(function(){closeModal();closePanel();},1500);
+  }catch(e){msg.className='pmsg err';msg.textContent='Error: '+e.message;}
 }
 function logout(){localStorage.removeItem('pipelinePw');localStorage.removeItem('pipelineName');location.reload();}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
