@@ -1,0 +1,219 @@
+---
+layout: page
+title: Requested Speakers
+permalink: /speakers/
+---
+
+<style>
+  .sp-list { max-width: 680px; }
+  .sp-card {
+    border: 1px solid #ddd; border-radius: 6px;
+    padding: 0.9em 1.1em; margin-bottom: 0.8em;
+    font-family: Arial, sans-serif; background: #fff;
+  }
+  .sp-name { font-size: 1.05em; font-weight: bold; color: #17458F; margin-bottom: 0.15em; }
+  .sp-topic { color: #333; font-size: 0.95em; margin-bottom: 0.5em; }
+  .sp-meta { display: flex; align-items: center; gap: 0.7em; flex-wrap: wrap; margin-top: 0.4em; }
+  .sp-badge {
+    font-size: 0.78em; padding: 2px 9px; border-radius: 10px;
+    font-weight: bold; white-space: nowrap;
+  }
+  .sp-badge-scheduled  { background: #d1fae5; color: #065f46; }
+  .sp-badge-in-progress{ background: #dbeafe; color: #1e3a8a; }
+  .sp-badge-new        { background: #f3f4f6; color: #374151; }
+  .heart-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 1.1em; color: #17458F; padding: 2px 4px;
+    display: inline-flex; align-items: center; gap: 0.25em;
+    border-radius: 4px; line-height: 1;
+  }
+  .heart-btn:hover:not(:disabled) { background: #eef3fb; }
+  .heart-btn:disabled { color: #c0392b; cursor: default; }
+  .heart-count { font-size: 0.88em; font-family: Arial, sans-serif; }
+  .note-toggle {
+    font-size: 0.82em; color: #17458F; cursor: pointer;
+    background: none; border: none; padding: 0;
+    text-decoration: underline; font-family: Arial, sans-serif;
+  }
+  .note-form { margin-top: 0.6em; display: none; }
+  .note-form.open { display: block; }
+  .note-form textarea {
+    width: 100%; box-sizing: border-box;
+    border: 1px solid #bbb; border-radius: 4px;
+    padding: 6px 8px; font-size: 0.88em;
+    font-family: Arial, sans-serif; resize: vertical; min-height: 60px;
+  }
+  .note-form textarea:focus { outline: 2px solid #17458F; border-color: #17458F; }
+  .note-submit {
+    margin-top: 0.4em;
+    background: #17458F; color: #fff; border: none;
+    padding: 5px 14px; border-radius: 4px; font-size: 0.85em; cursor: pointer;
+  }
+  .note-submit:disabled { background: #888; cursor: default; }
+  .note-ok { font-size: 0.82em; color: #166534; margin-top: 0.3em; display: none; }
+  #sp-error { color: #b91c1c; font-family: Arial, sans-serif; font-size: 0.95em; }
+  #sp-loading { font-family: Arial, sans-serif; color: #888; }
+</style>
+
+<div class="sp-list">
+<p style="font-family:Arial,sans-serif;color:#555;font-size:0.95em;margin-bottom:1.2em;">
+These are speakers our members have requested or suggested.
+Click ♡ to show support — it helps us prioritize scheduling.
+You can also leave a private note for the speaker committee.
+</p>
+<div id="sp-loading">Loading…</div>
+<div id="sp-error" style="display:none"></div>
+<div id="sp-cards"></div>
+</div>
+
+<script>
+const SP_API = '{{ site.apps_script_url }}';
+
+// ── cookies ──────────────────────────────────────────────────────
+function setCookie(name, val, days) {
+  var exp = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = name + '=' + encodeURIComponent(val) + ';expires=' + exp + ';path=/;SameSite=Lax';
+}
+function getCookie(name) {
+  return document.cookie.split(';').reduce(function(acc, c) {
+    var kv = c.trim().split('=');
+    return kv[0] === name ? decodeURIComponent(kv[1] || '') : acc;
+  }, '');
+}
+function hasHearted(ri) { return getCookie('sp_h_' + ri) === '1'; }
+function setHearted(ri) { setCookie('sp_h_' + ri, '1', 365); }
+
+// ── iframe POST (same pattern as speak.md / request.md) ──────────
+function postAction(data) {
+  var iname = 'sp-if-' + Date.now();
+  var ifr = document.createElement('iframe');
+  ifr.name = iname; ifr.style.display = 'none';
+  document.body.appendChild(ifr);
+  var f = document.createElement('form');
+  f.method = 'POST'; f.action = SP_API; f.target = iname; f.style.display = 'none';
+  Object.keys(data).forEach(function(k) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = k; inp.value = String(data[k]);
+    f.appendChild(inp);
+  });
+  document.body.appendChild(f);
+  f.submit();
+  setTimeout(function() {
+    try { document.body.removeChild(ifr); document.body.removeChild(f); } catch(_) {}
+  }, 8000);
+}
+
+// ── helpers ──────────────────────────────────────────────────────
+function fmtDate(s) {
+  var m = s && s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return s || '';
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[parseInt(m[2], 10) - 1] + ' ' + parseInt(m[3], 10) + ', ' + m[1];
+}
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── render ───────────────────────────────────────────────────────
+function renderSpeakers(speakers) {
+  var wrap = document.getElementById('sp-cards');
+  if (!speakers.length) {
+    wrap.innerHTML = '<p style="font-family:Arial,sans-serif;color:#888">No speakers in the pipeline yet.</p>';
+    return;
+  }
+  wrap.innerHTML = speakers.map(function(sp) {
+    var ri = sp.rowIndex;
+    var hearted = hasHearted(ri);
+    var badgeClass = {
+      'scheduled':   'sp-badge-scheduled',
+      'in-progress': 'sp-badge-in-progress',
+      'new':         'sp-badge-new'
+    }[sp.status] || 'sp-badge-new';
+    var dateStr = (sp.status === 'scheduled' && sp.tentativeDate) ? fmtDate(sp.tentativeDate) : '';
+    var badgeLabel = sp.status === 'scheduled'   ? ('Scheduled' + (dateStr ? ': ' + dateStr : '')) :
+                     sp.status === 'in-progress' ? 'In Discussion' : 'Suggested';
+    return '<div class="sp-card" id="sp-card-' + ri + '">' +
+      '<div class="sp-name">' + esc(sp.speakerName) + '</div>' +
+      (sp.topic ? '<div class="sp-topic">' + esc(sp.topic) + '</div>' : '') +
+      '<div class="sp-meta">' +
+        '<span class="sp-badge ' + badgeClass + '">' + badgeLabel + '</span>' +
+        '<button class="heart-btn" id="hbtn-' + ri + '" onclick="doHeart(' + ri + ')"' + (hearted ? ' disabled' : '') + '>' +
+          '<span id="hico-' + ri + '">' + (hearted ? '♥' : '♡') + '</span>' +
+          '<span class="heart-count" id="hcnt-' + ri + '">' + sp.hearts + '</span>' +
+        '</button>' +
+        '<button class="note-toggle" onclick="toggleNote(' + ri + ')">Leave a note ↗</button>' +
+      '</div>' +
+      '<div class="note-form" id="nf-' + ri + '">' +
+        '<textarea id="nt-' + ri + '" placeholder="Private note for the speaker committee…" rows="2"></textarea>' +
+        '<div><button class="note-submit" id="nsub-' + ri + '" onclick="submitNote(' + ri + ')">Send Note</button></div>' +
+        '<div class="note-ok" id="nok-' + ri + '">Note sent — thank you!</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ── actions ──────────────────────────────────────────────────────
+function doHeart(ri) {
+  if (hasHearted(ri)) return;
+  setHearted(ri);
+  var ico = document.getElementById('hico-' + ri);
+  var cnt = document.getElementById('hcnt-' + ri);
+  var btn = document.getElementById('hbtn-' + ri);
+  if (ico) ico.textContent = '♥';
+  if (cnt) cnt.textContent = (parseInt(cnt.textContent) || 0) + 1;
+  if (btn) btn.disabled = true;
+  postAction({ action: 'heartSpeaker', rowIndex: ri });
+}
+
+function toggleNote(ri) {
+  var nf = document.getElementById('nf-' + ri);
+  if (!nf) return;
+  nf.classList.toggle('open');
+  if (nf.classList.contains('open')) {
+    var ta = document.getElementById('nt-' + ri);
+    if (ta) ta.focus();
+  }
+}
+
+function submitNote(ri) {
+  var ta   = document.getElementById('nt-' + ri);
+  var btn  = document.getElementById('nsub-' + ri);
+  var ok   = document.getElementById('nok-' + ri);
+  var text = ta ? ta.value.trim() : '';
+  if (!text) { if (ta) ta.focus(); return; }
+  if (btn) btn.disabled = true;
+  postAction({ action: 'noteSpeaker', rowIndex: ri, noteText: text });
+  if (ta) ta.value = '';
+  if (ok) ok.style.display = 'block';
+  setTimeout(function() {
+    var nf = document.getElementById('nf-' + ri);
+    if (nf) nf.classList.remove('open');
+    if (ok) ok.style.display = 'none';
+    if (btn) btn.disabled = false;
+  }, 2000);
+}
+
+// ── JSONP load ───────────────────────────────────────────────────
+window.speakersCallback = function(data) {
+  document.getElementById('sp-loading').style.display = 'none';
+  if (data && data.error) {
+    var err = document.getElementById('sp-error');
+    err.style.display = '';
+    err.textContent = 'Could not load speakers: ' + data.error;
+    return;
+  }
+  renderSpeakers((data && data.speakers) || []);
+};
+
+(function() {
+  var s = document.createElement('script');
+  s.src = SP_API + '?app=publicSpeakers&callback=speakersCallback&_=' + Date.now();
+  s.onerror = function() {
+    document.getElementById('sp-loading').style.display = 'none';
+    var err = document.getElementById('sp-error');
+    err.style.display = '';
+    err.textContent = 'Could not load speaker list. Please try again later.';
+  };
+  document.head.appendChild(s);
+})();
+</script>

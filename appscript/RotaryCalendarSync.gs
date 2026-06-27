@@ -181,8 +181,9 @@ const CP = {
   IS_ROTARIAN:        36,   // AJ - Yes if speaker is a Rotarian
   IS_LOCAL:           37,   // AK - Yes if speaker is local to SLV area
   FUNDRAISING_LITERATURE: 38, // AL - Yes if may bring fundraising/donation materials
+  HEARTS:                 39, // AM - anonymous heart/support count from public speakers page
 };
-const NUM_PIPE_COLS = 38;
+const NUM_PIPE_COLS = 39;
 
 // ── MENU ─────────────────────────────────────────────────────
 function onOpen() {
@@ -1405,7 +1406,53 @@ function doGet(e) {
   if (app === 'speaker-pipeline') {
     return out(inject(getSpeakerStatusHtml()), "SLV Rotary — Speaker Pipeline Status");
   }
+  if (app === 'publicSpeakers') {
+    // JSONP endpoint for the public /speakers/ GitHub Pages page.
+    // Sanitise callback name to alphanumeric/underscore only.
+    const cb = ((e.parameter && e.parameter.callback) || 'speakersCallback').replace(/[^a-zA-Z0-9_]/g, '');
+    return ContentService
+      .createTextOutput(cb + '(' + JSON.stringify(getPublicSpeakers_()) + ');')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
   return out(getDutyEditorHtml(), "SLV Rotary — Duty Editor");
+}
+
+/** Returns the public speaker list for the /speakers/ page (JSONP). */
+function getPublicSpeakers_() {
+  try {
+    const sheet = getPipelineSheet_();
+    if (!sheet) return { speakers: [] };
+    const data = sheet.getDataRange().getValues();
+    const speakers = [];
+    for (var i = 1; i < data.length; i++) {
+      const row = data[i];
+      const status = String(row[CP.STATUS - 1] || '');
+      if (['new', 'in-progress', 'scheduled'].indexOf(status) === -1) continue;
+      const name = String(row[CP.SPEAKER_NAME - 1] || '').trim();
+      if (!name) continue;
+      speakers.push({
+        rowIndex:      i + 1,
+        speakerName:   name,
+        topic:         String(row[CP.TOPIC - 1] || ''),
+        status:        status,
+        tentativeDate: String(row[CP.TENTATIVE_DATE - 1] || ''),
+        hearts:        parseInt(row[CP.HEARTS - 1]) || 0,
+      });
+    }
+    // Sort: scheduled (asc by date) → in-progress → new (most-recent first)
+    const order = { 'scheduled': 0, 'in-progress': 1, 'new': 2 };
+    speakers.sort(function(a, b) {
+      const ao = order[a.status] || 9, bo = order[b.status] || 9;
+      if (ao !== bo) return ao - bo;
+      if (a.status === 'scheduled') {
+        return a.tentativeDate < b.tentativeDate ? -1 : a.tentativeDate > b.tentativeDate ? 1 : 0;
+      }
+      return b.rowIndex - a.rowIndex;
+    });
+    return { speakers: speakers };
+  } catch (e) {
+    return { speakers: [], error: e.toString() };
+  }
 }
 
 // Maximum form submissions accepted per calendar day across all form types.
@@ -1430,6 +1477,8 @@ function doPost(e) {
 
     if (action === "speakerRequest") return handleSpeakerRequest_(p);
     if (action === "speakerOffer")   return handleSpeakerOffer_(p);
+    if (action === "heartSpeaker")  return handleHeartSpeaker_(p);
+    if (action === "noteSpeaker")   return handleNoteSpeaker_(p);
     return jsonOut_({ ok: false, error: "Unknown action: " + action });
   } catch (err) {
     return jsonOut_({ ok: false, error: err.toString() });
@@ -1929,6 +1978,30 @@ function handleSpeakerOffer_(data) {
   const row = buildPipelineRow_('offer', data, photoUrl, ts);
   sheet.appendRow(row);
   return jsonOut_({ ok: true });
+}
+
+function handleHeartSpeaker_(p) {
+  const rowIndex = parseInt(p.rowIndex);
+  if (!rowIndex || rowIndex < 2) return ContentService.createTextOutput('ok');
+  const sheet = getPipelineSheet_();
+  if (!sheet) return ContentService.createTextOutput('ok');
+  const cell = sheet.getRange(rowIndex, CP.HEARTS);
+  cell.setValue((parseInt(cell.getValue()) || 0) + 1);
+  return ContentService.createTextOutput('ok');
+}
+
+function handleNoteSpeaker_(p) {
+  const rowIndex = parseInt(p.rowIndex);
+  const text = String(p.noteText || '').trim().substring(0, 1000);
+  if (!rowIndex || rowIndex < 2 || !text) return ContentService.createTextOutput('ok');
+  const sheet = getPipelineSheet_();
+  if (!sheet) return ContentService.createTextOutput('ok');
+  const notesCell = sheet.getRange(rowIndex, CP.NOTES);
+  const existing = String(notesCell.getValue() || '');
+  const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  const note = '[Anon, ' + ts + '] ' + text;
+  notesCell.setValue(existing ? existing + '\n' + note : note);
+  return ContentService.createTextOutput('ok');
 }
 
 function buildPipelineRow_(source, data, photoUrl, ts) {
@@ -2619,7 +2692,7 @@ function setupSpeakerPipeline() {
     'Submitted At', 'Updated At', 'Updated By',
     'Tags', 'Interested (+1s)',
     'Speaker URL', 'Summary', 'Introducer', 'Photo Bottom',
-    'Priority', 'Is Rotarian', 'Is Local', 'Fundraising Literature',
+    'Priority', 'Is Rotarian', 'Is Local', 'Fundraising Literature', 'Hearts',
   ];
 
   const hdr = sheet.getRange(1, 1, 1, headers.length);
@@ -2633,7 +2706,7 @@ function setupSpeakerPipeline() {
 
   const colWidths = [80,90,160,180,120,120,220,110,300,300,
                      130,180,110,80,220,140,180,120,80,80,70,70,70,80,220,130,130,130,200,200,
-                     280,300,150,220,80,80,70,110];
+                     280,300,150,220,80,80,70,110,60];
   colWidths.forEach((w,i) => sheet.setColumnWidth(i+1, w));
   sheet.setColumnWidth(CP.BIO, 300);
   sheet.setColumnWidth(CP.NOTES, 300);
@@ -2735,6 +2808,7 @@ function getPipelineData() {
         isRotarian:        row[CP.IS_ROTARIAN - 1] === 'Yes',
         isLocal:           row[CP.IS_LOCAL - 1] === 'Yes',
         fundraisingLiterature: row[CP.FUNDRAISING_LITERATURE - 1] === 'Yes',
+        hearts:            parseInt(row[CP.HEARTS - 1]) || 0,
       });
     });
   }

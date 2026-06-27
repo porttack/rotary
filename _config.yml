@@ -23,6 +23,7 @@ header_pages:
   - duty.md
   - speak.md
   - request.md
+  - speakers.md
 
 # Plugins (all supported by GitHub Pages)
 plugins:
