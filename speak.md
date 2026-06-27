@@ -129,6 +129,9 @@ SLV Rotary is non-political and non-religious. Your presentation should focus on
   <p style="font-family:Arial,sans-serif; color:#333;">
     The speaker organizer will be in touch within a week to discuss scheduling. We look forward to having you!
   </p>
+  <p style="font-family:Arial,sans-serif; color:#333;">
+    In the meantime, <a href="/speakers/">browse our speaker lineup</a> to see who else is coming up.
+  </p>
 </div>
 
 <script>

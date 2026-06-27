@@ -1990,6 +1990,10 @@ google.script.run
 //  WEBSITE FORM SUBMISSIONS  (handled by doPost)
 // ═══════════════════════════════════════════════════════════════
 
+// Public, members-and-community speaker list (GitHub Pages). Linked from the
+// acknowledgement emails so submitters can see the lineup and support speakers.
+const PUBLIC_SPEAKERS_URL = 'https://rotary.porttack.com/speakers/';
+
 function handleSpeakerRequest_(data) {
   const photoUrl = savePhotoToDrive_(data);
   const ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "M/d/yyyy h:mm a");
@@ -1997,6 +2001,7 @@ function handleSpeakerRequest_(data) {
   const row = buildPipelineRow_('request', data, photoUrl, ts);
   sheet.appendRow(row);
   notifySubmission_('request', data, photoUrl, ts);
+  confirmSubmitter_('request', data);
   return jsonOut_({ ok: true });
 }
 
@@ -2007,7 +2012,67 @@ function handleSpeakerOffer_(data) {
   const row = buildPipelineRow_('offer', data, photoUrl, ts);
   sheet.appendRow(row);
   notifySubmission_('offer', data, photoUrl, ts);
+  confirmSubmitter_('offer', data);
   return jsonOut_({ ok: true });
+}
+
+/**
+ * Send a thank-you acknowledgement to the person who filled out the form:
+ * the requestor on a "request", the speaker on an "offer". A no-op if they
+ * left their email blank. Wrapped so a mail failure never blocks the
+ * submission. Replies go to NOTIFY_EMAILS (so the organizer fields them) when
+ * that property is set.
+ */
+function confirmSubmitter_(source, data) {
+  try {
+    const isOffer = source === 'offer';
+    const toEmail = String((isOffer ? data.speakerEmail : data.requestorEmail) || '').trim();
+    if (!toEmail) return;
+    const toName = String((isOffer ? data.speakerName : data.requestorName) || '').trim();
+
+    const subject = isOffer
+      ? 'Thank you for offering to speak to SLV Rotary'
+      : 'Thank you for your SLV Rotary speaker suggestion';
+
+    const greeting = toName ? 'Hi ' + toName + ',' : 'Hello,';
+    const intro = isOffer
+      ? 'Thank you for offering to speak to the San Lorenzo Valley Rotary Club! ' +
+        'Our speaker organizer will be in touch, typically within a week, to talk through scheduling.'
+      : 'Thank you for suggesting a speaker for the San Lorenzo Valley Rotary Club! ' +
+        'Our speaker organizer will follow up with you about next steps.';
+    const topicLine = String(data.topic || '').trim()
+      ? 'Topic noted: ' + String(data.topic).trim() + '.'
+      : '';
+
+    const esc = function(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    };
+    const htmlBody =
+      '<div style="font-family:Arial,sans-serif;color:#222;font-size:14px;line-height:1.5">' +
+      '<p>' + esc(greeting) + '</p>' +
+      '<p>' + esc(intro) + '</p>' +
+      (topicLine ? '<p style="color:#555">' + esc(topicLine) + '</p>' : '') +
+      '<p>You can see our upcoming and proposed speakers — and show your support — here:</p>' +
+      '<p><a href="' + PUBLIC_SPEAKERS_URL + '" style="display:inline-block;background:#17458F;' +
+      'color:#fff;text-decoration:none;padding:8px 16px;border-radius:4px">See the speaker lineup →</a></p>' +
+      '<p style="margin-top:1.2em">With gratitude,<br>San Lorenzo Valley Rotary Club</p>' +
+      '<p style="font-size:12px;color:#888">A quick note: SLV Rotary is non-political and non-religious, ' +
+      'and we don\'t use our programs as a fundraising platform.</p>' +
+      '</div>';
+    const textBody =
+      greeting + '\n\n' + intro + '\n' + (topicLine ? topicLine + '\n' : '') +
+      '\nSee our speaker lineup and show your support:\n' + PUBLIC_SPEAKERS_URL +
+      '\n\nWith gratitude,\nSan Lorenzo Valley Rotary Club';
+
+    const options = { htmlBody: htmlBody, name: 'SLV Rotary' };
+    const replyToRaw = PropertiesService.getScriptProperties().getProperty('NOTIFY_EMAILS') || '';
+    const replyTo = replyToRaw.split(/[\s,]+/).map(function(s) { return s.trim(); }).filter(Boolean)[0];
+    if (replyTo) options.replyTo = replyTo;
+
+    MailApp.sendEmail(toEmail, subject, textBody, options);
+  } catch (err) {
+    Logger.log('confirmSubmitter_ failed: ' + err.toString());
+  }
 }
 
 /**

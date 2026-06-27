@@ -193,6 +193,9 @@ A quick note: SLV Rotary is non-political and non-religious, and we don't use ou
   <p style="font-family:Arial,sans-serif; color:#333;">
     The speaker organizer will be in touch. Thank you for helping build our program!
   </p>
+  <p style="font-family:Arial,sans-serif; color:#333;">
+    Want to see who's coming up? <a href="/speakers/">Browse the speaker lineup</a> and show your support.
+  </p>
 </div>
 
 <script>
