@@ -88,7 +88,7 @@ SLV Rotary is non-political and non-religious. Your presentation should focus on
     <input type="text" name="topic" required placeholder="e.g. Life as a wildfire firefighter">
   </div>
   <div class="field">
-    <label>Summary <span class="hint">(optional — a sentence or two about your talk; used in the newsletter when scheduled)</span></label>
+    <label>Summary Rough Draft <span class="hint">(optional — one to several sentences describing the topic for newsletter)</span></label>
     <textarea name="summary" rows="3"
       placeholder="Give members a preview: what you'll cover, why it matters, what they'll take away…"></textarea>
   </div>

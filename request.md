@@ -122,7 +122,7 @@ A quick note: SLV Rotary is non-political and non-religious, and we don't use ou
     <input type="text" name="topic" required placeholder="e.g. Life as a wildfire firefighter">
   </div>
   <div class="field">
-    <label>Summary <span class="hint">(optional — a sentence or two; used in the newsletter when scheduled)</span></label>
+    <label>Summary Rough Draft <span class="hint">(optional — one to several sentences describing the topic for newsletter)</span></label>
     <textarea name="summary" rows="3"
       placeholder="Give members a preview: what they'd cover, why it's relevant, what the takeaway is…"></textarea>
   </div>
