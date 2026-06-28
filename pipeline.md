@@ -1,6 +1,6 @@
 ---
 layout: page
-title: Speaker Pipeline
+title: Speaker Management
 permalink: /pipeline/
 ---
 

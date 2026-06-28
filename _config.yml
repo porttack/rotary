@@ -24,6 +24,7 @@ header_pages:
   - speak.md
   - request.md
   - speakers.md
+  - pipeline.md
 
 # Plugins (all supported by GitHub Pages)
 plugins:
