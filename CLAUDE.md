@@ -99,6 +99,8 @@ The year.html page adds `&t=Date.now()` on each fetch to bust the browser cache.
 | 28 | PHOTO_TOP_URL | Photo Top URL (auto) | Written by Sync Photos; hidden |
 | 29 | PHOTO_BOTTOM_URL | Photo Bottom URL (auto) | Written by Sync Photos; hidden |
 | 30 | INTRODUCER | Introducer | Who introduces the speaker; written by Speaker Pipeline on assign |
+| 31 | CREATED_BY | Created By | Member who created the row via the Event Editor; gates who may delete it |
+| 32 | EVENT_NOTES | Event Notes | Timestamped notes log (newest first), written by the Event Editor |
 
 ---
 
@@ -145,8 +147,16 @@ routes by the `?app=` URL parameter.
 | Duty Editor | Anyone | `...exec` (no param) | `getDutyEditorHtml()` |
 | Calendar Assistant | Only myself (Eric) | `...exec?app=assistant` | `getCalendarAssistantHtml()` |
 
+The "Anyone" Duty Editor deployment also serves the password-gated apps that
+route off `?app=` on the same `...exec` URL: `kanban`, `pipeline`,
+`speaker-pipeline`, and `events` (the Event Editor). These all share the
+`KANBAN_PASSWORD` Script Property gate, so redeploying a **New version** of
+the Duty Editor deployment publishes changes to all of them at once.
+
 The Duty Editor deployment URL is stored in `_config.yml` as `apps_script_url`
-and used by `duty.md` as a redirect.
+and used by `duty.md` (no param). The Event Editor (`?app=events`) is reached
+from tool cards in `calendar.html` and the `/pipeline/` Tools page — it has no
+nav entry of its own.
 
 After editing the .gs file, go to **Deploy → Manage deployments**, select
 the relevant deployment, bump to **New version**, and redeploy. The Duty
@@ -184,6 +194,47 @@ near the other configuration constants. Edit it there to update club context.
 
 ---
 
+## Event Editor
+
+A member-facing web app (`?app=events`, `getEventEditorHtml()`) for adding and
+editing **non-meeting** events without exposing the full sheet. Password-gated
+with `KANBAN_PASSWORD` (same login as the Speaker Pipeline apps); reached from
+tool cards in `calendar.html` and the `/pipeline/` Tools page.
+
+**Scope:** only the types in `EDITOR_EVENT_TYPES` (Social, Service, Fundraiser,
+Committee, Other) within the next 18 months. Speaker meetings
+(Meeting/Assembly/Board Meeting), Grey Bears, and Holiday / District Event rows
+are intentionally excluded and managed elsewhere. Server functions refuse to
+edit/delete any row whose current type is outside `EDITOR_EVENT_TYPES`.
+
+**Field mapping (no new columns — repurposed):** Event Name → `MAIN_TOPIC`,
+Organizer → `SPEAKER_ORGANIZER`, Link → `SPEAKER_URL`, Photo → `PHOTO_TOP`,
+Details → `SUMMARY`. Duty/speaker columns stay blank for these events.
+
+**Writes:** `saveEvent(password, payload)` creates or updates one row (new rows
+write cols A–C + E-onward to skip the `DAY_LABEL` formula in col D), then
+recolors **only that row** via `recolorRow` — it deliberately does *not*
+`sortByDate` / `applyRowColors` the whole sheet (that full recolor was slow
+enough to make saves time out; every view re-sorts on read, so sheet order is
+cosmetic). New rows stamp `CREATED_BY` with the logged-in member.
+`deleteEvent(password, rowIndex, editor)` removes a row but **only if `editor`
+matches `CREATED_BY`** — anyone else must mark it cancelled instead (the Delete
+button is hidden in the UI for non-creators). `addEventNote(password, rowIndex,
+noteText, author)` prepends a timestamped entry to the `EVENT_NOTES` cell
+(newest first), mirroring the speaker-pipeline notes log. All re-validate the
+password server-side. Photo uploads reuse `uploadPipelinePhoto` (saves to
+Drive → Rotary → Photos). Changes are **not** auto-pushed to Google Calendar —
+that stays the manual "Push to Calendar" menu step (same as the AI Assistant's
+changes).
+
+**Adding the two new columns:** `CREATED_BY` and `EVENT_NOTES` were appended to
+the schema (NUM_COLS is now 33). After pasting a new `.gs`, run **🔄 Rotary Sync
+→ Setup / Reset Sheet Headers** once — `setupSheet` widens the grid and writes
+the new headers. Until then, the Event Editor (and any code reading all
+`NUM_COLS`) will error on sheets that still have 31 columns.
+
+---
+
 ## RotaryCalendarSync.gs — function summary
 
 | Function | Called from | Purpose |
@@ -201,6 +252,10 @@ near the other configuration constants. Edit it there to update club context.
 | `doPost(e)` | Web request | Handles speaker request form submissions |
 | `getPageData()` | Duty Editor client | Returns upcoming meetings + member list |
 | `saveDuties(rowIndex, duties)` | Duty Editor client | Writes duty assignments |
+| `getEventEditorData()` | Event Editor client | Non-meeting events (18 mo) + members |
+| `saveEvent(password, payload)` | Event Editor client | Create/update one non-meeting event |
+| `deleteEvent(password, rowIndex, editor)` | Event Editor client | Delete a non-meeting event (creator only) |
+| `addEventNote(password, rowIndex, noteText, author)` | Event Editor client | Append a timestamped event note |
 | `processMessage(chatHistory)` | AI Assistant client | Runs AI tool-use loop |
 | `applyAssistantChanges(changes)` | AI Assistant client | Writes queued changes |
 | `createEventsBackup()` | AI Assistant client | Snapshots Events tab |

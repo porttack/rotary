@@ -82,9 +82,11 @@ const COL = {
   PHOTO_TOP_URL:    29, // AC - Extracted URL for Photo Top (hidden; written by Sync Photos)
   PHOTO_BOTTOM_URL: 30, // AD - Extracted URL for Photo Bottom (hidden; written by Sync Photos)
   INTRODUCER:       31, // AE - Who introduces the speaker (often, not always, the organizer)
+  CREATED_BY:       32, // AF - Member who created this row via the Event Editor (delete permission)
+  EVENT_NOTES:      33, // AG - Timestamped notes log (newest first), like the speaker pipeline
 };
 
-const NUM_COLS = 31;
+const NUM_COLS = 33;
 
 // Duty field key → COL mapping (shared by web app and sheet save logic)
 const DUTY_COLS = {
@@ -100,6 +102,13 @@ const DUTY_COLS = {
 
 // Event type options
 const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service", "Grey Bears", "Fundraiser", "District Event", "Committee", "Holiday", "Other"];
+
+// Event types a club member may create/edit from the member-facing Event Editor
+// web app (?app=events). Deliberately excludes the speaker/duty-driven meetings
+// (Meeting, Assembly, Board Meeting), the auto-generated Grey Bears series, and
+// Holiday / District Event rows — all managed elsewhere. Keep in sync with
+// EVENT_TYPES above.
+const EDITOR_EVENT_TYPES = ["Social", "Service", "Fundraiser", "Committee", "Other"];
 
 // Text color and bold per event type (row background stays white/grey for cancelled)
 // Each entry: { color, bold }
@@ -296,7 +305,15 @@ function setupSheet() {
     "Photo Top URL (auto)",     // AC - written by Sync Photos; do not edit
     "Photo Bottom URL (auto)",  // AD - written by Sync Photos; do not edit
     "Introducer",               // AE - who introduces the speaker
+    "Created By",               // AF - Event Editor: who created the row (delete permission)
+    "Event Notes",              // AG - Event Editor: timestamped notes log
   ];
+
+  // Make sure the grid is wide enough for all columns (covers older sheets
+  // created before columns were added — e.g. Created By / Event Notes).
+  if (sheet.getMaxColumns() < headers.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), headers.length - sheet.getMaxColumns());
+  }
 
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setValues([headers]);
@@ -339,6 +356,8 @@ function setupSheet() {
     280,  // AC Photo Top URL (auto)
     280,  // AD Photo Bottom URL (auto)
     150,  // AE Introducer
+    140,  // AF Created By
+    320,  // AG Event Notes
   ];
   widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
@@ -1407,6 +1426,9 @@ function doGet(e) {
   if (app === 'speaker-pipeline') {
     return out(inject(getSpeakerStatusHtml()), "SLV Rotary — Speaker Pipeline Status");
   }
+  if (app === 'events') {
+    return out(inject(getEventEditorHtml()), "SLV Rotary — Event Editor");
+  }
   if (app === 'publicSpeakers') {
     // JSONP endpoint for the public /speakers/ GitHub Pages page.
     // Sanitise callback name to alphanumeric/underscore only.
@@ -1676,6 +1698,195 @@ function saveDuties(rowIndex, duties) {
   sheet.getRange(rowIndex, COL.STATUS).setValue("✏️ Duties updated " + ts);
   recolorRow(sheet, rowIndex);
   return "Saved ✓ (" + ts + ")";
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENT EDITOR  (?app=events)
+//  Member-facing web app for creating / editing non-meeting events
+//  (Social, Service, Fundraiser, etc.) without exposing the full sheet.
+//  Shares the KANBAN_PASSWORD gate with the Speaker Pipeline apps.
+//  Field mapping (see EDITOR_EVENT_TYPES + CLAUDE.md column table):
+//    eventName → MAIN_TOPIC, organizer → SPEAKER_ORGANIZER,
+//    link → SPEAKER_URL, photo → PHOTO_TOP, summary → SUMMARY.
+// ═══════════════════════════════════════════════════════════════
+
+/** Upcoming member-editable events (next 18 months) + member list, for the Event Editor. */
+function getEventEditorData() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+
+  const tz      = Session.getScriptTimeZone();
+  const today   = new Date(); today.setHours(0, 0, 0, 0);
+  const horizon = new Date(today.getFullYear(), today.getMonth() + 18, today.getDate());
+  const lastRow = sheet.getLastRow();
+  const events  = [];
+
+  if (lastRow >= 2) {
+    const data = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+    data.forEach((row, i) => {
+      const dv = row[COL.DATE - 1];
+      if (!(dv instanceof Date)) return;
+      const d = new Date(dv); d.setHours(0, 0, 0, 0);
+      if (d < today || d > horizon) return;
+      const type = String(row[COL.EVENT_TYPE - 1] || '');
+      if (EDITOR_EVENT_TYPES.indexOf(type) === -1) return;
+      const tv = row[COL.TIME - 1];
+      events.push({
+        rowIndex:  i + 2,
+        eventType: type,
+        cancelled: !!row[COL.CANCELLED - 1],
+        date:      Utilities.formatDate(dv, tz, 'yyyy-MM-dd'),
+        time:      tv instanceof Date ? Utilities.formatDate(tv, tz, 'h:mm a') : String(tv || ''),
+        duration:  row[COL.DURATION - 1] || 60,
+        location:  String(row[COL.LOCATION - 1]          || ''),
+        eventName: String(row[COL.MAIN_TOPIC - 1]        || ''),
+        organizer: String(row[COL.SPEAKER_ORGANIZER - 1] || ''),
+        link:      String(row[COL.SPEAKER_URL - 1]       || ''),
+        photo:     String(row[COL.PHOTO_TOP - 1]         || ''),
+        summary:   String(row[COL.SUMMARY - 1]           || ''),
+        createdBy: String(row[COL.CREATED_BY - 1]        || ''),
+        notes:     String(row[COL.EVENT_NOTES - 1]       || ''),
+      });
+    });
+  }
+  events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  let members = [];
+  const ms = ss.getSheetByName('Members');
+  if (ms && ms.getLastRow() > 1) {
+    members = ms.getRange(2, 1, ms.getLastRow() - 1, 1)
+      .getValues().map(r => String(r[0] || '').trim()).filter(Boolean).sort();
+  }
+  return { events: events, members: members, types: EDITOR_EVENT_TYPES };
+}
+
+/**
+ * Create or update one non-meeting event. Password-gated (KANBAN_PASSWORD).
+ * payload: { rowIndex (0/blank = new), eventType, date 'yyyy-MM-dd',
+ *            time 'h:mm a', duration, location, eventName, organizer,
+ *            link, photo, summary, cancelled, editor }
+ * Returns the fresh event list (row indices shift after the re-sort).
+ */
+function saveEvent(password, payload) {
+  if (!checkPipelinePassword(password)) throw new Error('Not authorized — please log in again.');
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+
+  const p    = payload || {};
+  const type = String(p.eventType || '').trim();
+  if (EDITOR_EVENT_TYPES.indexOf(type) === -1) throw new Error('Choose a valid event type.');
+  if (!p.date) throw new Error('A date is required.');
+
+  const who = String(p.editor || '').trim() || '?';
+  const ts  = timestamp();
+  const rowIndex = Number(p.rowIndex) || 0;
+  let targetRow;
+
+  if (rowIndex && rowIndex >= 2) {
+    // Guard: never let this tool repurpose a speaker meeting or other managed row.
+    const curType = String(sheet.getRange(rowIndex, COL.EVENT_TYPE).getValue() || '');
+    if (EDITOR_EVENT_TYPES.indexOf(curType) === -1) {
+      throw new Error('That event is managed in the spreadsheet and cannot be edited here.');
+    }
+    const set = (col, val) => sheet.getRange(rowIndex, col).setValue(val);
+    set(COL.EVENT_TYPE,        type);
+    set(COL.CANCELLED,         !!p.cancelled);
+    set(COL.DATE,              p.date);
+    set(COL.TIME,              p.time || '');
+    set(COL.DURATION,          Number(p.duration) || 60);
+    set(COL.LOCATION,          p.location  || '');
+    set(COL.MAIN_TOPIC,        p.eventName || '');
+    set(COL.SPEAKER_ORGANIZER, p.organizer || '');
+    set(COL.SPEAKER_URL,       p.link      || '');
+    if (p.photo) set(COL.PHOTO_TOP, p.photo);   // don't clobber an embedded image with a blank
+    set(COL.SUMMARY,           p.summary   || '');
+    set(COL.STATUS,            '✏️ Edited by ' + who + ' ' + ts);
+    targetRow = rowIndex;
+  } else {
+    // New row: write A–C and E-onward, skipping column D (DAY_LABEL ARRAYFORMULA).
+    const rowData = eventEditorBuildRow_(p, type, who, ts);
+    targetRow = sheet.getLastRow() + 1;
+    sheet.getRange(targetRow, 1, 1, 3).setValues([rowData.slice(0, 3)]);
+    const tail = rowData.slice(4);
+    sheet.getRange(targetRow, 5, 1, tail.length).setValues([tail]);
+  }
+
+  // Recolor only the touched row. A full sheet sort + recolor (what the AI
+  // assistant's Apply does) is what made member saves slow enough to time out;
+  // every view re-sorts by date on read, so leaving the sheet order alone here
+  // is purely cosmetic and keeps saves near-instant.
+  recolorRow(sheet, targetRow);
+  return getEventEditorData();
+}
+
+/**
+ * Delete one member-created event row. Password-gated, and only the member who
+ * created the event (CREATED_BY) may delete it — others should cancel instead.
+ */
+function deleteEvent(password, rowIndex, editor) {
+  if (!checkPipelinePassword(password)) throw new Error('Not authorized — please log in again.');
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+  rowIndex = Number(rowIndex);
+  if (!rowIndex || rowIndex < 2) throw new Error('Invalid row.');
+  const type = String(sheet.getRange(rowIndex, COL.EVENT_TYPE).getValue() || '');
+  if (EDITOR_EVENT_TYPES.indexOf(type) === -1) {
+    throw new Error('That event is managed in the spreadsheet and cannot be deleted here.');
+  }
+  const creator = String(sheet.getRange(rowIndex, COL.CREATED_BY).getValue() || '').trim();
+  const who     = String(editor || '').trim();
+  if (!creator || !who || creator.toLowerCase() !== who.toLowerCase()) {
+    throw new Error('Only the member who created this event' +
+      (creator ? ' (' + creator + ')' : '') + ' can delete it. Mark it cancelled instead.');
+  }
+  sheet.deleteRow(rowIndex);
+  return getEventEditorData();
+}
+
+/**
+ * Prepend a timestamped note to an event's EVENT_NOTES cell (newest first),
+ * mirroring the speaker-pipeline notes log. Password-gated; editor-types only.
+ */
+function addEventNote(password, rowIndex, noteText, author) {
+  if (!checkPipelinePassword(password)) throw new Error('Not authorized — please log in again.');
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+  rowIndex = Number(rowIndex);
+  if (!rowIndex || rowIndex < 2) throw new Error('Invalid row.');
+  const type = String(sheet.getRange(rowIndex, COL.EVENT_TYPE).getValue() || '');
+  if (EDITOR_EVENT_TYPES.indexOf(type) === -1) {
+    throw new Error('That event is managed in the spreadsheet and cannot be edited here.');
+  }
+  const text = String(noteText || '').trim();
+  if (!text) throw new Error('Note is empty.');
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'M/d/yy h:mm a');
+  const entry = '[' + stamp + ' ' + (String(author || '').trim() || '?') + ']: ' + text;
+  const cell = sheet.getRange(rowIndex, COL.EVENT_NOTES);
+  const existing = String(cell.getValue() || '').trim();
+  const updated = existing ? entry + '\n' + existing : entry;
+  cell.setValue(updated);
+  return { ok: true, notes: updated };
+}
+
+/** Build a full-width row array for a new event (col D left blank for the formula). */
+function eventEditorBuildRow_(p, type, who, ts) {
+  const row = Array(NUM_COLS).fill('');
+  row[COL.EVENT_TYPE - 1]        = type;
+  row[COL.CANCELLED - 1]         = !!p.cancelled;
+  row[COL.DATE - 1]              = p.date || '';
+  row[COL.TIME - 1]              = p.time || '';
+  row[COL.DURATION - 1]          = Number(p.duration) || 60;
+  row[COL.LOCATION - 1]          = p.location  || '';
+  row[COL.MAIN_TOPIC - 1]        = p.eventName || '';
+  row[COL.SPEAKER_ORGANIZER - 1] = p.organizer || '';
+  row[COL.SPEAKER_URL - 1]       = p.link      || '';
+  row[COL.PHOTO_TOP - 1]         = p.photo     || '';
+  row[COL.SUMMARY - 1]           = p.summary   || '';
+  row[COL.CREATED_BY - 1]        = who;        // who may later delete this event
+  row[COL.STATUS - 1]            = '➕ Added by ' + who + ' ' + ts;
+  return row;
 }
 
 
@@ -3369,6 +3580,336 @@ function callGeminiJson_(apiKey, systemText, userText, schema) {
   const parts = cand && cand.content && cand.content.parts;
   if (!parts || !parts[0] || parts[0].text == null) throw new Error('No response from Gemini.');
   return JSON.parse(parts[0].text);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENT EDITOR — HTML  (?app=events)
+// ═══════════════════════════════════════════════════════════════
+function getEventEditorHtml() {
+return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLV Rotary — Event Editor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#eef1f6;color:#1e293b;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header{background:linear-gradient(135deg,#17458F,#1a56db);color:#fff;padding:0.7em 1em;display:flex;align-items:center;gap:0.7em;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,0.15)}
+header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
+.hbtn{font-size:0.8em;padding:5px 12px;background:rgba(255,255,255,0.16);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:6px;cursor:pointer;text-decoration:none;white-space:nowrap}
+.hbtn:hover{background:rgba(255,255,255,0.3)}
+#main{flex:1;overflow-y:auto;padding:0.9em;max-width:760px;width:100%;margin:0 auto}
+#hint{font-size:0.8em;color:#64748b;margin:0 0.2em 0.8em;line-height:1.45}
+#toolbar{display:flex;gap:0.6em;margin-bottom:0.6em;position:sticky;top:0;z-index:5}
+#search{flex:1;padding:10px 13px;border:1px solid #cfd6e4;border-radius:9px;font-size:0.95em;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.05)}
+#search:focus{outline:none;border-color:#1a56db;box-shadow:0 0 0 3px rgba(26,86,219,0.12)}
+#add-btn{background:#16a34a;color:#fff;border:none;padding:10px 18px;border-radius:9px;font-weight:700;cursor:pointer;font-size:0.92em;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.15)}
+#add-btn:hover{background:#15803d}
+.month-hd{font-size:0.76em;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#64748b;margin:1.1em 0 0.45em 0.2em}
+.ev{background:#fff;border-radius:11px;padding:0.65em 0.85em 0.65em 0.9em;margin-bottom:0.5em;cursor:pointer;display:flex;align-items:center;gap:0.85em;border-left:5px solid #cbd5e1;box-shadow:0 1px 3px rgba(0,0,0,0.07);transition:box-shadow .12s,transform .12s}
+.ev:hover{box-shadow:0 4px 12px rgba(0,0,0,0.13);transform:translateY(-1px)}
+.ev.cancelled{opacity:0.55}
+.ev.cancelled .ev-name{text-decoration:line-through}
+.ev-date{flex-shrink:0;width:46px;text-align:center;line-height:1.05}
+.ev-dow{font-size:0.66em;text-transform:uppercase;color:#94a3b8;font-weight:700;letter-spacing:0.03em}
+.ev-day{font-size:1.4em;font-weight:800;color:#17458F}
+.ev-mon{font-size:0.64em;text-transform:uppercase;color:#94a3b8;font-weight:700}
+.ev-main{flex:1;min-width:0}
+.ev-name{font-weight:600;color:#1e293b;font-size:0.96em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev-untitled{color:#94a3b8;font-style:italic;font-weight:400}
+.ev-meta{font-size:0.8em;color:#64748b;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev-chip{flex-shrink:0;font-size:0.7em;font-weight:700;padding:3px 10px;border-radius:20px;color:#3a2f00}
+.ev-cancelled-tag{flex-shrink:0;font-size:0.66em;font-weight:700;color:#b91c1c;background:#fee2e2;padding:3px 9px;border-radius:20px}
+.empty{text-align:center;color:#94a3b8;padding:3em 1em;font-size:0.95em;line-height:1.6}
+/* Slide-over panel */
+#scrim{position:fixed;inset:0;background:rgba(15,23,42,0.45);opacity:0;visibility:hidden;transition:opacity .2s;z-index:50}
+#scrim.open{opacity:1;visibility:visible}
+#panel{position:fixed;top:0;right:-470px;width:450px;max-width:93vw;height:100%;background:#fff;box-shadow:-6px 0 24px rgba(0,0,0,0.18);transition:right .22s cubic-bezier(.4,0,.2,1);z-index:60;display:flex;flex-direction:column}
+#panel.open{right:0}
+#panel-hd{background:#17458F;color:#fff;padding:0.85em 1em;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+#panel-hd h2{font-size:1.05em}
+#panel-x{background:none;border:none;color:#fff;font-size:1.4em;cursor:pointer;line-height:1}
+#panel-body{flex:1;overflow-y:auto;padding:1.1em}
+.fld{margin-bottom:0.85em}
+.fld label{display:block;font-size:0.74em;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:#475569;margin-bottom:4px}
+.fld input,.fld select,.fld textarea{width:100%;padding:9px 11px;border:1px solid #cfd6e4;border-radius:8px;font-size:0.95em;font-family:inherit;background:#fff;color:#1e293b}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:#1a56db;box-shadow:0 0 0 3px rgba(26,86,219,0.12)}
+.fld textarea{resize:vertical;min-height:80px}
+.fld-row{display:flex;gap:0.7em}
+.fld-row .fld{flex:1}
+.chk{display:flex;align-items:center;gap:0.5em;cursor:pointer;font-size:0.9em;color:#334155;margin-top:0.3em}
+.chk input{width:auto}
+#panel-foot{flex-shrink:0;padding:0.8em 1.1em;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:0.6em}
+.btn{border:none;border-radius:8px;padding:11px 18px;font-size:0.92em;font-weight:700;cursor:pointer}
+.btn-save{background:#16a34a;color:#fff;flex:1}
+.btn-save:hover{background:#15803d}
+.btn-save:disabled{background:#9ca3af;cursor:default}
+.btn-del{background:#fff;color:#dc2626;border:1px solid #fca5a5}
+.btn-del:hover{background:#fef2f2}
+#toast{position:fixed;bottom:1.3em;left:50%;transform:translateX(-50%) translateY(160%);background:#1e293b;color:#fff;padding:11px 22px;border-radius:10px;font-size:0.9em;z-index:80;transition:transform .25s;box-shadow:0 4px 16px rgba(0,0,0,0.25)}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#toast.err{background:#b91c1c}
+/* Auth */
+#auth{position:fixed;inset:0;background:#17458F;display:flex;align-items:center;justify-content:center;z-index:200}
+.auth-box{background:#fff;border-radius:12px;padding:2em;width:300px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.3)}
+.auth-box h2{color:#17458F;margin-bottom:1em;font-size:1.1em}
+.auth-box input{width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;margin-bottom:0.6em;font-size:0.95em}
+.auth-box button{background:#17458F;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:0.95em;width:100%}
+.auth-err{color:#b91c1c;font-size:0.85em;margin-top:0.4em;min-height:1em}
+@media(max-width:520px){#panel{width:100%;max-width:100%;right:-100%}}
+</style>
+</head>
+<body>
+
+<div id="auth">
+  <div class="auth-box">
+    <h2>📋 SLV Rotary<br>Club Events</h2>
+    <input type="text" id="auth-name" placeholder="Your name" autocomplete="name">
+    <input type="password" id="auth-pw" placeholder="Password">
+    <button onclick="doLogin()">Enter</button>
+    <div class="auth-err" id="auth-err"></div>
+  </div>
+</div>
+
+<header>
+  <h1>📋 Club Events</h1>
+  <span id="hdr-user" style="font-size:0.85em;opacity:0.85"></span>
+  <a class="hbtn" href="__EXEC_URL__" target="_top">Duty Editor →</a>
+  <button class="hbtn" onclick="logout()">Logout</button>
+</header>
+
+<div id="main">
+  <p id="hint">Add or edit socials, service projects, fundraisers and other dates for the next 18 months. Speaker meetings are managed in the Duty Editor.</p>
+  <div id="toolbar">
+    <input id="search" placeholder="Search events…" oninput="render()">
+    <button id="add-btn" onclick="openNew()">+ Add</button>
+  </div>
+  <div id="list"></div>
+</div>
+
+<div id="scrim" onclick="closePanel()"></div>
+<div id="panel">
+  <div id="panel-hd"><h2 id="panel-title">Add Event</h2><button id="panel-x" onclick="closePanel()">✕</button></div>
+  <div id="panel-body">
+    <div class="fld"><label>Event Type</label><select id="f-type"></select></div>
+    <div class="fld-row">
+      <div class="fld"><label>Date</label><input type="date" id="f-date"></div>
+      <div class="fld"><label>Time</label><input type="time" id="f-time"></div>
+      <div class="fld" style="max-width:95px"><label>Min</label><input type="number" id="f-duration" min="0" step="15"></div>
+    </div>
+    <div class="fld"><label>Event Name</label><input type="text" id="f-name" placeholder="e.g. Beach Cleanup"></div>
+    <div class="fld"><label>Location</label><input type="text" id="f-location" placeholder="Venue and city"></div>
+    <div class="fld"><label>Organizer</label><input type="text" id="f-organizer" list="member-list" placeholder="Who is running this"><datalist id="member-list"></datalist></div>
+    <div class="fld"><label>Details (for newsletter)</label><textarea id="f-summary" placeholder="What is happening, who should come…"></textarea></div>
+    <div class="fld"><label>Info / Signup Link</label><input type="url" id="f-link" placeholder="https://…"></div>
+    <div class="fld"><label>Photo (optional)</label>
+      <input type="url" id="f-photo" placeholder="https://… or upload below" oninput="showPhotoPrev()">
+      <input type="file" accept="image/*" style="margin-top:6px;font-size:0.85em" onchange="uploadPhoto(this)">
+      <div id="f-photo-prev" style="margin-top:6px"></div>
+    </div>
+    <label class="chk"><input type="checkbox" id="f-cancelled"> Mark as cancelled</label>
+    <div id="notes-section" style="margin-top:1.1em;display:none">
+      <div style="font-weight:700;color:#17458F;font-size:0.78em;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin-bottom:0.5em">Notes</div>
+      <div id="f-notes-display" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:0.5em 0.7em;font-size:0.82em;white-space:pre-wrap;max-height:130px;overflow-y:auto;color:#334155;margin-bottom:0.5em"></div>
+      <textarea id="f-note-input" placeholder="Add a note…" style="width:100%;padding:9px 11px;border:1px solid #cfd6e4;border-radius:8px;font-size:0.9em;min-height:50px;resize:vertical;font-family:inherit"></textarea>
+      <button class="btn" style="background:#eef2ff;color:#1a56db;border:1px solid #c7d2fe;margin-top:6px;padding:8px 14px" onclick="addNote()">Add Note</button>
+    </div>
+  </div>
+  <div id="panel-foot">
+    <button class="btn btn-del" id="btn-del" onclick="deleteCurrent()">Delete</button>
+    <button class="btn btn-save" onclick="savePanel()">Save</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+var DATA={events:[],members:[],types:[]}, currentUser='', editingRow=0, toastTimer=null;
+var DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var MONF=['January','February','March','April','May','June','July','August','September','October','November','December'];
+var TYPE_COLOR={'Social':'#fde68a','Service':'#fdba74','Fundraiser':'#e9d5ff','District Event':'#86efac','Committee':'#fce7f3','Holiday':'#fca5a5','Other':'#d1d5db'};
+
+function gs(fn,arg){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](arg);});}
+function gs2(fn,a,b){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b);});}
+function gs3(fn,a,b,c){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c);});}
+function gs4(fn,a,b,c,d){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c,d);});}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// Time helpers (no regex — backtick template eats backslashes)
+function to24(s){
+  s=String(s||'').trim(); if(!s)return '';
+  var up=s.toUpperCase(), ap='';
+  if(up.indexOf('PM')>-1)ap='PM'; else if(up.indexOf('AM')>-1)ap='AM';
+  var t=up.replace('AM','').replace('PM','').trim(), parts=t.split(':');
+  if(parts.length<2)return '';
+  var h=parseInt(parts[0],10), m=parseInt(parts[1],10);
+  if(isNaN(h)||isNaN(m))return '';
+  if(ap==='PM'&&h<12)h+=12; if(ap==='AM'&&h===12)h=0;
+  return ('0'+h).slice(-2)+':'+('0'+m).slice(-2);
+}
+function to12(s){
+  s=String(s||'').trim(); if(!s)return '';
+  var parts=s.split(':'); if(parts.length<2)return '';
+  var h=parseInt(parts[0],10), m=parseInt(parts[1],10);
+  if(isNaN(h)||isNaN(m))return '';
+  var ap=h>=12?'PM':'AM', h12=h%12; if(h12===0)h12=12;
+  return h12+':'+('0'+m).slice(-2)+' '+ap;
+}
+function cardDate(ds){var p=ds.split('-'),dt=new Date(+p[0],+p[1]-1,+p[2]);return{dow:DOW[dt.getDay()],day:+p[2],mon:MON[+p[1]-1]};}
+function monthKey(ds){var p=ds.split('-');return MONF[+p[1]-1]+' '+p[0];}
+
+function toast(msg,err){var t=document.getElementById('toast');t.textContent=msg;t.className=err?'show err':'show';clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.className='';},2600);}
+function busy(b){var s=document.querySelector('.btn-save');if(s){s.disabled=b;s.textContent=b?'Saving…':'Save';}}
+
+// ── Photo upload + preview (reuses the pipeline's Drive uploader) ──
+function driveThumb(u,size){if(!u)return'';var id='',i=u.indexOf('id=');if(i>=0){id=u.substring(i+3).split('&')[0];}else{var j=u.indexOf('/d/');if(j>=0)id=u.substring(j+3).split('/')[0];}return id?'https://drive.google.com/thumbnail?id='+id+'&sz=w'+(size||200):u;}
+function showPhotoPrev(){var v=getV('f-photo'),prev=document.getElementById('f-photo-prev');if(!prev)return;prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(driveThumb(v,250))+'" style="max-width:150px;max-height:150px;border-radius:8px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';}
+function uploadPhoto(input){
+  var file=input.files[0]; if(!file)return;
+  var prev=document.getElementById('f-photo-prev');
+  if(file.size>8*1024*1024){prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Image too large (max 8 MB)</span>';input.value='';return;}
+  prev.innerHTML='<span style="font-size:0.8em;color:#64748b">Uploading…</span>';
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    gs3('uploadPipelinePhoto',ev.target.result,file.name,getV('f-name')||'event')
+      .then(function(res){setV('f-photo',res.url);showPhotoPrev();})
+      .catch(function(e){prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Upload failed: '+(e.message||e)+'</span>';});
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── List ──────────────────────────────────────────────────────
+function render(){
+  var q=(document.getElementById('search').value||'').toLowerCase();
+  var list=document.getElementById('list'); list.innerHTML='';
+  var shown=DATA.events.filter(function(e){
+    if(!q)return true;
+    return (e.eventName+' '+e.eventType+' '+e.location+' '+e.organizer+' '+e.date).toLowerCase().indexOf(q)>-1;
+  });
+  if(!shown.length){list.innerHTML='<div class="empty">No events found.<br>Tap <b>+ Add</b> to create one.</div>';return;}
+  var curMonth='';
+  shown.forEach(function(e){
+    var mk=monthKey(e.date);
+    if(mk!==curMonth){curMonth=mk;var h=document.createElement('div');h.className='month-hd';h.textContent=mk;list.appendChild(h);}
+    var cd=cardDate(e.date), color=TYPE_COLOR[e.eventType]||'#d1d5db';
+    var meta=[]; if(e.time)meta.push(esc(e.time)); if(e.location)meta.push(esc(e.location)); if(e.organizer)meta.push('· '+esc(e.organizer));
+    var nameHtml=e.eventName?esc(e.eventName):'<span class="ev-untitled">(untitled '+esc(e.eventType)+')</span>';
+    var tag=e.cancelled?'<span class="ev-cancelled-tag">Cancelled</span>':'<span class="ev-chip" style="background:'+color+'">'+esc(e.eventType)+'</span>';
+    var card=document.createElement('div');
+    card.className='ev'+(e.cancelled?' cancelled':'');
+    card.style.borderLeftColor=color;
+    card.innerHTML=
+      '<div class="ev-date"><div class="ev-dow">'+cd.dow+'</div><div class="ev-day">'+cd.day+'</div><div class="ev-mon">'+cd.mon+'</div></div>'+
+      '<div class="ev-main"><div class="ev-name">'+nameHtml+'</div><div class="ev-meta">'+meta.join(' ')+'</div></div>'+tag;
+    card.onclick=(function(r){return function(){openEdit(r);};})(e.rowIndex);
+    list.appendChild(card);
+  });
+}
+
+// ── Panel ─────────────────────────────────────────────────────
+function fillOptions(){
+  var sel=document.getElementById('f-type'); sel.innerHTML='';
+  DATA.types.forEach(function(t){var o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
+  var dl=document.getElementById('member-list'); dl.innerHTML='';
+  DATA.members.forEach(function(m){var o=document.createElement('option');o.value=m;dl.appendChild(o);});
+}
+function openPanel(){document.getElementById('panel').classList.add('open');document.getElementById('scrim').classList.add('open');}
+function closePanel(){document.getElementById('panel').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
+function setV(id,v){document.getElementById(id).value=(v==null?'':v);}
+function getV(id){return document.getElementById(id).value;}
+
+function sameUser(a,b){return !!a&&!!b&&String(a).trim().toLowerCase()===String(b).trim().toLowerCase();}
+
+function openNew(){
+  editingRow=0;
+  document.getElementById('panel-title').textContent='Add Event';
+  document.getElementById('btn-del').style.display='none';
+  document.getElementById('notes-section').style.display='none';
+  setV('f-type',DATA.types[0]||'Social'); setV('f-date',''); setV('f-time',''); setV('f-duration','60');
+  setV('f-name',''); setV('f-location',''); setV('f-organizer',currentUser);
+  setV('f-summary',''); setV('f-link',''); setV('f-photo','');
+  document.getElementById('f-cancelled').checked=false;
+  showPhotoPrev();
+  openPanel();
+}
+function openEdit(rowIndex){
+  var e=null,i; for(i=0;i<DATA.events.length;i++){if(DATA.events[i].rowIndex===rowIndex){e=DATA.events[i];break;}}
+  if(!e)return;
+  editingRow=rowIndex;
+  document.getElementById('panel-title').textContent='Edit Event';
+  // Only the member who created the event may delete it; everyone else cancels.
+  document.getElementById('btn-del').style.display=sameUser(e.createdBy,currentUser)?'':'none';
+  setV('f-type',e.eventType); setV('f-date',e.date); setV('f-time',to24(e.time)); setV('f-duration',e.duration);
+  setV('f-name',e.eventName); setV('f-location',e.location); setV('f-organizer',e.organizer);
+  setV('f-summary',e.summary); setV('f-link',e.link); setV('f-photo',e.photo);
+  document.getElementById('f-cancelled').checked=!!e.cancelled;
+  document.getElementById('notes-section').style.display='';
+  document.getElementById('f-notes-display').textContent=e.notes||'(no notes yet)';
+  document.getElementById('f-note-input').value='';
+  showPhotoPrev();
+  openPanel();
+}
+function addNote(){
+  if(!editingRow)return;
+  var inp=document.getElementById('f-note-input'), text=inp.value.trim();
+  if(!text)return;
+  var pw=localStorage.getItem('pipelinePw')||'';
+  gs4('addEventNote',pw,editingRow,text,currentUser).then(function(res){
+    inp.value='';
+    document.getElementById('f-notes-display').textContent=res.notes||'(no notes yet)';
+    for(var i=0;i<DATA.events.length;i++){if(DATA.events[i].rowIndex===editingRow){DATA.events[i].notes=res.notes;break;}}
+    toast('Note added ✓');
+  }).catch(function(err){toast('Error: '+(err.message||err),true);});
+}
+function savePanel(){
+  if(!getV('f-date')){toast('Please pick a date',true);return;}
+  var payload={rowIndex:editingRow,eventType:getV('f-type'),date:getV('f-date'),time:to12(getV('f-time')),
+    duration:getV('f-duration'),location:getV('f-location'),eventName:getV('f-name'),organizer:getV('f-organizer'),
+    link:getV('f-link'),photo:getV('f-photo'),summary:getV('f-summary'),
+    cancelled:document.getElementById('f-cancelled').checked,editor:currentUser};
+  var pw=localStorage.getItem('pipelinePw')||'';
+  busy(true);
+  gs2('saveEvent',pw,payload).then(function(fresh){DATA.events=fresh.events;busy(false);closePanel();render();toast('Saved ✓');})
+    .catch(function(err){busy(false);toast('Error: '+(err.message||err),true);});
+}
+function deleteCurrent(){
+  if(!editingRow)return;
+  if(!confirm('Delete this event permanently? This cannot be undone.'))return;
+  var pw=localStorage.getItem('pipelinePw')||'';
+  gs3('deleteEvent',pw,editingRow,currentUser).then(function(fresh){DATA.events=fresh.events;closePanel();render();toast('Deleted');})
+    .catch(function(err){toast('Error: '+(err.message||err),true);});
+}
+
+// ── Data + Auth ───────────────────────────────────────────────
+function loadData(){
+  gs('getEventEditorData').then(function(d){DATA=d;fillOptions();render();})
+    .catch(function(err){toast('Load error: '+(err.message||err),true);});
+}
+function doLogin(){
+  var name=document.getElementById('auth-name').value.trim(), pw=document.getElementById('auth-pw').value;
+  if(!name){document.getElementById('auth-err').textContent='Enter your name.';return;}
+  if(!pw){document.getElementById('auth-err').textContent='Enter the password.';return;}
+  gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){localStorage.setItem('pipelinePw',pw);localStorage.setItem('pipelineName',name);currentUser=name;
+      document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;loadData();}
+    else{document.getElementById('auth-err').textContent='Wrong password.';}
+  }).catch(function(err){document.getElementById('auth-err').textContent='Error: '+(err.message||err);});
+}
+function logout(){localStorage.removeItem('pipelinePw');localStorage.removeItem('pipelineName');location.reload();}
+
+window.addEventListener('load',function(){
+  var pw=localStorage.getItem('pipelinePw'), name=localStorage.getItem('pipelineName');
+  if(pw&&name){gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){currentUser=name;document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;loadData();}
+    else{localStorage.removeItem('pipelinePw');}});}
+  document.getElementById('auth-pw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+});
+</script>
+</body>
+</html>`;
 }
 
 

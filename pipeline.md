@@ -1,6 +1,6 @@
 ---
 layout: page
-title: Speaker Management
+title: Tools
 permalink: /pipeline/
 ---
 
@@ -14,8 +14,31 @@ permalink: /pipeline/
   .section-label { font-size: 0.82em; font-weight: bold; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin: 1.5em 0 0.5em; }
 </style>
 
-<p style="color:#555;max-width:640px">Password-protected tools for SLV Rotary members managing the speaker program. 
-These pages are not linked from the main nav — share this URL with your team.</p>
+<p style="color:#555;max-width:640px">Password-protected tools for SLV Rotary members.
+Share this URL with your team.</p>
+
+<div class="section-label">Calendar Tools</div>
+<div class="tool-grid">
+
+<a class="tool-card" href="{{ site.apps_script_url }}" target="_blank">
+  <div class="tool-badge">📝 Duties</div>
+  <h2>Duty Editor</h2>
+  <p>Assign MC, greeter, AV/Zoom, and other meeting roles for upcoming meetings.</p>
+</a>
+
+<a class="tool-card" href="{{ site.apps_script_url }}?app=events" target="_blank">
+  <div class="tool-badge">✏️ Events</div>
+  <h2>Event Editor</h2>
+  <p>Add or edit socials, service projects, fundraisers, and other club dates without touching the spreadsheet.</p>
+</a>
+
+<a class="tool-card" href="{{ site.apps_script_url }}?app=assistant" target="_blank">
+  <div class="tool-badge">🤖 AI</div>
+  <h2>Calendar Assistant</h2>
+  <p>AI chat interface for adding, updating, or cancelling calendar events in natural language.</p>
+</a>
+
+</div>
 
 <div class="section-label">Speaker Pipeline</div>
 <div class="tool-grid">
@@ -36,23 +59,6 @@ These pages are not linked from the main nav — share this URL with your team.<
   <div class="tool-badge">📊 Table</div>
   <h2>Pipeline Table</h2>
   <p>Sortable, filterable table of all speakers. Click any row to expand and edit details inline.</p>
-</a>
-
-</div>
-
-<div class="section-label">Other Tools</div>
-<div class="tool-grid">
-
-<a class="tool-card" href="{{ site.apps_script_url }}" target="_blank">
-  <div class="tool-badge">📝 Duties</div>
-  <h2>Duty Editor</h2>
-  <p>Assign MC, greeter, AV/Zoom, and other meeting roles for upcoming meetings.</p>
-</a>
-
-<a class="tool-card" href="{{ site.apps_script_url }}?app=assistant" target="_blank">
-  <div class="tool-badge">🤖 AI</div>
-  <h2>Calendar Assistant</h2>
-  <p>AI chat interface for adding, updating, or cancelling calendar events in natural language.</p>
 </a>
 
 </div>
