@@ -17,7 +17,41 @@ permalink: /calendar/
   .fc-event-title { font-size: 0.85em; }
   .fc-toolbar-title { color: #17458F; }
   .fc-event.cancelled { opacity: 0.45; text-decoration: line-through; }
+  .tool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1em; max-width: 900px; margin: 0.8em 0 1.6em; }
+  .tool-card { border: 1px solid #c5cae9; border-radius: 8px; padding: 1em 1.1em; background: #fafafa; text-decoration: none; color: inherit; display: block; transition: box-shadow 0.15s; }
+  .tool-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.1); text-decoration: none; }
+  .tool-card h2 { color: #17458F; font-size: 1em; margin: 0 0 0.25em; }
+  .tool-card p { color: #555; font-size: 0.85em; margin: 0; line-height: 1.4; }
+  .tool-badge { display: inline-block; font-size: 0.75em; font-weight: bold; background: #e8eaf0; color: #374151; border-radius: 10px; padding: 1px 8px; margin-bottom: 0.35em; }
 </style>
+
+<div class="tool-grid">
+
+<a class="tool-card" href="{{ site.apps_script_url }}" target="_blank">
+  <div class="tool-badge">📝 Duties</div>
+  <h2>Duty Editor</h2>
+  <p>Assign MC, greeter, AV/Zoom, and other meeting roles for upcoming meetings.</p>
+</a>
+
+<a class="tool-card" href="/year/">
+  <div class="tool-badge">📅 Year</div>
+  <h2>Year View</h2>
+  <p>Mini calendar grid for the full Rotary year (July–June) with color-coded event types.</p>
+</a>
+
+<a class="tool-card" href="/newsletter/">
+  <div class="tool-badge">📰 Newsletter</div>
+  <h2>Newsletter View</h2>
+  <p>Auto-rendered weekly bulletin with speaker summaries and meeting details.</p>
+</a>
+
+<a class="tool-card" href="/past/">
+  <div class="tool-badge">🗂️ Past</div>
+  <h2>Past Meetings</h2>
+  <p>Archive of past meetings and speakers.</p>
+</a>
+
+</div>
 
 <!-- FullCalendar 6 -->
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet" />
