@@ -59,5 +59,5 @@ These pages are not linked from the main nav — share this URL with your team.<
 
 <p style="margin-top:1.5em;font-size:0.85em;color:#888">
   All tools use the same Apps Script deployment — password is set separately per tool.<br>
-  To add yourself as an assignable member, run <strong>Setup Members Tab</strong> from the Rotary Sync menu in the spreadsheet.
+  To add yourself as an assignable member, ask Eric to add you to the members tab of the SLV Rotary Master google spreadsheet and run <strong>Setup Members Tab</strong> from the Rotary Sync menu in the spreadsheet.
 </p>
