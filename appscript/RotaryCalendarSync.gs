@@ -3885,8 +3885,19 @@ function savePanel(){
     cancelled:document.getElementById('f-cancelled').checked,
     hideFromNewsletter:document.getElementById('f-hide-newsletter').checked,editor:currentUser};
   var pw=localStorage.getItem('pipelinePw')||'';
+  // A note typed but not yet "Add"ed should be saved too — editing an existing
+  // row keeps its row index (saveEvent edits in place), so we can append after.
+  var noteText=(document.getElementById('f-note-input').value||'').trim();
+  var noteRow=editingRow;
   busy(true);
-  gs2('saveEvent',pw,payload).then(function(fresh){DATA.events=fresh.events;busy(false);closePanel();render();toast('Saved ✓');})
+  gs2('saveEvent',pw,payload).then(function(fresh){
+    DATA.events=fresh.events;
+    if(noteText&&noteRow){
+      return gs4('addEventNote',pw,noteRow,noteText,currentUser).then(function(res){
+        for(var i=0;i<DATA.events.length;i++){if(DATA.events[i].rowIndex===noteRow){DATA.events[i].notes=res.notes;break;}}
+      });
+    }
+  }).then(function(){busy(false);closePanel();render();toast('Saved ✓');})
     .catch(function(err){busy(false);toast('Error: '+(err.message||err),true);});
 }
 function deleteCurrent(){

@@ -94,7 +94,37 @@ function abbrevTime(ts) {
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-function textToHtml(s) { return esc(s).replace(/\n/g,'<br>'); }
+// Render a plain-text narrative with light Markdown: [text](url) links, bare
+// URLs, **bold**, *italic*, and line breaks. Used for summary/narrative fields,
+// so a URL pasted into Summary becomes a clickable link automatically.
+function textToHtml(s) {
+  if (!s) return '';
+  var SEN = String.fromCharCode(1);            // sentinel; survives esc(), never in real text
+  var tokens = [];
+  function stash(html) { return SEN + (tokens.push(html) - 1) + SEN; }
+  var work = String(s);
+
+  // Markdown links [text](url) -> a finished anchor, stashed out of harm's way
+  work = work.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, function(_, text, url) {
+    return stash('<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(text) + '</a>');
+  });
+
+  // Bare URLs -> an anchor (keep trailing sentence punctuation outside the link)
+  work = work.replace(/(^|[\s(])(https?:\/\/[^\s)]+)/g, function(m, pre, url) {
+    var trail = '';
+    var t = url.match(/[.,;:!?]+$/);
+    if (t) { trail = t[0]; url = url.slice(0, -trail.length); }
+    return pre + stash('<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a>') + trail;
+  });
+
+  var html = esc(work)
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/\n/g, '<br>');
+
+  var re = new RegExp(SEN + '(\\d+)' + SEN, 'g');
+  return html.replace(re, function(_, i) { return tokens[+i]; });
+}
 
 function mapLink(location, displayText) {
   if (!location) return esc(displayText || '');
