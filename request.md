@@ -118,8 +118,13 @@ A quick note: SLV Rotary is non-political and non-religious, and we don't use ou
     </div>
   </div>
   <div class="field">
-    <label>Topic <span class="req">*</span></label>
-    <input type="text" name="topic" required placeholder="What would they speak about?">
+    <label>Topic <span class="req">*</span> <span class="hint">(2–10 words)</span></label>
+    <input type="text" name="topic" required placeholder="e.g. Life as a wildfire firefighter">
+  </div>
+  <div class="field">
+    <label>Summary <span class="hint">(optional — a sentence or two; used in the newsletter when scheduled)</span></label>
+    <textarea name="summary" rows="3"
+      placeholder="Give members a preview: what they'd cover, why it's relevant, what the takeaway is…"></textarea>
   </div>
   <div class="field">
     <label>How strongly do you want this? <span class="hint">(select one)</span></label>
@@ -273,6 +278,7 @@ document.getElementById('rq-form').addEventListener('submit', async function (e)
     speakerPhone:     form.speakerPhone.value.trim(),
     speakerCity:      form.speakerCity.value.trim(),
     topic:            form.topic.value.trim(),
+    summary:          form.summary.value.trim(),
     priority:         [...form.querySelectorAll('[name=priority]')].find(r => r.checked)?.value || '',
     isRotarian:       form.isRotarian.checked,
     isLocal:          form.isLocal.checked,

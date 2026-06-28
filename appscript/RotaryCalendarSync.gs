@@ -2108,6 +2108,7 @@ function notifySubmission_(source, data, photoUrl, ts) {
     add('Speaker phone', data.speakerPhone);
     add('Speaker city', data.speakerCity);
     add('Topic', data.topic);
+    add('Summary', data.summary);
     add('Speaker role', data.speakerRole);
     add('Priority', data.priority);
     add('Is Rotarian', yn(data.isRotarian));
@@ -2196,6 +2197,7 @@ function buildPipelineRow_(source, data, photoUrl, ts) {
   row[CP.SPEAKER_PHONE - 1]       = data.speakerPhone     || '';
   row[CP.SPEAKER_CITY - 1]        = data.speakerCity      || '';
   row[CP.TOPIC - 1]               = data.topic            || '';
+  row[CP.SUMMARY - 1]             = data.summary          || '';
   row[CP.SPEAKER_ROLE - 1]        = data.speakerRole      || '';
   row[CP.BIO - 1]                 = data.bio              || '';
   row[CP.PREFERRED_DATES - 1]     = data.suggestedDates   || '';
@@ -4883,8 +4885,6 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
   .note-form button{font-size:0.95em;padding:8px 14px}
   .stage-lbl{font-size:0.9em}
   .stage-sel{font-size:1em;padding:8px 9px}
-  #panel{width:100%;right:-100%}
-  .modal{width:94vw}
 }
 /* Detail panel (slide-in editor) */
 #panel{position:fixed;right:-440px;top:0;width:440px;height:100%;background:#fff;box-shadow:-3px 0 16px rgba(0,0,0,0.12);transition:right 0.2s;display:flex;flex-direction:column;z-index:100}
@@ -4937,6 +4937,12 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
 .auth-box input{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;margin-bottom:0.6em;font-size:0.95em}
 .auth-box button{background:#17458F;color:#fff;border:none;padding:8px 24px;border-radius:4px;cursor:pointer;font-size:0.95em;width:100%}
 .auth-err{color:#b91c1c;font-size:0.85em;margin-top:0.4em;min-height:1em}
+/* Phone: the detail panel and modal go full-width. Placed after the base
+   #panel/.modal rules so source order lets these win (equal specificity). */
+@media (max-width:600px){
+  #panel{width:100%;right:-100%}
+  .modal{width:94vw}
+}
 </style>
 </head>
 <body>

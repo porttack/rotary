@@ -84,8 +84,13 @@ SLV Rotary is non-political and non-religious. Your presentation should focus on
 
   <div class="section-head">Your Talk</div>
   <div class="field">
-    <label>Topic <span class="req">*</span></label>
-    <input type="text" name="topic" required placeholder="What would you speak about?">
+    <label>Topic <span class="req">*</span> <span class="hint">(2–10 words)</span></label>
+    <input type="text" name="topic" required placeholder="e.g. Life as a wildfire firefighter">
+  </div>
+  <div class="field">
+    <label>Summary <span class="hint">(optional — a sentence or two about your talk; used in the newsletter when scheduled)</span></label>
+    <textarea name="summary" rows="3"
+      placeholder="Give members a preview: what you'll cover, why it matters, what they'll take away…"></textarea>
   </div>
   <div class="field">
     <div class="check-group">
@@ -166,6 +171,7 @@ document.getElementById('sp-form').addEventListener('submit', function (e) {
     speakerPhone:   form.speakerPhone.value.trim(),
     speakerCity:    form.speakerCity.value.trim(),
     topic:          form.topic.value.trim(),
+    summary:        form.summary.value.trim(),
     isRotarian:     form.isRotarian.checked,
     isLocal:        form.isLocal.checked,
     fundraisingLiterature: form.fundraisingLiterature.checked,
