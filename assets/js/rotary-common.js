@@ -10,7 +10,10 @@ const COL = {
   photoTop:15, photoBottom:16, mc:17, setupTeardown:18, avZoom:19, greeter:20,
   fourWayTest:21, thought:22, detective:23, bagPerson:24, comments:25,
   photoTopUrl:28, photoBottomUrl:29,
+  excludeNewsletter:33, // AH - checkbox: hide this event from the newsletter
 };
+
+const isHiddenFromNewsletter = row => fv(row, COL.excludeNewsletter).toUpperCase() === 'TRUE';
 
 // ── Parsing ───────────────────────────────────────────────────────────────
 

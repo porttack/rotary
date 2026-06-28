@@ -101,6 +101,7 @@ The year.html page adds `&t=Date.now()` on each fetch to bust the browser cache.
 | 30 | INTRODUCER | Introducer | Who introduces the speaker; written by Speaker Pipeline on assign |
 | 31 | CREATED_BY | Created By | Member who created the row via the Event Editor; gates who may delete it |
 | 32 | EVENT_NOTES | Event Notes | Timestamped notes log (newest first), written by the Event Editor |
+| 33 | EXCLUDE_NEWSLETTER | Hide from Newsletter | Checkbox; TRUE/FALSE. When TRUE, the event is omitted from both newsletter outputs (newsletter.html page + Apps Script Google Doc). Settable from the Event Editor. |
 
 ---
 
@@ -207,16 +208,21 @@ Committee, Other) within the next 18 months. Speaker meetings
 are intentionally excluded and managed elsewhere. Server functions refuse to
 edit/delete any row whose current type is outside `EDITOR_EVENT_TYPES`.
 
-**Field mapping (no new columns — repurposed):** Event Name → `MAIN_TOPIC`,
+**Field mapping (repurposed columns):** Event Name → `MAIN_TOPIC`,
 Organizer → `SPEAKER_ORGANIZER`, Link → `SPEAKER_URL`, Photo → `PHOTO_TOP`,
-Details → `SUMMARY`. Duty/speaker columns stay blank for these events.
+Details → `SUMMARY`. Duty/speaker columns stay blank for these events. The
+editor also exposes two checkboxes that map to real columns: Mark as cancelled →
+`CANCELLED`, Hide from newsletter → `EXCLUDE_NEWSLETTER`.
 
 **Writes:** `saveEvent(password, payload)` creates or updates one row (new rows
 write cols A–C + E-onward to skip the `DAY_LABEL` formula in col D), then
 recolors **only that row** via `recolorRow` — it deliberately does *not*
 `sortByDate` / `applyRowColors` the whole sheet (that full recolor was slow
 enough to make saves time out; every view re-sorts on read, so sheet order is
-cosmetic). New rows stamp `CREATED_BY` with the logged-in member.
+cosmetic). New rows stamp `CREATED_BY` with the logged-in member. The
+`EXCLUDE_NEWSLETTER` checkbox lets a member hide a routine event (e.g. recurring
+AG meetings) from the bulletin without cancelling it; both newsletter outputs
+skip rows where it is TRUE.
 `deleteEvent(password, rowIndex, editor)` removes a row but **only if `editor`
 matches `CREATED_BY`** — anyone else must mark it cancelled instead (the Delete
 button is hidden in the UI for non-creators). `addEventNote(password, rowIndex,
@@ -227,11 +233,12 @@ Drive → Rotary → Photos). Changes are **not** auto-pushed to Google Calendar
 that stays the manual "Push to Calendar" menu step (same as the AI Assistant's
 changes).
 
-**Adding the two new columns:** `CREATED_BY` and `EVENT_NOTES` were appended to
-the schema (NUM_COLS is now 33). After pasting a new `.gs`, run **🔄 Rotary Sync
-→ Setup / Reset Sheet Headers** once — `setupSheet` widens the grid and writes
-the new headers. Until then, the Event Editor (and any code reading all
-`NUM_COLS`) will error on sheets that still have 31 columns.
+**Adding new columns:** `CREATED_BY`, `EVENT_NOTES`, and `EXCLUDE_NEWSLETTER`
+were appended to the schema (NUM_COLS is now **34**). After pasting a new `.gs`,
+run **🔄 Rotary Sync → Setup / Reset Sheet Headers** once — `setupSheet` widens
+the grid, writes the new headers, and adds the Hide-from-Newsletter checkbox.
+Until then, the Event Editor (and any code reading all `NUM_COLS`) will error on
+sheets that still have the old column count.
 
 ---
 

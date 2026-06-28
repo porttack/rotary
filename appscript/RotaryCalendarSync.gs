@@ -84,9 +84,10 @@ const COL = {
   INTRODUCER:       31, // AE - Who introduces the speaker (often, not always, the organizer)
   CREATED_BY:       32, // AF - Member who created this row via the Event Editor (delete permission)
   EVENT_NOTES:      33, // AG - Timestamped notes log (newest first), like the speaker pipeline
+  EXCLUDE_NEWSLETTER:34,// AH - Checkbox: if TRUE, hide this event from the newsletter bulletin
 };
 
-const NUM_COLS = 33;
+const NUM_COLS = 34;
 
 // Duty field key → COL mapping (shared by web app and sheet save logic)
 const DUTY_COLS = {
@@ -307,6 +308,7 @@ function setupSheet() {
     "Introducer",               // AE - who introduces the speaker
     "Created By",               // AF - Event Editor: who created the row (delete permission)
     "Event Notes",              // AG - Event Editor: timestamped notes log
+    "Hide from Newsletter",     // AH - Checkbox: exclude this event from the newsletter bulletin
   ];
 
   // Make sure the grid is wide enough for all columns (covers older sheets
@@ -358,6 +360,7 @@ function setupSheet() {
     150,  // AE Introducer
     140,  // AF Created By
     320,  // AG Event Notes
+    140,  // AH Hide from Newsletter
   ];
   widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
@@ -375,6 +378,9 @@ function setupSheet() {
 
   // Cancelled checkbox — cover plenty of rows so new rows inherit it
   sheet.getRange(2, COL.CANCELLED, 1000, 1).insertCheckboxes();
+
+  // Hide-from-Newsletter checkbox (AH) — same treatment as Cancelled
+  sheet.getRange(2, COL.EXCLUDE_NEWSLETTER, 1000, 1).insertCheckboxes();
 
   // DAY_LABEL: single ARRAYFORMULA in D2 covers the whole column automatically.
   // This prevents Sheets from copying the formula into adjacent cells when new rows are added.
@@ -885,6 +891,7 @@ function generateNewsletter() {
   data.forEach(row => {
     const dateVal = row[COL.DATE - 1];
     if (!dateVal || !(dateVal instanceof Date)) return;
+    if (row[COL.EXCLUDE_NEWSLETTER - 1] === true) return; // hidden from newsletter
     const d = new Date(dateVal); d.setHours(0,0,0,0);
     const cancelled = row[COL.CANCELLED - 1];
     const type      = val(row, COL.EVENT_TYPE).toLowerCase() || "meeting";
@@ -1748,6 +1755,7 @@ function getEventEditorData() {
         summary:   String(row[COL.SUMMARY - 1]           || ''),
         createdBy: String(row[COL.CREATED_BY - 1]        || ''),
         notes:     String(row[COL.EVENT_NOTES - 1]       || ''),
+        hideFromNewsletter: !!row[COL.EXCLUDE_NEWSLETTER - 1],
       });
     });
   }
@@ -1802,6 +1810,7 @@ function saveEvent(password, payload) {
     set(COL.SPEAKER_URL,       p.link      || '');
     if (p.photo) set(COL.PHOTO_TOP, p.photo);   // don't clobber an embedded image with a blank
     set(COL.SUMMARY,           p.summary   || '');
+    set(COL.EXCLUDE_NEWSLETTER, !!p.hideFromNewsletter);
     set(COL.STATUS,            '✏️ Edited by ' + who + ' ' + ts);
     targetRow = rowIndex;
   } else {
@@ -1884,6 +1893,7 @@ function eventEditorBuildRow_(p, type, who, ts) {
   row[COL.SPEAKER_URL - 1]       = p.link      || '';
   row[COL.PHOTO_TOP - 1]         = p.photo     || '';
   row[COL.SUMMARY - 1]           = p.summary   || '';
+  row[COL.EXCLUDE_NEWSLETTER - 1] = !!p.hideFromNewsletter;
   row[COL.CREATED_BY - 1]        = who;        // who may later delete this event
   row[COL.STATUS - 1]            = '➕ Added by ' + who + ' ' + ts;
   return row;
@@ -3710,6 +3720,7 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
       <div id="f-photo-prev" style="margin-top:6px"></div>
     </div>
     <label class="chk"><input type="checkbox" id="f-cancelled"> Mark as cancelled</label>
+    <label class="chk"><input type="checkbox" id="f-hide-newsletter"> Hide from newsletter</label>
     <div id="notes-section" style="margin-top:1.1em;display:none">
       <div style="font-weight:700;color:#17458F;font-size:0.78em;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin-bottom:0.5em">Notes</div>
       <div id="f-notes-display" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:0.5em 0.7em;font-size:0.82em;white-space:pre-wrap;max-height:130px;overflow-y:auto;color:#334155;margin-bottom:0.5em"></div>
@@ -3832,6 +3843,7 @@ function openNew(){
   setV('f-name',''); setV('f-location',''); setV('f-organizer',currentUser);
   setV('f-summary',''); setV('f-link',''); setV('f-photo','');
   document.getElementById('f-cancelled').checked=false;
+  document.getElementById('f-hide-newsletter').checked=false;
   showPhotoPrev();
   openPanel();
 }
@@ -3846,6 +3858,7 @@ function openEdit(rowIndex){
   setV('f-name',e.eventName); setV('f-location',e.location); setV('f-organizer',e.organizer);
   setV('f-summary',e.summary); setV('f-link',e.link); setV('f-photo',e.photo);
   document.getElementById('f-cancelled').checked=!!e.cancelled;
+  document.getElementById('f-hide-newsletter').checked=!!e.hideFromNewsletter;
   document.getElementById('notes-section').style.display='';
   document.getElementById('f-notes-display').textContent=e.notes||'(no notes yet)';
   document.getElementById('f-note-input').value='';
@@ -3869,7 +3882,8 @@ function savePanel(){
   var payload={rowIndex:editingRow,eventType:getV('f-type'),date:getV('f-date'),time:to12(getV('f-time')),
     duration:getV('f-duration'),location:getV('f-location'),eventName:getV('f-name'),organizer:getV('f-organizer'),
     link:getV('f-link'),photo:getV('f-photo'),summary:getV('f-summary'),
-    cancelled:document.getElementById('f-cancelled').checked,editor:currentUser};
+    cancelled:document.getElementById('f-cancelled').checked,
+    hideFromNewsletter:document.getElementById('f-hide-newsletter').checked,editor:currentUser};
   var pw=localStorage.getItem('pipelinePw')||'';
   busy(true);
   gs2('saveEvent',pw,payload).then(function(fresh){DATA.events=fresh.events;busy(false);closePanel();render();toast('Saved ✓');})

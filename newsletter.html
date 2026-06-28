@@ -41,6 +41,13 @@ permalink: /newsletter/
     box-shadow: 0 1px 4px rgba(0,0,0,0.15);
   }
   .event-opening { font-size: 0.95em; margin: 0.3em 0; }
+  .event-organizer { font-size: 0.92em; color: #555; margin: 0.2em 0; }
+  .event-type-tag {
+    display: inline-block; font-size: 0.72em; font-weight: bold;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    background: #e8eaf0; color: #374151; border-radius: 10px;
+    padding: 1px 8px; vertical-align: middle;
+  }
   .event-narrative { margin: 0.5em 0; }
   .meet-link { font-size: 0.9em; margin: 0.4em 0; }
 
@@ -98,10 +105,16 @@ permalink: /newsletter/
   .cal-event.cancelled { color: #aaa; }
 
   .bg-meeting      { background: #c7d7fb; }
-  .bg-board        { background: #e9d5ff; }
-  .bg-social       { background: #bbf7d0; }
-  .bg-service      { background: #fed7aa; }
-  .bg-other        { background: #f3f4f6; }
+  .bg-assembly     { background: #a5f3fc; }
+  .bg-board        { background: #93c5fd; }
+  .bg-social       { background: #fde68a; }
+  .bg-service      { background: #fdba74; }
+  .bg-greybears    { background: #fde8d0; }
+  .bg-fundraiser   { background: #e9d5ff; }
+  .bg-district     { background: #86efac; }
+  .bg-committee    { background: #fce7f3; }
+  .bg-holiday      { background: #fca5a5; }
+  .bg-other        { background: #d1d5db; }
   .bg-cancelled    { background: #e5e7eb; }
 
   .bulletin-footer {
@@ -127,7 +140,8 @@ permalink: /newsletter/
 <script src="{{ '/assets/js/rotary-common.js' | relative_url }}"></script>
 <script>
 const DETAIL_COUNT = 3;
-const WEEKS_AHEAD  = 12;
+const WEEKS_AHEAD  = 12;   // "Looking Ahead" dates list window
+const EVENT_WEEKS_AHEAD = 26;  // "Club Events & Socials" window (~6 months out)
 
 const ROLE_FIELDS = [
   { key:'mc',            label:'MC'             },
@@ -141,15 +155,24 @@ const ROLE_FIELDS = [
 ];
 
 const TYPE_BG = {
-  'meeting':'bg-meeting', 'board meeting':'bg-board',
-  'social':'bg-social',   'service':'bg-service',
-  'committee':'bg-other', 'other':'bg-other',
+  'meeting':'bg-meeting',         'assembly':'bg-assembly',
+  'board meeting':'bg-board',     'social':'bg-social',
+  'service':'bg-service',         'grey bears':'bg-greybears',
+  'fundraiser':'bg-fundraiser',   'district event':'bg-district',
+  'committee':'bg-committee',     'holiday':'bg-holiday',
+  'other':'bg-other',
 };
 const TYPE_ABBREV = {
-  'meeting':'Mtg', 'board meeting':'Brd Mtg', 'social':'Social',
-  'service':'Service', 'committee':'Com',     'other':'Oth',
+  'meeting':'Mtg',          'assembly':'Assembly',  'board meeting':'Brd Mtg',
+  'social':'Social',        'service':'Service',    'grey bears':'Grey Bears',
+  'fundraiser':'Fundraiser','district event':'District', 'committee':'Com',
+  'holiday':'Holiday',      'other':'Oth',
 };
-const DETAIL_TYPES = ['meeting', 'board meeting'];
+// Speaker meetings get the detailed "Coming Up" treatment with duty rosters.
+const DETAIL_TYPES = ['meeting', 'board meeting', 'assembly'];
+// Non-meeting club happenings featured in "Club Events & Socials" (no holidays,
+// no weekly Grey Bears — those stay in Looking Ahead / the calendar grid).
+const HAPPENING_TYPES = ['social', 'service', 'fundraiser', 'committee', 'district event', 'other'];
 
 // ── Section: Masthead ─────────────────────────────────────────────────────
 function masthead(today) {
@@ -226,6 +249,60 @@ function comingUp(rows) {
 
   return `<section class="bulletin-section">
 <h2>Coming Up</h2>
+${blocks}
+</section>`;
+}
+
+// ── Section: Club Events & Socials ────────────────────────────────────────
+// Detail cards for non-meeting events (socials, service, fundraisers, district
+// events, committees, other). Uses the Event Editor field mapping:
+// name = Main Topic, organizer = Speaker(s) Organizer, link = Speaker URL,
+// photo = Top Photo, details = Summary.
+function clubEvents(rows) {
+  const blocks = rows.map((row, idx) => {
+    const d         = parseRowDate(row);
+    const type      = fv(row, COL.eventType) || 'Event';
+    const name      = fv(row, COL.mainTopic);
+    const location  = fv(row, COL.location);
+    const organizer = fv(row, COL.speakerOrganizer);
+    const url       = fv(row, COL.speakerUrl);
+    const summary   = fv(row, COL.summary);
+    const photoTop  = photoSrc(row, COL.photoTop, COL.photoTopUrl);
+    const timeStr   = fv(row, COL.time);
+
+    const title   = name || type;
+    const heading = `${esc(fmtShort(d))}: ${linkWrap(title, url)}`;
+
+    const metaParts = [
+      `<span class="event-type-tag">${esc(type)}</span>`,
+      `${esc(fmtLong(d))}${timeStr ? ' at ' + esc(timeStr) : ''}`,
+    ];
+    if (location) metaParts.push(mapLink(location));
+    const meta = metaParts.join(' &nbsp;&middot;&nbsp; ');
+
+    let html = `<div class="event-block">
+  <h3 class="event-heading">${heading}</h3>
+  <p class="event-meta">${meta}</p>`;
+    if (organizer) {
+      html += `\n  <p class="event-organizer"><strong>Organizer:</strong> ${esc(organizer)}</p>`;
+    }
+    if (photoTop && photoTop.startsWith('http')) {
+      html += `\n  <img src="${esc(photoTop)}" alt="${esc(title)}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
+    }
+    if (summary) {
+      html += `\n  <p class="event-narrative">${textToHtml(summary)}</p>`;
+    }
+    if (url) {
+      html += `\n  <p class="meet-link"><a href="${esc(url)}" target="_blank" rel="noopener">More info &amp; RSVP &rarr;</a></p>`;
+    }
+    html += `</div>`;
+    if (idx < rows.length - 1) html += `\n<hr class="section-rule">`;
+    return html;
+  }).join('\n');
+
+  return `<hr class="section-rule">
+<section class="bulletin-section">
+<h2>Club Events &amp; Socials</h2>
 ${blocks}
 </section>`;
 }
@@ -315,7 +392,7 @@ function calendarGrid(allRows, today) {
   let html = `<hr class="section-rule">
 <section class="bulletin-section">
 <h2>Calendar</h2>
-<p class="calendar-legend">Mtg = Meeting &nbsp;&middot;&nbsp; Brd Mtg = Board Meeting &nbsp;&middot;&nbsp; Com = Committee</p>`;
+<p class="calendar-legend">Mtg = Meeting &nbsp;&middot;&nbsp; Brd Mtg = Board Meeting &nbsp;&middot;&nbsp; Com = Committee &nbsp;&middot;&nbsp; District = District Event</p>`;
 
   for (let mo = 0; mo < 4; mo++) {
     const ms       = new Date(today.getFullYear(), today.getMonth() + mo, 1);
@@ -366,8 +443,9 @@ function bulletinFooter(today) {
 function renderNewsletter(allRows) {
   const today  = new Date(); today.setHours(0,0,0,0);
   const cutoff = new Date(today.getTime() + WEEKS_AHEAD * 7 * 86400000);
+  const eventCutoff = new Date(today.getTime() + EVENT_WEEKS_AHEAD * 7 * 86400000);
 
-  const detailRows = [], skimRows = [], recentRows = [];
+  const detailRows = [], eventRows = [], skimRows = [], recentRows = [];
 
   allRows.forEach(row => {
     const d = parseRowDate(row);
@@ -384,17 +462,22 @@ function renderNewsletter(allRows) {
           detailRows.push(row);
         }
       }
+      if (dateOnly <= eventCutoff && !cancelled && HAPPENING_TYPES.includes(type)) {
+        eventRows.push(row);
+      }
     } else if (type === 'meeting') {
       recentRows.push(row);
     }
   });
 
   detailRows.sort((a,b) => parseRowDate(a) - parseRowDate(b));
+  eventRows.sort((a,b)  => parseRowDate(a) - parseRowDate(b));
   skimRows.sort((a,b)   => parseRowDate(a) - parseRowDate(b));
   recentRows.sort((a,b) => parseRowDate(b) - parseRowDate(a));
 
   const parts = [masthead(today)];
   if (detailRows.length) parts.push(comingUp(detailRows.slice(0, DETAIL_COUNT)));
+  if (eventRows.length)  parts.push(clubEvents(eventRows));
   if (skimRows.length)   parts.push(lookingAhead(skimRows));
   if (recentRows.length) parts.push(recentMeetings(recentRows.slice(0, 2)));
   parts.push(calendarGrid(allRows, today));
@@ -410,7 +493,9 @@ document.addEventListener('DOMContentLoaded', () => {
   fetch(CSV_URL)
     .then(r => r.text())
     .then(text => {
-      const rows = parseCSV(text).slice(1).filter(r => r.length > COL.time);
+      const rows = parseCSV(text).slice(1)
+        .filter(r => r.length > COL.time)
+        .filter(r => !isHiddenFromNewsletter(r));
       renderNewsletter(rows);
     })
     .catch(() => {
