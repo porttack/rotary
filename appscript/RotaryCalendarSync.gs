@@ -101,6 +101,11 @@ const DUTY_COLS = {
   bagPerson:     COL.BAG_PERSON,
 };
 
+// Event types that get a duty roster in the Duty Editor. Board Meetings are
+// deliberately excluded — they have no roster (cf. the newsletter, which also
+// skips the duty roster for board meetings).
+const DUTY_ROSTER_TYPES = ["meeting"];
+
 // Event type options
 const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service", "Grey Bears", "Fundraiser", "District Event", "Committee", "Holiday", "Other"];
 
@@ -1677,7 +1682,7 @@ function getPageData() {
     const d = new Date(dateVal); d.setHours(0,0,0,0);
     const type      = String(row[COL.EVENT_TYPE - 1] || "").toLowerCase();
     const cancelled = row[COL.CANCELLED - 1];
-    if (d >= today && !cancelled && DETAIL_TYPES.includes(type)) {
+    if (d >= today && !cancelled && DUTY_ROSTER_TYPES.includes(type)) {
       upcoming.push({ sheetRow: i + 2, row });
     }
   });
@@ -2158,6 +2163,8 @@ function getDutyEditorHtml() {
   td { padding: 4px 6px; vertical-align: middle; }
   td.lbl { width: 130px; font-weight: bold; color: #17458F; white-space: nowrap; font-size: 0.92em; }
   select { width: 100%; padding: 4px; font-size: 0.95em; border: 1px solid #ccc; border-radius: 3px; background: #fff; }
+  td.duty select + select { margin-top: 4px; }
+  td.duty select.secondary { color: #555; }
   .btn { background: #17458F; color: #fff; border: none; padding: 8px 22px; border-radius: 4px;
          cursor: pointer; font-size: 0.97em; margin-top: 0.8em; }
   .btn:disabled { background: #aaa; cursor: default; }
@@ -2195,12 +2202,14 @@ function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function buildSelect(name, curVal) {
+function buildSelect(dutyKey, curVal, isSecondary) {
+  var placeholder = isSecondary ? '— add second person —' : '— unassigned —';
   var opts = [''].concat(pageMembers).map(function(m) {
     return '<option value="' + esc(m) + '"' + (m === curVal ? ' selected' : '') + '>'
-      + esc(m || '— unassigned —') + '</option>';
+      + esc(m || placeholder) + '</option>';
   }).join('');
-  return '<select name="' + name + '">' + opts + '</select>';
+  return '<select data-duty="' + esc(dutyKey) + '"'
+    + (isSecondary ? ' class="secondary"' : '') + '>' + opts + '</select>';
 }
 
 function renderCards(data) {
@@ -2215,8 +2224,10 @@ function renderCards(data) {
     if (mtg.time)     metaParts.push(esc(mtg.time));
     if (mtg.location) metaParts.push(esc(mtg.location));
     var rows = DUTY_FIELDS.map(function(f) {
-      return '<tr><td class="lbl">' + esc(f.label) + '</td><td>'
-        + buildSelect(f.key, mtg.duties[f.key] || '') + '</td></tr>';
+      var names = String(mtg.duties[f.key] || '').split(',').map(function(s) { return s.trim(); });
+      return '<tr><td class="lbl">' + esc(f.label) + '</td><td class="duty">'
+        + buildSelect(f.key, names[0] || '', false)
+        + buildSelect(f.key, names[1] || '', true) + '</td></tr>';
     }).join('');
     var div = document.createElement('div');
     div.className = 'card';
@@ -2240,8 +2251,17 @@ function saveMeeting(btn) {
   var rowIndex = parseInt(card.getAttribute('data-row'), 10);
   var idx      = parseInt(card.getAttribute('data-idx'), 10);
   var selects  = card.querySelectorAll('select');
-  var duties   = {};
-  selects.forEach(function(s) { duties[s.name] = s.value; });
+  // Each duty has two selects (data-duty=<key>). Collect non-empty names per
+  // duty and store as a comma-separated list; an empty array joins to '' so
+  // clearing both selects clears the cell.
+  var grouped  = {};
+  selects.forEach(function(s) {
+    var k = s.getAttribute('data-duty');
+    if (!grouped[k]) grouped[k] = [];
+    if (s.value) grouped[k].push(s.value);
+  });
+  var duties = {};
+  Object.keys(grouped).forEach(function(k) { duties[k] = grouped[k].join(', '); });
   btn.disabled    = true;
   btn.textContent = 'Saving…';
   var msgEl = document.getElementById('msg' + idx);
@@ -3441,6 +3461,7 @@ function getUpcomingEventsForPicker() {
       eventType:   String(row[COL.EVENT_TYPE - 1] || ''),
       mainSpeaker: speakerRaw,
       mainTopic:   String(row[COL.MAIN_TOPIC - 1] || ''),
+      organizer:   String(row[COL.SPEAKER_ORGANIZER - 1] || ''),
       time:        tv instanceof Date ? Utilities.formatDate(tv, tz, 'h:mm a') : String(tv || ''),
       location:    String(row[COL.LOCATION - 1] || ''),
       available:   available,
@@ -4138,6 +4159,7 @@ header h1{font-size:1em;font-weight:bold;flex:1}
 .mtg-time{font-weight:normal;color:#888;font-size:0.92em}
 .mtg-speaker{font-weight:bold;color:#17458F;margin-top:2px}
 .mtg-topic{color:#555;font-size:0.92em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.mtg-org{color:#6d28d9;font-size:0.82em;margin-top:2px}
 .mtg-empty{color:#9ca3af;font-style:italic;margin-top:1px}
 .mtg-tent{color:#b45309;font-size:0.78em;margin-top:2px}
 /* Panel */
@@ -4507,14 +4529,17 @@ function buildMeetingCard(m) {
   var dateLine = '<div class="mtg-date">' + esc(dateShort) +
     (m.time ? ' <span class="mtg-time">' + esc(m.time) + '</span>' : '') + '</div>';
   var baseTitle = dateShort + (m.time ? ' · ' + m.time : '') + (m.location ? ' · ' + m.location : '');
+  // Speaker organizer / chair who owns this meeting, if set — shown so chairs
+  // can see at a glance whether a date is already someone's responsibility.
+  var orgLine = m.organizer ? '<div class="mtg-org" title="Speaker organizer">👤 ' + esc(m.organizer) + '</div>' : '';
   // Pipeline cards eyeing this exact date (excludes already-scheduled cards).
   var tent = (dateConflicts[m.date] || []).slice();
 
   if (m.available) {
     // Open slot — clickable to assign a speaker from the pipeline.
     div.className = 'mtg-card empty clickable' + (tent.length ? ' tentative' : '');
-    div.title = baseTitle + ' — no speaker yet (click to assign a speaker)';
-    div.innerHTML = dateLine + '<div class="mtg-empty">— no speaker —</div>' +
+    div.title = baseTitle + ' — no speaker yet (click to assign a speaker)' + (m.organizer ? ' · organizer: ' + m.organizer : '');
+    div.innerHTML = dateLine + '<div class="mtg-empty">— no speaker —</div>' + orgLine +
       (tent.length ? '<div class="mtg-tent" title="' + esc(tent.join(', ')) + '">⭐ ' +
         tent.length + ' tentative: ' + esc(tent.join(', ')) + '</div>' : '');
     div.addEventListener('click', function() { openFillModal(m); });
@@ -4525,7 +4550,7 @@ function buildMeetingCard(m) {
     div.title = baseTitle + (m.mainTopic ? ' — ' + m.mainTopic : '') + (linked ? ' (click to open card)' : '');
     div.innerHTML = dateLine +
       '<div class="mtg-speaker">' + esc(m.mainSpeaker) + '</div>' +
-      (m.mainTopic ? '<div class="mtg-topic">' + esc(m.mainTopic) + '</div>' : '');
+      (m.mainTopic ? '<div class="mtg-topic">' + esc(m.mainTopic) + '</div>' : '') + orgLine;
     if (linked) div.addEventListener('click', function() { openPanel(linked.rowIndex); });
   }
   return div;
@@ -5257,6 +5282,7 @@ tr:hover td{background:#f8f9ff}
 .cal-item:last-child{border-bottom:none}
 .cal-date{font-weight:bold;color:#0f766e}
 .cal-spk{color:#17458F}
+.cal-org{color:#6d28d9;font-size:0.94em}
 .cal-open{color:#9ca3af;font-style:italic}
 .cal-tent{color:#b45309}
 .cal-empty{color:#999;font-size:0.84em;font-style:italic}
@@ -5516,7 +5542,8 @@ function buildCalSidebar(){
     var second=m.available
       ? (tent.length?'<span class="cal-tent">⭐ '+esc(tent.join(', '))+' (tentative)</span>':'<span class="cal-open">— open —</span>')
       : '<span class="cal-spk">'+esc(m.mainSpeaker)+'</span>';
-    return '<div class="cal-item"><span class="cal-date">'+esc(d)+(m.time?' '+esc(m.time):'')+'</span>'+second+'</div>';
+    var org=m.organizer?'<span class="cal-org" title="Speaker organizer">👤 '+esc(m.organizer)+'</span>':'';
+    return '<div class="cal-item"><span class="cal-date">'+esc(d)+(m.time?' '+esc(m.time):'')+'</span>'+second+org+'</div>';
   }).join('');
   return '<h2>📅 Upcoming <span class="cal-tot" title="'+filled+' of '+ms.length+' have a speaker">'+filled+'/'+ms.length+'</span></h2>'+rows;
 }
@@ -5776,6 +5803,7 @@ header a{color:#fff;font-size:0.82em;opacity:0.8;text-decoration:none}
 .cal-item:last-child{border-bottom:none}
 .cal-date{font-weight:bold;color:#0f766e}
 .cal-spk{color:#17458F}
+.cal-org{color:#6d28d9;font-size:0.94em}
 .cal-open{color:#9ca3af;font-style:italic}
 .cal-tent{color:#b45309}
 .cal-empty{color:#999;font-size:0.84em;font-style:italic}
@@ -6010,7 +6038,8 @@ function buildCalSidebar(){
     var second=m.available
       ? (tent.length?'<span class="cal-tent">⭐ '+esc(tent.join(', '))+' (tentative)</span>':'<span class="cal-open">— open —</span>')
       : '<span class="cal-spk">'+esc(m.mainSpeaker)+'</span>';
-    return '<div class="cal-item"><span class="cal-date">'+esc(d)+(m.time?' '+esc(m.time):'')+'</span>'+second+'</div>';
+    var org=m.organizer?'<span class="cal-org" title="Speaker organizer">👤 '+esc(m.organizer)+'</span>':'';
+    return '<div class="cal-item"><span class="cal-date">'+esc(d)+(m.time?' '+esc(m.time):'')+'</span>'+second+org+'</div>';
   }).join('');
   return '<h2>📅 Upcoming <span class="cal-tot" title="'+filled+' of '+ms.length+' have a speaker">'+filled+'/'+ms.length+'</span></h2>'+rows;
 }
