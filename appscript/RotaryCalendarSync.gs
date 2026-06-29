@@ -4201,7 +4201,6 @@ header h1{font-size:1em;font-weight:bold;flex:1}
     <div id="cols-menu"></div>
   </span>
   <a href="__EXEC_URL__?app=pipeline" target="_top" class="hbtn">Table →</a>
-  <a href="__EXEC_URL__?app=speaker-pipeline" target="_top" class="hbtn">Status →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
 <div id="ai-wrap" style="display:none">
@@ -5161,12 +5160,85 @@ tr:hover td{background:#f8f9ff}
 .btn-assign{background:#16a34a;color:#fff}
 .row-msg{font-size:0.8em;min-height:1em}
 .row-msg.ok{color:#166534}.row-msg.err{color:#b91c1c}
+/* Layout: desktop calendar sidebar + main table */
+#layout{display:flex;gap:1em;align-items:flex-start}
+#main{flex:1;min-width:0}
+#cal-side{width:230px;flex-shrink:0;position:sticky;top:0.7em;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.07);padding:0.7em 0.8em}
+#cal-side h2{font-size:0.92em;color:#17458F;margin-bottom:0.5em;display:flex;align-items:center;gap:0.4em}
+#cal-side .cal-tot{margin-left:auto;background:#0f766e;color:#fff;font-size:0.78em;border-radius:10px;padding:1px 7px}
+.cal-item{display:flex;flex-direction:column;padding:0.35em 0;border-bottom:1px solid #f0f0f0;font-size:0.84em}
+.cal-item:last-child{border-bottom:none}
+.cal-date{font-weight:bold;color:#0f766e}
+.cal-spk{color:#17458F}
+.cal-open{color:#9ca3af;font-style:italic}
+.cal-tent{color:#b45309}
+.cal-empty{color:#999;font-size:0.84em;font-style:italic}
+/* AI command line */
+#ai-bar{padding:0.6em 1em 0;display:flex;gap:0.5em}
+#ai-input{flex:1;min-width:0;padding:9px 11px;border:1px solid #ccc;border-radius:6px;font-size:0.95em}
+#ai-input:focus{outline:none;border-color:#17458F}
+#ai-go{background:#17458F;color:#fff;border:none;border-radius:6px;padding:0 16px;font-size:0.95em;cursor:pointer;white-space:nowrap}
+#ai-go:disabled{background:#aaa;cursor:default}
+/* Detail panel (slide-in editor) */
+#panel{position:fixed;right:-440px;top:0;width:440px;height:100%;background:#fff;box-shadow:-3px 0 16px rgba(0,0,0,0.12);transition:right 0.2s;display:flex;flex-direction:column;z-index:100}
+#panel.open{right:0}
+#panel-hd{background:#17458F;color:#fff;padding:0.7em 1em;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+#panel-hd h2{font-size:1em}
+#panel-close{background:none;border:none;color:#fff;font-size:1.3em;cursor:pointer;line-height:1}
+#panel-save-hd{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.5);color:#fff;padding:3px 10px;border-radius:4px;font-size:0.82em;cursor:pointer}
+#panel-save-hd:hover{background:rgba(255,255,255,0.3)}
+.panel-hd-btns{display:flex;align-items:center;gap:0.5em}
+#panel-body{flex:1;overflow-y:auto;padding:1em}
+.pfield{margin-bottom:0.7em}
+.pfield label{display:block;font-weight:bold;color:#17458F;font-size:0.82em;margin-bottom:2px}
+.pfield input,.pfield textarea,.pfield select{width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-size:0.88em;font-family:Arial,sans-serif}
+.pfield input[type=checkbox]{width:auto;padding:0;border:none;box-shadow:none}
+.pfield textarea{resize:vertical;min-height:60px}
+.notes-display{background:#f8f9fa;border:1px solid #e0e0e0;border-radius:4px;padding:0.5em 0.7em;font-size:0.8em;white-space:pre-wrap;max-height:120px;overflow-y:auto;color:#333;margin-bottom:0.4em}
+.pbtn{background:#17458F;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;margin-right:0.4em;margin-bottom:0.3em}
+.pbtn:hover{background:#1a56db}
+.pbtn.sec{background:#f4f4f4;color:#444;border:1px solid #ccc}
+.pbtn.sec:hover{background:#e8e8e8}
+.pbtn.danger{background:#dc2626}
+.pmsg{font-size:0.8em;margin-top:0.4em;min-height:1em}
+.pmsg.ok{color:#166534}.pmsg.err{color:#b91c1c}
+.sec-title{font-weight:bold;color:#17458F;font-size:0.85em;border-bottom:1px solid #e0e0e0;padding-bottom:3px;margin:0.8em 0 0.5em}
+/* Assign-to-event modal */
+#modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:150;align-items:center;justify-content:center}
+#modal-overlay.show{display:flex}
+.modal{background:#fff;border-radius:8px;padding:1.2em;width:440px;max-height:80vh;display:flex;flex-direction:column}
+.modal h3{color:#17458F;margin-bottom:0.5em}
+.modal-desc{font-size:0.82em;color:#555;margin-bottom:0.6em}
+#event-list{flex:1;overflow-y:auto;max-height:340px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:0.6em}
+.ev-item{padding:0.5em 0.75em;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:0.84em;display:flex;gap:0.5em;align-items:baseline}
+.ev-item:last-child{border-bottom:none}
+.ev-item.available:hover{background:#f0f7ff}
+.ev-item.available.selected{background:#dbeafe;border-left:3px solid #2563eb}
+.ev-item.taken{color:#9ca3af;cursor:default}
+.ev-item.taken .ev-speaker{text-decoration:line-through;font-size:0.9em}
+.ev-item.tentative{background:#fffbeb}
+.ev-item.tentative:hover{background:#fef3c7}
+.ev-date{font-weight:bold;white-space:nowrap;min-width:130px}
+.ev-type{color:#6b7280;font-size:0.9em}
+.ev-speaker{color:#b91c1c;font-size:0.85em;margin-left:auto}
+.ev-open{color:#16a34a;font-size:0.85em;margin-left:auto}
+.ev-tentative{color:#b45309;font-size:0.82em;margin-left:auto;text-align:right}
+.modal-btns{display:flex;gap:0.5em}
 #auth{position:fixed;inset:0;background:#17458F;display:flex;align-items:center;justify-content:center;z-index:200}
 .auth-box{background:#fff;border-radius:10px;padding:2em;width:300px;text-align:center}
 .auth-box h2{color:#17458F;margin-bottom:1em;font-size:1.1em}
 .auth-box input{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;margin-bottom:0.6em;font-size:0.95em}
 .auth-box button{background:#17458F;color:#fff;border:none;padding:8px 24px;border-radius:4px;cursor:pointer;font-size:0.95em;width:100%}
 .auth-err{color:#b91c1c;font-size:0.85em;margin-top:0.4em;min-height:1em}
+/* Phone: sidebar hidden, panel + modal full width */
+@media (max-width:600px){
+  #layout{display:block}
+  #cal-side{display:none}
+  #panel{width:100%;right:-100%}
+  .modal{width:94vw}
+  #ai-input{font-size:1em;padding:11px 12px}
+  #ai-go{font-size:1em;padding:0 18px}
+}
 </style>
 </head>
 <body>
@@ -5184,9 +5256,12 @@ tr:hover td{background:#f8f9ff}
   <span id="hdr-user" style="font-size:0.85em;opacity:0.8"></span>
   <a class="hbtn" href="https://rotary.porttack.com/request/" target="_blank">+ Request Speaker</a>
   <a href="__EXEC_URL__?app=kanban" target="_top" class="hbtn">Kanban →</a>
-  <a href="__EXEC_URL__?app=speaker-pipeline" target="_top" class="hbtn">Status →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
+<div id="ai-bar" style="display:none">
+  <input id="ai-input" placeholder="✨ Tell me what to change — e.g. “move Jane to scheduled” or “assign Bob to the first open date”">
+  <button id="ai-go" onclick="aiSubmit()">Ask</button>
+</div>
 <div id="toolbar">
   <input type="text" id="search" placeholder="Search name / topic…" oninput="renderTable()">
   <span style="font-size:0.82em;color:#666">Filter:</span>
@@ -5200,9 +5275,32 @@ tr:hover td{background:#f8f9ff}
   <select id="assignee-filter" onchange="setAssignee(this.value)" style="font-size:0.82em;padding:3px 6px;border:1px solid #ccc;border-radius:4px"><option value="">All</option></select>
 </div>
 <div id="content"><p style="color:#888;padding:1em">Loading…</p></div>
+
+<!-- Detail Panel -->
+<div id="panel">
+  <div id="panel-hd"><h2 id="panel-title">Speaker Detail</h2><div class="panel-hd-btns"><button id="panel-save-hd" onclick="savePanel()">Save</button><button id="panel-close" onclick="closePanel()">✕</button></div></div>
+  <div id="panel-body"></div>
+</div>
+
+<!-- Event Picker Modal -->
+<div id="modal-overlay">
+  <div class="modal">
+    <h3>Assign to Event</h3>
+    <p class="modal-desc">Green = open · Amber = open but another card has it as a tentative date · Gray/strikethrough = already has a speaker. Click an open date to select, then Assign.</p>
+    <div id="event-list"><p style="padding:0.6em;color:#888;font-size:0.85em">Loading…</p></div>
+    <div class="modal-btns">
+      <button class="pbtn" onclick="confirmAssign()">Assign</button>
+      <button class="pbtn sec" onclick="closeModal()">Cancel</button>
+    </div>
+    <div class="pmsg" id="modal-msg"></div>
+  </div>
+</div>
+
 <script>
 var currentUser='',allCards=[],members=[],statuses=[],statusLabels={};
-var filterStatus='all',expandedRow=null,sortCol='updatedAt',sortAsc=false,upcomingMeetings=[],assigneeFilter='';
+var filterStatus='all',sortCol='updatedAt',sortAsc=false,upcomingMeetings=[],assigneeFilter='';
+var panelRow=null,selectedEventsRow=null;
+var AI_ENABLED=__AI_ENABLED__; // server-injected feature flag
 function gs(fn,a){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a);})}
 function gs3(fn,a,b,c){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c);})}
 function doLogin(){
@@ -5224,6 +5322,9 @@ window.addEventListener('load',function(){
     else{localStorage.removeItem('pipelinePw');}
   }).catch(function(){localStorage.removeItem('pipelinePw');});}
   document.getElementById('auth-pw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+  var ai=document.getElementById('ai-input');
+  if(ai)ai.addEventListener('keydown',function(e){if(e.key==='Enter')aiSubmit();});
+  if(AI_ENABLED){var b=document.getElementById('ai-bar');if(b)b.style.display='';}
 });
 async function loadData(){
   try{
@@ -5266,15 +5367,18 @@ function renderTable(){
   });
   rows.sort(function(a,b){var av=a[sortCol]||'',bv=b[sortCol]||'';return sortAsc?(av>bv?1:-1):(av<bv?1:-1);});
   var content=document.getElementById('content');
-  if(!rows.length){content.innerHTML='<p style="color:#888;padding:1em">No matching speakers.</p>';return;}
-  var memberOpts=[''].concat(members).map(function(m){return'<option value="'+esc(m)+'">'+esc(m||'— unassigned —')+'</option>';}).join('');
-  var statusOpts=statuses.map(function(s){return'<option value="'+s+'">'+(statusLabels[s]||s)+'</option>';}).join('');
-  var cols=['speakerName','topic','status','assignedTo','tentativeDate','interested','source','updatedAt'];
-  var colLabels={speakerName:'Speaker',topic:'Topic',status:'Status',assignedTo:'Assigned',tentativeDate:'Date',interested:'♡',source:'Source',updatedAt:'Updated'};
-  var html='<table><thead><tr>'+cols.map(function(c){
-    return'<th onclick="sortBy(&#39;'+c+'&#39;)">'+(colLabels[c]||c)+(sortCol===c?(sortAsc?' ▲':' ▼'):'')+'</th>';
-  }).join('')+'</tr></thead><tbody id="tbody"></tbody></table>';
-  content.innerHTML=html;
+  var cols=['speakerName','topic','status','assignedTo','tentativeDate','interested'];
+  var colLabels={speakerName:'Speaker',topic:'Topic',status:'Status',assignedTo:'Assigned',tentativeDate:'Date',interested:'♡'};
+  var tableHtml;
+  if(!rows.length){
+    tableHtml='<p style="color:#888;padding:1em">No matching speakers.</p>';
+  }else{
+    tableHtml='<table><thead><tr>'+cols.map(function(c){
+      return'<th onclick="sortBy(&#39;'+c+'&#39;)">'+(colLabels[c]||c)+(sortCol===c?(sortAsc?' ▲':' ▼'):'')+'</th>';
+    }).join('')+'</tr></thead><tbody id="tbody"></tbody></table>';
+  }
+  content.innerHTML='<div id="layout"><aside id="cal-side">'+buildCalSidebar()+'</aside><div id="main">'+tableHtml+'</div></div>';
+  if(!rows.length)return;
   var tbody=document.getElementById('tbody');
   rows.forEach(function(card){
     var tr=document.createElement('tr');tr.style.cursor='pointer';
@@ -5283,102 +5387,243 @@ function renderTable(){
     tr.innerHTML='<td><strong>'+esc(card.speakerName||'(no name)')+'</strong>'+
       (card.tags?'<br>'+card.tags.split(',').map(function(t){t=t.trim();return t?'<span class="tag-chip">'+esc(t)+'</span>':''}).join(''):'')+'</td>'+
       '<td>'+esc(card.topic||'—')+'</td>'+
-      '<td><span class="tag tag-'+card.status.replace('-','_')+'">'+esc(statusLabels[card.status]||card.status)+'</span></td>'+
+      '<td><span class="tag tag-'+card.status+'">'+esc(statusLabels[card.status]||card.status)+'</span></td>'+
       '<td>'+esc(card.assignedTo||'—')+'</td><td>'+esc(card.tentativeDate||'—')+'</td>'+
-      '<td class="vote-cell"><button style="background:none;border:none;cursor:pointer;font-size:0.9em" onclick="voteRow(event,'+card.rowIndex+')">'+(iVoted?'❤️':'🤍')+'</button> '+intNames.length+(card.hearts?' <span title="Public support hearts from the /speakers/ website page" style="color:#b91c1c">♥'+card.hearts+'</span>':'')+'</td>'+
-      '<td><span class="tag tag-'+card.source+'">'+card.source+'</span></td>'+
-      '<td style="color:#888;font-size:0.8em">'+esc(card.updatedAt||'')+'</td>';
-    tr.addEventListener('click',function(){
-      expandedRow=(expandedRow===card.rowIndex)?null:card.rowIndex;renderTable();
-    });
+      '<td class="vote-cell"><button style="background:none;border:none;cursor:pointer;font-size:0.9em" onclick="voteRow(event,'+card.rowIndex+')">'+(iVoted?'❤️':'🤍')+'</button> '+intNames.length+(card.hearts?' <span title="Public support hearts from the /speakers/ website page" style="color:#b91c1c">♥'+card.hearts+'</span>':'')+'</td>';
+    tr.addEventListener('click',function(){openPanel(card.rowIndex);});
     tbody.appendChild(tr);
-    if(expandedRow===card.rowIndex){tbody.appendChild(buildExpandRow(card,memberOpts,statusOpts));}
   });
 }
-function buildExpandRow(card,memberOpts,statusOpts){
-  var tr=document.createElement('tr');tr.className='expand-row';
-  var ro=card.rowIndex;
-  tr.innerHTML='<td colspan="7"><div class="expand-inner">'+
-    ef('Speaker Name','<input id="ef-name-'+ro+'" value="'+esc(card.speakerName)+'">')+
-    ef('Topic','<input id="ef-topic-'+ro+'" value="'+esc(card.topic)+'">')+
-    ef('Status','<select id="ef-status-'+ro+'">'+statusOpts+'</select>')+
-    ef('Assigned To','<select id="ef-assigned-'+ro+'">'+memberOpts+'</select>')+
-    ef('Tentative Date','<select id="ef-date-'+ro+'">'+buildDateOptions(card.tentativeDate)+'</select>')+
-    ef('Email','<input id="ef-email-'+ro+'" value="'+esc(card.speakerEmail)+'">')+
-    ef('Phone','<input id="ef-phone-'+ro+'" value="'+esc(card.speakerPhone)+'">')+
-    ef('City','<input id="ef-city-'+ro+'" value="'+esc(card.speakerCity)+'">')+
-    ef('Preferred Dates','<input id="ef-pref-'+ro+'" value="'+esc(card.preferredDates)+'">')+
-    ef('Bio','<textarea id="ef-bio-'+ro+'" rows="3">'+esc(card.bio)+'</textarea>',true)+
-    ef('Summary (newsletter)','<textarea id="ef-summary-'+ro+'" rows="3">'+esc(card.summary)+'</textarea>',true)+
-    ef('Speaker URL','<input id="ef-url-'+ro+'" value="'+esc(card.speakerUrl)+'" placeholder="https://…">')+
-    ef('Introducer','<input id="ef-introducer-'+ro+'" value="'+esc(card.introducer)+'">')+
-    ef('Top Photo','<input id="ef-phototop-'+ro+'" value="'+esc(card.photoTop)+'" placeholder="paste URL or upload">'+
-      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,&#39;ef-phototop-'+ro+'&#39;,'+ro+')">'+
-      '<div id="ef-phototop-'+ro+'-prev" class="photo-prev"></div>',true)+
-    ef('Bottom Photo','<input id="ef-photobottom-'+ro+'" value="'+esc(card.photoBottom)+'" placeholder="paste URL or upload">'+
-      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,&#39;ef-photobottom-'+ro+'&#39;,'+ro+')">'+
-      '<div id="ef-photobottom-'+ro+'-prev" class="photo-prev"></div>',true)+
-    ef('Notes','<div class="notes-log">'+esc(card.notes)+'</div>'+
-      '<textarea id="ef-note-'+ro+'" rows="2" placeholder="Add a note…"></textarea>',true)+
-    '<div class="row-btns">'+
-      '<button class="btn btn-save" onclick="saveRow('+ro+')">Save</button>'+
-      '<button class="btn btn-sec" onclick="addRowNote('+ro+')">Add Note</button>'+
-      (['in-progress','limbo','scheduled'].indexOf(card.status)!==-1?
-        '<button class="btn btn-assign" onclick="assignRow('+ro+')">Assign to Event</button>':'')+
-    '</div><div class="row-msg" id="ef-msg-'+ro+'"></div>'+
-    '</div></td>';
-  setTimeout(function(){
-    var ss=document.getElementById('ef-status-'+ro);if(ss)ss.value=card.status;
-    var sa=document.getElementById('ef-assigned-'+ro);if(sa)sa.value=card.assignedTo;
-    showPhotoPreview('ef-phototop-'+ro);showPhotoPreview('ef-photobottom-'+ro);
-  },0);
-  return tr;
+// Compact, date-sorted calendar sidebar (next 12 meetings; open vs. booked).
+function buildCalSidebar(){
+  var ms=upcomingMeetings.slice().sort(function(a,b){return a.date<b.date?-1:(a.date>b.date?1:0);}).slice(0,12);
+  if(!ms.length) return '<h2>📅 Upcoming</h2><div class="cal-empty">No upcoming meetings.</div>';
+  var filled=ms.filter(function(m){return !m.available;}).length;
+  var tentByDate={};
+  allCards.forEach(function(c){
+    if(c.status==='scheduled'||c.status==='declined'||c.status==='deleted')return;
+    if(!c.tentativeDate)return;
+    (tentByDate[c.tentativeDate]=tentByDate[c.tentativeDate]||[]).push(c.speakerName||'(no name)');
+  });
+  var rows=ms.map(function(m){
+    var d=String(m.dateLabel||'').split(',')[0]||m.date;
+    var tent=tentByDate[m.date]||[];
+    var second=m.available
+      ? (tent.length?'<span class="cal-tent">⭐ '+esc(tent.join(', '))+' (tentative)</span>':'<span class="cal-open">— open —</span>')
+      : '<span class="cal-spk">'+esc(m.mainSpeaker)+'</span>';
+    return '<div class="cal-item"><span class="cal-date">'+esc(d)+(m.time?' '+esc(m.time):'')+'</span>'+second+'</div>';
+  }).join('');
+  return '<h2>📅 Upcoming <span class="cal-tot" title="'+filled+' of '+ms.length+' have a speaker">'+filled+'/'+ms.length+'</span></h2>'+rows;
 }
-function ef(label,input,full){return'<div class="ef'+(full?' full':'')+'"><label>'+esc(label)+'</label>'+input+'</div>';}
+// ── AI command line (proposes via a confirm dialog) ───
+function aiSubmit(){
+  var inp=document.getElementById('ai-input');
+  var t=(inp.value||'').trim();
+  if(!t)return;
+  var go=document.getElementById('ai-go');
+  go.disabled=true;go.textContent='…';
+  gs3('pipelineAssistantCommand',t,currentUser).then(function(res){
+    go.disabled=false;go.textContent='Ask';
+    if(res&&res.error){alert('⚠️ '+res.error);return;}
+    var actions=(res&&res.actions)||[];
+    if(!actions.length){alert((res&&res.message)||'I could not find a matching change. Try the speaker’s exact name.');return;}
+    var summary=actions.map(function(a){return '• '+a.description;}).join('\\n');
+    if(!confirm('Apply these changes?\\n\\n'+summary))return;
+    go.disabled=true;go.textContent='…';
+    gs3('applyPipelineActions',actions,currentUser).then(function(){
+      go.disabled=false;go.textContent='Ask';inp.value='';
+      loadData();
+    }).catch(function(e){go.disabled=false;go.textContent='Ask';alert('Apply failed: '+(e.message||e));});
+  }).catch(function(e){go.disabled=false;go.textContent='Ask';alert('Error: '+(e.message||e));});
+}
+// ── Detail Panel (full editor, shared design with the Kanban view) ──
+function openPanel(rowIndex){
+  var card=allCards.find(function(c){return c.rowIndex===rowIndex;});
+  if(!card)return;
+  panelRow=rowIndex;
+  var b=document.getElementById('panel-body');
+  document.getElementById('panel-title').textContent=card.speakerName||'Speaker Detail';
+  var memberOpts=[''].concat(members).map(function(m){return '<option value="'+esc(m)+'"'+(m===card.assignedTo?' selected':'')+'>'+esc(m||'— unassigned —')+'</option>';}).join('');
+  var statusOpts=statuses.map(function(s){return '<option value="'+s+'"'+(s===card.status?' selected':'')+'>'+(statusLabels[s]||s)+'</option>';}).join('');
+  b.innerHTML=
+    '<div class="pfield"><label>Speaker Name</label><input id="pn-name" value="'+esc(card.speakerName)+'"></div>'+
+    '<div class="pfield"><label>Topic</label><input id="pn-topic" value="'+esc(card.topic)+'"></div>'+
+    '<div class="pfield"><label>Status</label><select id="pn-status">'+statusOpts+'</select></div>'+
+    '<div class="pfield"><label>Priority</label><select id="pn-priority"><option value="">— none —</option><option value="Low">Low — Idea</option><option value="Medium">Medium — Recommended</option><option value="High">High — Strongly Recommended</option></select></div>'+
+    '<div class="pfield"><label>Manager (Assigned To)</label><select id="pn-assigned">'+memberOpts+'</select></div>'+
+    '<div class="pfield"><label>Tentative Date <span style="font-weight:normal;color:#888;font-size:0.9em">(open meeting dates)</span></label><select id="pn-date">'+buildDateOptions(card.tentativeDate)+'</select></div>'+
+    '<div class="pfield"><label>Speaker Role</label><select id="pn-role"><option>Opening Speaker</option><option>Main Speaker</option><option>Either</option><option>Unsure</option></select></div>'+
+    '<div class="pfield"><label>Email</label><input id="pn-email" value="'+esc(card.speakerEmail)+'"></div>'+
+    '<div class="pfield"><label>Phone</label><input id="pn-phone" value="'+esc(card.speakerPhone)+'"></div>'+
+    '<div class="pfield"><label>City</label><input id="pn-city" value="'+esc(card.speakerCity)+'"></div>'+
+    '<div class="pfield"><label>Preferred Dates</label><input id="pn-pref" value="'+esc(card.preferredDates)+'"></div>'+
+    '<div class="pfield"><label>Bio</label><textarea id="pn-bio" rows="3">'+esc(card.bio)+'</textarea></div>'+
+    '<div class="pfield"><label>Summary <span style="font-weight:normal;color:#888;font-size:0.9em">(newsletter narrative)</span></label><textarea id="pn-summary" rows="3">'+esc(card.summary)+'</textarea></div>'+
+    '<div class="pfield"><label>Speaker URL</label><input id="pn-url" value="'+esc(card.speakerUrl)+'" placeholder="https://…"></div>'+
+    '<div class="pfield"><label>Introducer</label><input id="pn-introducer" value="'+esc(card.introducer)+'" placeholder="Who introduces the speaker"></div>'+
+    '<div class="pfield"><label>Top Photo</label><input id="pn-phototop" value="'+esc(card.photoTop)+'" placeholder="paste an image URL, or upload below">'+
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,&#39;pn-phototop&#39;)">'+
+      '<div id="pn-phototop-prev" class="photo-prev"></div></div>'+
+    '<div class="pfield"><label>Bottom Photo</label><input id="pn-photobottom" value="'+esc(card.photoBottom)+'" placeholder="paste an image URL, or upload below">'+
+      '<input type="file" accept="image/*" style="margin-top:4px;font-size:0.8em" onchange="uploadPhoto(this,&#39;pn-photobottom&#39;)">'+
+      '<div id="pn-photobottom-prev" class="photo-prev"></div></div>'+
+    '<div class="pfield"><label>Tags <span style="font-weight:normal;color:#888;font-size:0.9em">(comma-separated)</span></label><input id="pn-tags" value="'+esc(card.tags)+'" placeholder="e.g. environment, local, tech"></div>'+
+    '<div class="pfield"><label>Comments <span style="font-weight:normal;color:#888;font-size:0.9em">(internal — from the submitter)</span></label><textarea id="pn-comments" rows="2">'+esc(card.comments)+'</textarea></div>'+
+    '<div class="pfield"><label>Format &amp; Speaker Details</label>'+
+      '<div style="margin-top:0.4em">'+
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-zoom-only"> Zoom only (not in person)</label>'+
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-is-rotarian"> Rotarian</label>'+
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-is-local"> Local to Santa Cruz County</label>'+
+        '<label style="font-weight:normal;display:block;margin-bottom:4px"><input type="checkbox" id="pn-fundraising"> May bring fundraising or donation materials</label>'+
+      '</div></div>'+
+    (card.requestorName?'<div class="pfield"><label>Submitted by</label><span style="font-size:0.88em">'+esc(card.requestorName)+' &lt;'+esc(card.requestorEmail)+'&gt;</span></div>':'')+
+    (card.interested?'<div class="pfield"><label>Interested members</label><span style="font-size:0.88em">'+esc(card.interested)+'</span></div>':'')+
+    '<div class="pfield"><label>Source / Last updated</label><span style="font-size:0.85em;color:#555">'+esc(card.source||'—')+(card.updatedAt?' · '+esc(card.updatedAt):'')+'</span></div>'+
+    '<button class="pbtn" onclick="savePanel()">Save</button>'+
+    (['in-progress','limbo','scheduled'].indexOf(card.status)!==-1?'<button class="pbtn" style="background:#16a34a" onclick="openAssignModal()">Assign to Event</button>':'')+
+    (card.status==='deleted'
+      ?'<button class="pbtn sec" onclick="restoreCard()">↩︎ Restore</button><button class="pbtn danger" onclick="deleteCard()">🗑 Delete permanently</button>'
+      :'<button class="pbtn danger" onclick="deleteCard()">🗑 Delete</button>')+
+    '<div class="pmsg" id="panel-msg"></div>'+
+    '<div class="sec-title">Notes</div>'+
+    '<div class="notes-display" id="pn-notes-display">'+esc(card.notes)+'</div>'+
+    '<div class="pfield"><label>Add Note</label><textarea id="pn-note-input" rows="2" placeholder="Type a note…"></textarea></div>'+
+    '<button class="pbtn sec" onclick="panelAddNote()">Add Note</button>';
+  document.getElementById('pn-role').value=card.speakerRole||'Main Speaker';
+  document.getElementById('pn-priority').value=card.priority||'';
+  document.getElementById('pn-zoom-only').checked=!!card.zoomOnly;
+  document.getElementById('pn-is-rotarian').checked=!!card.isRotarian;
+  document.getElementById('pn-is-local').checked=!!card.isLocal;
+  document.getElementById('pn-fundraising').checked=!!card.fundraisingLiterature;
+  showPhotoPreview('pn-phototop');showPhotoPreview('pn-photobottom');
+  document.getElementById('panel').classList.add('open');
+}
+function closePanel(){document.getElementById('panel').classList.remove('open');panelRow=null;}
 function buildDateOptions(cur){var opts='<option value="">— no date —</option>',found=false;upcomingMeetings.forEach(function(m){var isCur=(m.date===cur);if(isCur)found=true;var disabled=(!m.available&&!isCur)?' disabled':'';var label=m.available?(esc(m.dateLabel)+(m.time?' '+m.time:'')):(esc(m.dateLabel)+' — taken'+(m.mainSpeaker?' ('+esc(m.mainSpeaker)+')':''));opts+='<option value="'+esc(m.date)+'"'+(isCur?' selected':'')+disabled+'>'+label+'</option>';});if(cur&&!found)opts+='<option value="'+esc(cur)+'" selected>'+esc(cur)+' (custom)</option>';return opts;}
 function driveThumb(u,size){if(!u)return'';var id='';var i=u.indexOf('id=');if(i>=0){id=u.substring(i+3).split('&')[0];}else{var j=u.indexOf('/d/');if(j>=0)id=u.substring(j+3).split('/')[0];}return id?'https://drive.google.com/thumbnail?id='+id+'&sz=w'+(size||200):u;}
 function showPhotoPreview(id){var el=document.getElementById(id);if(!el)return;var v=el.value||'';var prev=document.getElementById(id+'-prev');if(!prev)return;prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(driveThumb(v,250))+'" style="max-width:140px;max-height:140px;border-radius:4px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';}
-async function uploadPhoto(input,targetId,ro){var file=input.files[0];if(!file)return;var prev=document.getElementById(targetId+'-prev');if(file.size>8*1024*1024){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Image too large (max 8 MB)</span>';input.value='';return;}if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#888">Uploading…</span>';try{var dataUrl=await new Promise(function(res,rej){var r=new FileReader();r.onload=function(ev){res(ev.target.result);};r.onerror=rej;r.readAsDataURL(file);});var sn=(document.getElementById('ef-name-'+ro)||{}).value||'speaker';var resp=await gs3('uploadPipelinePhoto',dataUrl,file.name,sn);document.getElementById(targetId).value=resp.url;showPhotoPreview(targetId);}catch(e){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Upload failed</span>';}}
-async function saveRow(ro){
-  var msg=document.getElementById('ef-msg-'+ro);
-  var changes={speakerName:document.getElementById('ef-name-'+ro).value.trim(),
-    topic:document.getElementById('ef-topic-'+ro).value.trim(),
-    status:document.getElementById('ef-status-'+ro).value,
-    assignedTo:document.getElementById('ef-assigned-'+ro).value,
-    tentativeDate:document.getElementById('ef-date-'+ro).value,
-    speakerEmail:document.getElementById('ef-email-'+ro).value.trim(),
-    speakerPhone:document.getElementById('ef-phone-'+ro).value.trim(),
-    speakerCity:document.getElementById('ef-city-'+ro).value.trim(),
-    preferredDates:document.getElementById('ef-pref-'+ro).value.trim(),
-    bio:document.getElementById('ef-bio-'+ro).value.trim(),
-    summary:document.getElementById('ef-summary-'+ro).value.trim(),
-    speakerUrl:document.getElementById('ef-url-'+ro).value.trim(),
-    introducer:document.getElementById('ef-introducer-'+ro).value.trim(),
-    photoTop:document.getElementById('ef-phototop-'+ro).value.trim(),
-    photoBottom:document.getElementById('ef-photobottom-'+ro).value.trim()};
-  try{var res=await gs3('savePipelineCard',ro,changes,currentUser);
-    var card=allCards.find(function(c){return c.rowIndex===ro;});if(card)Object.assign(card,changes);
-    if(res&&res.notes!=null&&card)card.notes=res.notes;
-    msg.className='row-msg ok';msg.textContent=(res&&res.noted)?'Saved ✓ ('+res.noted+' logged)':'Saved ✓';
-    setTimeout(function(){renderTable();},800);
-  }catch(e){msg.className='row-msg err';msg.textContent='Error: '+e.message;}
+async function uploadPhoto(input,targetId){var file=input.files[0];if(!file)return;var prev=document.getElementById(targetId+'-prev');if(file.size>8*1024*1024){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Image too large (max 8 MB)</span>';input.value='';return;}if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#888">Uploading…</span>';try{var dataUrl=await new Promise(function(res,rej){var r=new FileReader();r.onload=function(ev){res(ev.target.result);};r.onerror=rej;r.readAsDataURL(file);});var sn=(document.getElementById('pn-name')||{}).value||'speaker';var resp=await gs3('uploadPipelinePhoto',dataUrl,file.name,sn);document.getElementById(targetId).value=resp.url;showPhotoPreview(targetId);}catch(e){if(prev)prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Upload failed</span>';}}
+async function savePanel(){
+  if(!panelRow)return;
+  var msg=document.getElementById('panel-msg');
+  var changes={
+    speakerName:document.getElementById('pn-name').value.trim(),
+    topic:document.getElementById('pn-topic').value.trim(),
+    status:document.getElementById('pn-status').value,
+    priority:document.getElementById('pn-priority').value,
+    assignedTo:document.getElementById('pn-assigned').value,
+    tentativeDate:document.getElementById('pn-date').value,
+    speakerRole:document.getElementById('pn-role').value,
+    speakerEmail:document.getElementById('pn-email').value.trim(),
+    speakerPhone:document.getElementById('pn-phone').value.trim(),
+    speakerCity:document.getElementById('pn-city').value.trim(),
+    preferredDates:document.getElementById('pn-pref').value.trim(),
+    bio:document.getElementById('pn-bio').value.trim(),
+    summary:document.getElementById('pn-summary').value.trim(),
+    speakerUrl:document.getElementById('pn-url').value.trim(),
+    introducer:document.getElementById('pn-introducer').value.trim(),
+    photoTop:document.getElementById('pn-phototop').value.trim(),
+    photoBottom:document.getElementById('pn-photobottom').value.trim(),
+    tags:document.getElementById('pn-tags').value.trim(),
+    comments:document.getElementById('pn-comments').value.trim(),
+    zoomOnly:document.getElementById('pn-zoom-only').checked?'Yes':'',
+    isRotarian:document.getElementById('pn-is-rotarian').checked?'Yes':'',
+    isLocal:document.getElementById('pn-is-local').checked?'Yes':'',
+    fundraisingLiterature:document.getElementById('pn-fundraising').checked?'Yes':''
+  };
+  try{
+    var res=await gs3('savePipelineCard',panelRow,changes,currentUser);
+    var card=allCards.find(function(c){return c.rowIndex===panelRow;});
+    if(card){
+      Object.assign(card,changes);
+      card.zoomOnly=changes.zoomOnly==='Yes';
+      card.isRotarian=changes.isRotarian==='Yes';
+      card.isLocal=changes.isLocal==='Yes';
+      card.fundraisingLiterature=changes.fundraisingLiterature==='Yes';
+    }
+    if(res&&res.notes!=null){if(card)card.notes=res.notes;var nd=document.getElementById('pn-notes-display');if(nd)nd.textContent=res.notes;}
+    renderTable();
+    msg.className='pmsg ok';
+    msg.textContent=(res&&res.noted)?'Saved ✓ ('+res.noted+' change'+(res.noted===1?'':'s')+' logged)':'Saved ✓';
+    setTimeout(function(){msg.textContent='';},2500);
+  }catch(e){msg.className='pmsg err';msg.textContent='Error: '+e.message;}
 }
-async function addRowNote(ro){
-  var inp=document.getElementById('ef-note-'+ro);var text=inp.value.trim();if(!text)return;
-  try{await gs3('appendPipelineNote',ro,text,currentUser);inp.value='';
-    var d=await gs('getPipelineData',null);allCards=d.cards;renderTable();}
-  catch(e){alert('Note failed: '+e.message);}
+async function panelAddNote(){
+  if(!panelRow)return;
+  var inp=document.getElementById('pn-note-input');var text=inp.value.trim();if(!text)return;
+  try{
+    await gs3('appendPipelineNote',panelRow,text,currentUser);inp.value='';
+    var data=await gs('getPipelineData',null);
+    var updated=data.cards.find(function(c){return c.rowIndex===panelRow;});
+    var card=allCards.find(function(c){return c.rowIndex===panelRow;});
+    if(updated&&card)card.notes=updated.notes;
+    document.getElementById('pn-notes-display').textContent=updated?updated.notes:'';
+    allCards=data.cards;renderTable();
+  }catch(e){alert('Note failed: '+e.message);}
 }
-async function assignRow(ro){
+async function deleteCard(){
+  if(!panelRow)return;
+  var card=allCards.find(function(c){return c.rowIndex===panelRow;});if(!card)return;
+  var msg=document.getElementById('panel-msg');
+  if(card.status==='deleted'){
+    if(!confirm('Permanently delete this card? This removes the row and cannot be undone.'))return;
+    try{await gs('deletePipelineCard',panelRow);closePanel();loadData();}
+    catch(e){msg.className='pmsg err';msg.textContent='Error: '+e.message;}
+    return;
+  }
+  if(!confirm('Move this card to Deleted? You can restore it from the Kanban view.'))return;
+  card.status='deleted';renderTable();
+  gs3('savePipelineCard',panelRow,{status:'deleted'},currentUser).catch(function(err){alert('Delete failed: '+err.message);loadData();});
+  closePanel();
+}
+function restoreCard(){
+  if(!panelRow)return;
+  var card=allCards.find(function(c){return c.rowIndex===panelRow;});if(!card)return;
+  card.status='new';renderTable();
+  gs3('savePipelineCard',panelRow,{status:'new'},currentUser).catch(function(err){alert('Restore failed: '+err.message);loadData();});
+  closePanel();
+}
+// ── Assign-to-Event modal ────────────────────────────────────
+async function openAssignModal(){
+  selectedEventsRow=null;
+  document.getElementById('modal-overlay').classList.add('show');
+  document.getElementById('modal-msg').textContent='';
+  var list=document.getElementById('event-list');
+  list.innerHTML='<p style="padding:0.6em;color:#888;font-size:0.85em">Loading…</p>';
   var events=await gs('getUpcomingEventsForPicker',null);
-  if(!events.length){alert('No upcoming events with an open speaker slot.');return;}
-  var opts=events.map(function(e,i){return i+': '+e.dateLabel+' — '+e.eventType+(e.mainTopic?' ('+e.mainTopic+')':'');}).join('\\n');
-  var idx=prompt('Pick event number:\\n'+opts);if(idx===null)return;
-  var ev=events[parseInt(idx)];if(!ev){alert('Invalid.');return;}
-  try{var res=await gs3('assignSpeakerToEvent',ro,ev.rowIndex,currentUser);
-    alert('Assigned '+res.speakerName+' to event on row '+res.eventsRow);
-    var d=await gs('getPipelineData',null);allCards=d.cards;expandedRow=null;renderTable();}
-  catch(e){alert('Error: '+e.message);}
+  if(!events.length){list.innerHTML='<p style="padding:0.6em;color:#888;font-size:0.85em">No upcoming meetings found.</p>';return;}
+  var tentMap={};
+  allCards.forEach(function(c){
+    if(c.status==='declined'||c.status==='scheduled')return;
+    if(c.rowIndex===panelRow)return;
+    if(!c.tentativeDate)return;
+    (tentMap[c.tentativeDate]=tentMap[c.tentativeDate]||[]).push(c.speakerName||'(no name)');
+  });
+  list.innerHTML='';
+  events.forEach(function(ev){
+    var tentNames=tentMap[ev.date]||[];
+    var div=document.createElement('div');
+    var cls=ev.available?(tentNames.length?'available tentative':'available'):'taken';
+    div.className='ev-item '+cls;div.dataset.row=ev.rowIndex;
+    var speakerHtml;
+    if(!ev.available){speakerHtml='<span class="ev-speaker">'+esc(ev.mainSpeaker)+(ev.mainTopic?': '+esc(ev.mainTopic):'')+'</span>';}
+    else if(tentNames.length){speakerHtml='<span class="ev-tentative">⚠️ tentative: '+esc(tentNames.join(', '))+'</span>';}
+    else{speakerHtml='<span class="ev-open">open</span>';}
+    div.innerHTML='<span class="ev-date">'+esc(ev.dateLabel)+'</span><span class="ev-type">'+esc(ev.eventType)+(ev.time?' '+ev.time:'')+'</span>'+speakerHtml;
+    if(ev.available){div.addEventListener('click',function(){list.querySelectorAll('.ev-item').forEach(function(el){el.classList.remove('selected');});div.classList.add('selected');selectedEventsRow=ev.rowIndex;});}
+    list.appendChild(div);
+  });
+}
+function closeModal(){document.getElementById('modal-overlay').classList.remove('show');selectedEventsRow=null;}
+async function confirmAssign(){
+  if(!selectedEventsRow||!panelRow){document.getElementById('modal-msg').textContent='Please select an available date first.';return;}
+  var msg=document.getElementById('modal-msg');
+  try{
+    var res=await gs3('assignSpeakerToEvent',panelRow,selectedEventsRow,currentUser);
+    msg.className='pmsg ok';msg.textContent='✓ Assigned '+res.speakerName;
+    await loadData();
+    setTimeout(function(){closeModal();closePanel();},1500);
+  }catch(e){msg.className='pmsg err';msg.textContent='Error: '+e.message;}
 }
 function sortBy(col){sortAsc=(sortCol===col)?!sortAsc:false;sortCol=col;renderTable();}
 function voteRow(e,ro){

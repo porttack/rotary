@@ -43,10 +43,10 @@ Share this URL with your team.</p>
 <div class="section-label">Speaker Pipeline</div>
 <div class="tool-grid">
 
-<a class="tool-card" href="{{ site.apps_script_url }}?app=speaker-pipeline" target="_blank">
-  <div class="tool-badge">📋 Status</div>
-  <h2>Pipeline Status</h2>
-  <p>Friendly overview grouped by stage — great for a quick check on where things stand. Add notes from here.</p>
+<a class="tool-card" href="{{ site.apps_script_url }}?app=pipeline" target="_blank">
+  <div class="tool-badge">📊 Table</div>
+  <h2>Pipeline Table</h2>
+  <p>Sortable, filterable list of all speakers, with an upcoming-meetings sidebar on desktop. Click any row to open the full editor panel — works great on phones.</p>
 </a>
 
 <a class="tool-card" href="{{ site.apps_script_url }}?app=kanban" target="_blank">
@@ -55,10 +55,15 @@ Share this URL with your team.</p>
   <p>Drag-and-drop cards across columns: New → Outreach → Limbo → Confirmed → Scheduled → Done.</p>
 </a>
 
-<a class="tool-card" href="{{ site.apps_script_url }}?app=pipeline" target="_blank">
-  <div class="tool-badge">📊 Table</div>
-  <h2>Pipeline Table</h2>
-  <p>Sortable, filterable table of all speakers. Click any row to expand and edit details inline.</p>
+</div>
+
+<div class="section-label">Deprecated Tools</div>
+<div class="tool-grid">
+
+<a class="tool-card" href="{{ site.apps_script_url }}?app=speaker-pipeline" target="_blank">
+  <div class="tool-badge">📋 Status (retired)</div>
+  <h2>Pipeline Status</h2>
+  <p>Replaced by the Pipeline Table, which now has the same meeting sidebar and editor panel. Kept here for anyone who still prefers the grouped-by-stage view.</p>
 </a>
 
 </div>
