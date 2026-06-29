@@ -1807,6 +1807,7 @@ function getEventEditorData() {
         organizer: String(row[COL.SPEAKER_ORGANIZER - 1] || ''),
         link:      String(row[COL.SPEAKER_URL - 1]       || ''),
         photo:     String(row[COL.PHOTO_TOP - 1]         || ''),
+        photoBottom: String(row[COL.PHOTO_BOTTOM - 1]    || ''),
         summary:   String(row[COL.SUMMARY - 1]           || ''),
         mainSpeaker:    String(row[COL.MAIN_SPEAKER - 1]    || ''),
         openingSpeaker: String(row[COL.OPENING_SPEAKER - 1] || ''),
@@ -1876,6 +1877,7 @@ function saveEvent(password, payload) {
       set(COL.OPENING_SPEAKER, p.openingSpeaker || '');
       set(COL.INTRODUCER,      p.introducer     || '');
       set(COL.GOOGLE_MEET,     p.googleMeet     || '');
+      if (p.photoBottom) set(COL.PHOTO_BOTTOM, p.photoBottom); // don't clobber an embedded image with a blank
     }
     set(COL.EXCLUDE_NEWSLETTER, !!p.hideFromNewsletter);
     set(COL.STATUS,            '✏️ Edited by ' + who + ' ' + ts);
@@ -1965,6 +1967,7 @@ function eventEditorBuildRow_(p, type, who, ts) {
     row[COL.OPENING_SPEAKER - 1] = p.openingSpeaker || '';
     row[COL.INTRODUCER - 1]      = p.introducer     || '';
     row[COL.GOOGLE_MEET - 1]     = p.googleMeet     || '';
+    row[COL.PHOTO_BOTTOM - 1]    = p.photoBottom    || '';
   }
   row[COL.EXCLUDE_NEWSLETTER - 1] = !!p.hideFromNewsletter;
   row[COL.CREATED_BY - 1]        = who;        // who may later delete this event
@@ -3818,12 +3821,16 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
     </div>
     <div class="fld"><label>Location</label><input type="text" id="f-location" placeholder="Venue and city"></div>
     <div class="fld"><label id="lbl-organizer">Organizer</label><input type="text" id="f-organizer" list="member-list" placeholder="Who is running this"><datalist id="member-list"></datalist></div>
-    <div class="fld"><label>Details (for newsletter)</label><textarea id="f-summary" placeholder="What is happening, who should come…"></textarea></div>
+    <div class="fld"><label id="lbl-summary">Details (for newsletter)</label><textarea id="f-summary" placeholder="What is happening, who should come…"></textarea></div>
     <div class="fld"><label id="lbl-link">Info / Signup Link</label><input type="url" id="f-link" placeholder="https://…"></div>
-    <div class="fld"><label>Photo (optional)</label>
+    <div class="fld"><label id="lbl-photo">Photo (optional)</label>
       <input type="url" id="f-photo" placeholder="https://… or upload below" oninput="showPhotoPrev()">
       <input type="file" accept="image/*" style="margin-top:6px;font-size:0.85em" onchange="uploadPhoto(this)">
       <div id="f-photo-prev" style="margin-top:6px"></div>
+    </div>
+    <div class="fld" id="photo-bottom-fld" style="display:none"><label>Bottom Photo URL (newsletter)</label>
+      <input type="url" id="f-photo-bottom" placeholder="https://… second image, shown below the write-up" oninput="showPhotoPrevB()">
+      <div id="f-photo-bottom-prev" style="margin-top:6px"></div>
     </div>
     <label class="chk"><input type="checkbox" id="f-cancelled"> Mark as cancelled</label>
     <label class="chk"><input type="checkbox" id="f-hide-newsletter"> Hide from newsletter</label>
@@ -3888,6 +3895,7 @@ function busy(b){var s=document.querySelector('.btn-save');if(s){s.disabled=b;s.
 // ── Photo upload + preview (reuses the pipeline's Drive uploader) ──
 function driveThumb(u,size){if(!u)return'';var id='',i=u.indexOf('id=');if(i>=0){id=u.substring(i+3).split('&')[0];}else{var j=u.indexOf('/d/');if(j>=0)id=u.substring(j+3).split('/')[0];}return id?'https://drive.google.com/thumbnail?id='+id+'&sz=w'+(size||200):u;}
 function showPhotoPrev(){var v=getV('f-photo'),prev=document.getElementById('f-photo-prev');if(!prev)return;prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(driveThumb(v,250))+'" style="max-width:150px;max-height:150px;border-radius:8px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';}
+function showPhotoPrevB(){var v=getV('f-photo-bottom'),prev=document.getElementById('f-photo-bottom-prev');if(!prev)return;prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(driveThumb(v,250))+'" style="max-width:150px;max-height:150px;border-radius:8px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';}
 function uploadPhoto(input){
   var file=input.files[0]; if(!file)return;
   var prev=document.getElementById('f-photo-prev');
@@ -3959,6 +3967,9 @@ function updateTypeUI(){
   document.getElementById('lbl-name').textContent=isMtg?'Main Topic':'Event Name';
   document.getElementById('lbl-link').textContent=isMtg?'Speaker URL':'Info / Signup Link';
   document.getElementById('lbl-organizer').textContent=isMtg?'Speaker Organizer':'Organizer';
+  document.getElementById('lbl-summary').textContent=isMtg?'Speaker Bio / Summary (newsletter)':'Details (for newsletter)';
+  document.getElementById('lbl-photo').textContent=isMtg?'Speaker Photo (top)':'Photo (optional)';
+  document.getElementById('photo-bottom-fld').style.display=isMtg?'':'none';
   document.getElementById('f-name').placeholder=isMtg?'e.g. Water Conservation':'e.g. Beach Cleanup';
 }
 // Header toggle: persist the choice, rebuild the type dropdown + list.
@@ -3986,12 +3997,12 @@ function openNew(){
   document.getElementById('notes-section').style.display='none';
   setV('f-type',DATA.types[0]||'Social'); setV('f-date',''); setV('f-time',''); setV('f-duration','60');
   setV('f-name',''); setV('f-location',''); setV('f-organizer',currentUser);
-  setV('f-summary',''); setV('f-link',''); setV('f-photo','');
+  setV('f-summary',''); setV('f-link',''); setV('f-photo',''); setV('f-photo-bottom','');
   setV('f-main-speaker',''); setV('f-opening-speaker',''); setV('f-introducer',''); setV('f-meet','');
   document.getElementById('f-cancelled').checked=false;
   document.getElementById('f-hide-newsletter').checked=false;
   updateTypeUI();
-  showPhotoPrev();
+  showPhotoPrev(); showPhotoPrevB();
   openPanel();
 }
 function openEdit(rowIndex){
@@ -4003,7 +4014,7 @@ function openEdit(rowIndex){
   document.getElementById('btn-del').style.display=sameUser(e.createdBy,currentUser)?'':'none';
   setV('f-type',e.eventType); setV('f-date',e.date); setV('f-time',to24(e.time)); setV('f-duration',e.duration);
   setV('f-name',e.eventName); setV('f-location',e.location); setV('f-organizer',e.organizer);
-  setV('f-summary',e.summary); setV('f-link',e.link); setV('f-photo',e.photo);
+  setV('f-summary',e.summary); setV('f-link',e.link); setV('f-photo',e.photo); setV('f-photo-bottom',e.photoBottom||'');
   setV('f-main-speaker',e.mainSpeaker||''); setV('f-opening-speaker',e.openingSpeaker||'');
   setV('f-introducer',e.introducer||''); setV('f-meet',e.googleMeet||'');
   updateTypeUI();
@@ -4012,7 +4023,7 @@ function openEdit(rowIndex){
   document.getElementById('notes-section').style.display='';
   document.getElementById('f-notes-display').textContent=e.notes||'(no notes yet)';
   document.getElementById('f-note-input').value='';
-  showPhotoPrev();
+  showPhotoPrev(); showPhotoPrevB();
   openPanel();
 }
 function addNote(){
@@ -4033,7 +4044,7 @@ function savePanel(){
     duration:getV('f-duration'),location:getV('f-location'),eventName:getV('f-name'),organizer:getV('f-organizer'),
     link:getV('f-link'),photo:getV('f-photo'),summary:getV('f-summary'),
     mainSpeaker:getV('f-main-speaker'),openingSpeaker:getV('f-opening-speaker'),
-    introducer:getV('f-introducer'),googleMeet:getV('f-meet'),
+    introducer:getV('f-introducer'),googleMeet:getV('f-meet'),photoBottom:getV('f-photo-bottom'),
     cancelled:document.getElementById('f-cancelled').checked,
     hideFromNewsletter:document.getElementById('f-hide-newsletter').checked,editor:currentUser};
   var pw=localStorage.getItem('pipelinePw')||'';

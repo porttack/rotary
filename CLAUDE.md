@@ -215,13 +215,17 @@ always returns every known type within the window, so server functions accept
 any row whose current type is in `EVENT_TYPES`.
 
 **Meeting fields (advanced mode):** when the selected type is in
-`SPEAKER_EVENT_TYPES` (Meeting/Assembly/Board Meeting), the panel reveals four
-extra fields — Main Speaker → `MAIN_SPEAKER`, Opening Speaker →
-`OPENING_SPEAKER`, Introducer → `INTRODUCER`, Google Meet → `GOOGLE_MEET` — and
-relabels the shared fields (Event Name → "Main Topic", Link → "Speaker URL",
-Organizer → "Speaker Organizer"). **Duty roles are deliberately *not* exposed
-here** — `saveEvent` never writes the duty columns (18–25), so a meeting's
-roster stays owned by the Duty Editor and is untouched by edits here.
+`SPEAKER_EVENT_TYPES` (Meeting/Assembly/Board Meeting), the panel reveals extra
+fields — Main Speaker → `MAIN_SPEAKER`, Opening Speaker → `OPENING_SPEAKER`,
+Introducer → `INTRODUCER`, Google Meet → `GOOGLE_MEET`, Bottom Photo URL →
+`PHOTO_BOTTOM` — and relabels the shared fields (Event Name → "Main Topic",
+Link → "Speaker URL", Organizer → "Speaker Organizer", Details → "Speaker Bio /
+Summary", Photo → "Speaker Photo (top)"). There is **no separate bio column** in
+the Events sheet — a meeting has one narrative (`SUMMARY`), so the "Details /
+Speaker Bio" box is the bio/summary the newsletter prints. **Duty roles are
+deliberately *not* exposed here** — `saveEvent` never writes the duty columns
+(18–25), so a meeting's roster stays owned by the Duty Editor and is untouched
+by edits here.
 
 **Field mapping (repurposed columns):** Event Name → `MAIN_TOPIC`,
 Organizer → `SPEAKER_ORGANIZER`, Link → `SPEAKER_URL`, Photo → `PHOTO_TOP`,
