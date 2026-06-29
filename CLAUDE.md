@@ -198,21 +198,38 @@ near the other configuration constants. Edit it there to update club context.
 ## Event Editor
 
 A member-facing web app (`?app=events`, `getEventEditorHtml()`) for adding and
-editing **non-meeting** events without exposing the full sheet. Password-gated
+editing events without exposing the full sheet. Password-gated
 with `KANBAN_PASSWORD` (same login as the Speaker Pipeline apps); reached from
 tool cards in `calendar.html` and the `/pipeline/` Tools page.
 
-**Scope:** only the types in `EDITOR_EVENT_TYPES` (Social, Service, Fundraiser,
-Committee, Other) within the next 18 months. Speaker meetings
-(Meeting/Assembly/Board Meeting), Grey Bears, and Holiday / District Event rows
-are intentionally excluded and managed elsewhere. Server functions refuse to
-edit/delete any row whose current type is outside `EDITOR_EVENT_TYPES`.
+**Scope:** by default the list and the type dropdown show only
+`EDITOR_EVENT_TYPES` (Social, Service, Fundraiser, Committee, Other) within the
+next `EDITOR_WEEKS_AHEAD` weeks (52 — capped at ~a year so "all types" can't
+balloon into multiple years of weekly meetings). A **"Show all types"** header
+toggle (persisted in `localStorage` as `eventEditorAdvanced`) switches to *all*
+`EVENT_TYPES` **except Grey Bears** (client-side `ADV_EXCLUDE`; editing Grey
+Bears here is rare, so it's kept out of the list to reduce clutter). A small
+**"Next N weeks"** dropdown (`#weeks`, default *All*) narrows the list view.
+Both the toggle and the week filter are client-side only; `getEventEditorData()`
+always returns every known type within the window, so server functions accept
+any row whose current type is in `EVENT_TYPES`.
+
+**Meeting fields (advanced mode):** when the selected type is in
+`SPEAKER_EVENT_TYPES` (Meeting/Assembly/Board Meeting), the panel reveals four
+extra fields — Main Speaker → `MAIN_SPEAKER`, Opening Speaker →
+`OPENING_SPEAKER`, Introducer → `INTRODUCER`, Google Meet → `GOOGLE_MEET` — and
+relabels the shared fields (Event Name → "Main Topic", Link → "Speaker URL",
+Organizer → "Speaker Organizer"). **Duty roles are deliberately *not* exposed
+here** — `saveEvent` never writes the duty columns (18–25), so a meeting's
+roster stays owned by the Duty Editor and is untouched by edits here.
 
 **Field mapping (repurposed columns):** Event Name → `MAIN_TOPIC`,
 Organizer → `SPEAKER_ORGANIZER`, Link → `SPEAKER_URL`, Photo → `PHOTO_TOP`,
-Details → `SUMMARY`. Duty/speaker columns stay blank for these events. The
-editor also exposes two checkboxes that map to real columns: Mark as cancelled →
-`CANCELLED`, Hide from newsletter → `EXCLUDE_NEWSLETTER`.
+Details → `SUMMARY`. For non-meeting types the speaker columns stay blank; for
+meeting types they hold the real speaker/program data (the repurposed columns
+*are* the real meeting columns). The editor also exposes two checkboxes that map
+to real columns: Mark as cancelled → `CANCELLED`, Hide from newsletter →
+`EXCLUDE_NEWSLETTER`.
 
 **Writes:** `saveEvent(password, payload)` creates or updates one row (new rows
 write cols A–C + E-onward to skip the `DAY_LABEL` formula in col D), then

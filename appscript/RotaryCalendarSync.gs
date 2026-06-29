@@ -111,6 +111,16 @@ const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service"
 // EVENT_TYPES above.
 const EDITOR_EVENT_TYPES = ["Social", "Service", "Fundraiser", "Committee", "Other"];
 
+// Speaker/program meeting types. In the Event Editor's "Show all types" mode
+// these unlock the extra Main Speaker / Opening Speaker / Introducer / Google
+// Meet fields. Duty roles stay in the Duty Editor — saveEvent never writes the
+// duty columns, so a meeting's roster is left untouched when edited here.
+const SPEAKER_EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting"];
+
+// How far ahead the Event Editor lists events. Capped at ~one year so the
+// "all types" view can't balloon into multiple years of weekly meetings.
+const EDITOR_WEEKS_AHEAD = 52;
+
 // Text color and bold per event type (row background stays white/grey for cancelled)
 // Each entry: { color, bold }
 const TYPE_STYLES = {
@@ -1766,7 +1776,7 @@ function getEventEditorData() {
 
   const tz      = Session.getScriptTimeZone();
   const today   = new Date(); today.setHours(0, 0, 0, 0);
-  const horizon = new Date(today.getFullYear(), today.getMonth() + 18, today.getDate());
+  const horizon = new Date(today.getTime() + EDITOR_WEEKS_AHEAD * 7 * 24 * 3600 * 1000);
   const lastRow = sheet.getLastRow();
   const events  = [];
 
@@ -1778,7 +1788,7 @@ function getEventEditorData() {
       const d = new Date(dv); d.setHours(0, 0, 0, 0);
       if (d < today || d > horizon) return;
       const type = String(row[COL.EVENT_TYPE - 1] || '');
-      if (EDITOR_EVENT_TYPES.indexOf(type) === -1) return;
+      if (EVENT_TYPES.indexOf(type) === -1) return; // skip blank / unknown types
       const tv = row[COL.TIME - 1];
       events.push({
         rowIndex:  i + 2,
@@ -1793,6 +1803,10 @@ function getEventEditorData() {
         link:      String(row[COL.SPEAKER_URL - 1]       || ''),
         photo:     String(row[COL.PHOTO_TOP - 1]         || ''),
         summary:   String(row[COL.SUMMARY - 1]           || ''),
+        mainSpeaker:    String(row[COL.MAIN_SPEAKER - 1]    || ''),
+        openingSpeaker: String(row[COL.OPENING_SPEAKER - 1] || ''),
+        introducer:     String(row[COL.INTRODUCER - 1]      || ''),
+        googleMeet:     String(row[COL.GOOGLE_MEET - 1]     || ''),
         createdBy: String(row[COL.CREATED_BY - 1]        || ''),
         notes:     String(row[COL.EVENT_NOTES - 1]       || ''),
         hideFromNewsletter: !!row[COL.EXCLUDE_NEWSLETTER - 1],
@@ -1807,7 +1821,7 @@ function getEventEditorData() {
     members = ms.getRange(2, 1, ms.getLastRow() - 1, 1)
       .getValues().map(r => String(r[0] || '').trim()).filter(Boolean).sort();
   }
-  return { events: events, members: members, types: EDITOR_EVENT_TYPES };
+  return { events: events, members: members, types: EDITOR_EVENT_TYPES, allTypes: EVENT_TYPES };
 }
 
 /**
@@ -1824,7 +1838,7 @@ function saveEvent(password, payload) {
 
   const p    = payload || {};
   const type = String(p.eventType || '').trim();
-  if (EDITOR_EVENT_TYPES.indexOf(type) === -1) throw new Error('Choose a valid event type.');
+  if (EVENT_TYPES.indexOf(type) === -1) throw new Error('Choose a valid event type.');
   if (!p.date) throw new Error('A date is required.');
 
   const who = String(p.editor || '').trim() || '?';
@@ -1833,9 +1847,9 @@ function saveEvent(password, payload) {
   let targetRow;
 
   if (rowIndex && rowIndex >= 2) {
-    // Guard: never let this tool repurpose a speaker meeting or other managed row.
+    // Guard: only edit rows whose current type is a known event type.
     const curType = String(sheet.getRange(rowIndex, COL.EVENT_TYPE).getValue() || '');
-    if (EDITOR_EVENT_TYPES.indexOf(curType) === -1) {
+    if (EVENT_TYPES.indexOf(curType) === -1) {
       throw new Error('That event is managed in the spreadsheet and cannot be edited here.');
     }
     const set = (col, val) => sheet.getRange(rowIndex, col).setValue(val);
@@ -1850,6 +1864,14 @@ function saveEvent(password, payload) {
     set(COL.SPEAKER_URL,       p.link      || '');
     if (p.photo) set(COL.PHOTO_TOP, p.photo);   // don't clobber an embedded image with a blank
     set(COL.SUMMARY,           p.summary   || '');
+    // Speaker/program fields only apply to meeting types (advanced mode). Duty
+    // columns are deliberately never written — the Duty Editor owns those.
+    if (SPEAKER_EVENT_TYPES.indexOf(type) !== -1) {
+      set(COL.MAIN_SPEAKER,    p.mainSpeaker    || '');
+      set(COL.OPENING_SPEAKER, p.openingSpeaker || '');
+      set(COL.INTRODUCER,      p.introducer     || '');
+      set(COL.GOOGLE_MEET,     p.googleMeet     || '');
+    }
     set(COL.EXCLUDE_NEWSLETTER, !!p.hideFromNewsletter);
     set(COL.STATUS,            '✏️ Edited by ' + who + ' ' + ts);
     targetRow = rowIndex;
@@ -1881,7 +1903,7 @@ function deleteEvent(password, rowIndex, editor) {
   rowIndex = Number(rowIndex);
   if (!rowIndex || rowIndex < 2) throw new Error('Invalid row.');
   const type = String(sheet.getRange(rowIndex, COL.EVENT_TYPE).getValue() || '');
-  if (EDITOR_EVENT_TYPES.indexOf(type) === -1) {
+  if (EVENT_TYPES.indexOf(type) === -1) {
     throw new Error('That event is managed in the spreadsheet and cannot be deleted here.');
   }
   const creator = String(sheet.getRange(rowIndex, COL.CREATED_BY).getValue() || '').trim();
@@ -1905,7 +1927,7 @@ function addEventNote(password, rowIndex, noteText, author) {
   rowIndex = Number(rowIndex);
   if (!rowIndex || rowIndex < 2) throw new Error('Invalid row.');
   const type = String(sheet.getRange(rowIndex, COL.EVENT_TYPE).getValue() || '');
-  if (EDITOR_EVENT_TYPES.indexOf(type) === -1) {
+  if (EVENT_TYPES.indexOf(type) === -1) {
     throw new Error('That event is managed in the spreadsheet and cannot be edited here.');
   }
   const text = String(noteText || '').trim();
@@ -1933,6 +1955,12 @@ function eventEditorBuildRow_(p, type, who, ts) {
   row[COL.SPEAKER_URL - 1]       = p.link      || '';
   row[COL.PHOTO_TOP - 1]         = p.photo     || '';
   row[COL.SUMMARY - 1]           = p.summary   || '';
+  if (SPEAKER_EVENT_TYPES.indexOf(type) !== -1) {
+    row[COL.MAIN_SPEAKER - 1]    = p.mainSpeaker    || '';
+    row[COL.OPENING_SPEAKER - 1] = p.openingSpeaker || '';
+    row[COL.INTRODUCER - 1]      = p.introducer     || '';
+    row[COL.GOOGLE_MEET - 1]     = p.googleMeet     || '';
+  }
   row[COL.EXCLUDE_NEWSLETTER - 1] = !!p.hideFromNewsletter;
   row[COL.CREATED_BY - 1]        = who;        // who may later delete this event
   row[COL.STATUS - 1]            = '➕ Added by ' + who + ' ' + ts;
@@ -3729,14 +3757,22 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 <header>
   <h1>📋 Club Events</h1>
   <span id="hdr-user" style="font-size:0.85em;opacity:0.85"></span>
+  <button class="hbtn" id="adv-toggle" onclick="toggleAdvanced()" title="Also edit meetings, board meetings, and every other event type">Show all types</button>
   <a class="hbtn" href="__EXEC_URL__" target="_top">Duty Editor →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
 
 <div id="main">
-  <p id="hint">Add or edit socials, service projects, fundraisers and other dates for the next 18 months. Speaker meetings are managed in the Duty Editor.</p>
+  <p id="hint">Add or edit socials, service projects, fundraisers and other dates for the next year. Tap <strong>Show all types</strong> to also edit meetings (speaker, topic, Google Meet, introducer); duty roles stay in the Duty Editor.</p>
   <div id="toolbar">
     <input id="search" placeholder="Search events…" oninput="render()">
+    <select id="weeks" onchange="render()" title="How far ahead to show" style="padding:10px 9px;border:1px solid #cfd6e4;border-radius:9px;font-size:0.9em;background:#fff">
+      <option value="0">All</option>
+      <option value="4">4 wks</option>
+      <option value="8">8 wks</option>
+      <option value="12">12 wks</option>
+      <option value="26">26 wks</option>
+    </select>
     <button id="add-btn" onclick="openNew()">+ Add</button>
   </div>
   <div id="list"></div>
@@ -3746,17 +3782,23 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 <div id="panel">
   <div id="panel-hd"><h2 id="panel-title">Add Event</h2><button id="panel-x" onclick="closePanel()">✕</button></div>
   <div id="panel-body">
-    <div class="fld"><label>Event Type</label><select id="f-type"></select></div>
+    <div class="fld"><label>Event Type</label><select id="f-type" onchange="updateTypeUI()"></select></div>
     <div class="fld-row">
       <div class="fld"><label>Date</label><input type="date" id="f-date"></div>
       <div class="fld"><label>Time</label><input type="time" id="f-time"></div>
       <div class="fld" style="max-width:95px"><label>Min</label><input type="number" id="f-duration" min="0" step="15"></div>
     </div>
-    <div class="fld"><label>Event Name</label><input type="text" id="f-name" placeholder="e.g. Beach Cleanup"></div>
+    <div class="fld"><label id="lbl-name">Event Name</label><input type="text" id="f-name" placeholder="e.g. Beach Cleanup"></div>
+    <div id="speaker-fields" style="display:none">
+      <div class="fld"><label>Main Speaker</label><input type="text" id="f-main-speaker" list="member-list" placeholder="Program speaker"></div>
+      <div class="fld"><label>Opening Speaker</label><input type="text" id="f-opening-speaker" placeholder="Invocation / opening thought (usually blank)"></div>
+      <div class="fld"><label>Introducer</label><input type="text" id="f-introducer" list="member-list" placeholder="Who introduces the speaker"></div>
+      <div class="fld"><label>Google Meet Link</label><input type="url" id="f-meet" placeholder="https://meet.google.com/… (usually blank)"></div>
+    </div>
     <div class="fld"><label>Location</label><input type="text" id="f-location" placeholder="Venue and city"></div>
-    <div class="fld"><label>Organizer</label><input type="text" id="f-organizer" list="member-list" placeholder="Who is running this"><datalist id="member-list"></datalist></div>
+    <div class="fld"><label id="lbl-organizer">Organizer</label><input type="text" id="f-organizer" list="member-list" placeholder="Who is running this"><datalist id="member-list"></datalist></div>
     <div class="fld"><label>Details (for newsletter)</label><textarea id="f-summary" placeholder="What is happening, who should come…"></textarea></div>
-    <div class="fld"><label>Info / Signup Link</label><input type="url" id="f-link" placeholder="https://…"></div>
+    <div class="fld"><label id="lbl-link">Info / Signup Link</label><input type="url" id="f-link" placeholder="https://…"></div>
     <div class="fld"><label>Photo (optional)</label>
       <input type="url" id="f-photo" placeholder="https://… or upload below" oninput="showPhotoPrev()">
       <input type="file" accept="image/*" style="margin-top:6px;font-size:0.85em" onchange="uploadPhoto(this)">
@@ -3780,11 +3822,14 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 <div id="toast"></div>
 
 <script>
-var DATA={events:[],members:[],types:[]}, currentUser='', editingRow=0, toastTimer=null;
+var DATA={events:[],members:[],types:[],allTypes:[]}, currentUser='', editingRow=0, toastTimer=null;
+var advanced=localStorage.getItem('eventEditorAdvanced')==='1';
+var SPEAKER_TYPES=['Meeting','Assembly','Board Meeting'];
+var ADV_EXCLUDE=['Grey Bears']; // editing these here is rare — keep them out of the advanced list
 var DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 var MONF=['January','February','March','April','May','June','July','August','September','October','November','December'];
-var TYPE_COLOR={'Social':'#fde68a','Service':'#fdba74','Fundraiser':'#e9d5ff','District Event':'#86efac','Committee':'#fce7f3','Holiday':'#fca5a5','Other':'#d1d5db'};
+var TYPE_COLOR={'Meeting':'#c7d8f7','Assembly':'#a5f3fc','Board Meeting':'#93c5fd','Social':'#fde68a','Service':'#fdba74','Grey Bears':'#fde8d0','Fundraiser':'#e9d5ff','District Event':'#86efac','Committee':'#fce7f3','Holiday':'#fca5a5','Other':'#d1d5db'};
 
 function gs(fn,arg){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](arg);});}
 function gs2(fn,a,b){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b);});}
@@ -3814,6 +3859,7 @@ function to12(s){
 }
 function cardDate(ds){var p=ds.split('-'),dt=new Date(+p[0],+p[1]-1,+p[2]);return{dow:DOW[dt.getDay()],day:+p[2],mon:MON[+p[1]-1]};}
 function monthKey(ds){var p=ds.split('-');return MONF[+p[1]-1]+' '+p[0];}
+function isoAhead(days){var d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()+days);return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
 
 function toast(msg,err){var t=document.getElementById('toast');t.textContent=msg;t.className=err?'show err':'show';clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.className='';},2600);}
 function busy(b){var s=document.querySelector('.btn-save');if(s){s.disabled=b;s.textContent=b?'Saving…':'Save';}}
@@ -3839,9 +3885,16 @@ function uploadPhoto(input){
 function render(){
   var q=(document.getElementById('search').value||'').toLowerCase();
   var list=document.getElementById('list'); list.innerHTML='';
+  var wk=parseInt((document.getElementById('weeks')||{}).value,10)||0;
+  var cutoff=wk?isoAhead(wk*7):'';
   var shown=DATA.events.filter(function(e){
+    // Basic mode: only the member-editable types. Advanced: everything except
+    // Grey Bears (rarely edited here — kept out so the list stays readable).
+    if(advanced){ if(ADV_EXCLUDE.indexOf(e.eventType)!==-1)return false; }
+    else if(DATA.types.indexOf(e.eventType)===-1)return false;
+    if(cutoff && e.date>cutoff)return false;   // week-count view filter
     if(!q)return true;
-    return (e.eventName+' '+e.eventType+' '+e.location+' '+e.organizer+' '+e.date).toLowerCase().indexOf(q)>-1;
+    return (e.eventName+' '+e.eventType+' '+e.location+' '+e.organizer+' '+(e.mainSpeaker||'')+' '+e.date).toLowerCase().indexOf(q)>-1;
   });
   if(!shown.length){list.innerHTML='<div class="empty">No events found.<br>Tap <b>+ Add</b> to create one.</div>';return;}
   var curMonth='';
@@ -3871,9 +3924,32 @@ function render(){
 // ── Panel ─────────────────────────────────────────────────────
 function fillOptions(){
   var sel=document.getElementById('f-type'); sel.innerHTML='';
-  DATA.types.forEach(function(t){var o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
+  var typeList=(advanced&&DATA.allTypes&&DATA.allTypes.length)
+    ?DATA.allTypes.filter(function(t){return ADV_EXCLUDE.indexOf(t)===-1;})
+    :DATA.types;
+  typeList.forEach(function(t){var o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
   var dl=document.getElementById('member-list'); dl.innerHTML='';
   DATA.members.forEach(function(m){var o=document.createElement('option');o.value=m;dl.appendChild(o);});
+}
+// Show the speaker block + relabel the shared fields when a meeting type is picked.
+function updateTypeUI(){
+  var isMtg=SPEAKER_TYPES.indexOf(getV('f-type'))>-1;
+  document.getElementById('speaker-fields').style.display=isMtg?'':'none';
+  document.getElementById('lbl-name').textContent=isMtg?'Main Topic':'Event Name';
+  document.getElementById('lbl-link').textContent=isMtg?'Speaker URL':'Info / Signup Link';
+  document.getElementById('lbl-organizer').textContent=isMtg?'Speaker Organizer':'Organizer';
+  document.getElementById('f-name').placeholder=isMtg?'e.g. Water Conservation':'e.g. Beach Cleanup';
+}
+// Header toggle: persist the choice, rebuild the type dropdown + list.
+function toggleAdvanced(){
+  advanced=!advanced;
+  localStorage.setItem('eventEditorAdvanced',advanced?'1':'');
+  syncAdvToggle();
+  fillOptions(); render();
+}
+function syncAdvToggle(){
+  var b=document.getElementById('adv-toggle');
+  if(b)b.textContent=advanced?'✓ All types':'Show all types';
 }
 function openPanel(){document.getElementById('panel').classList.add('open');document.getElementById('scrim').classList.add('open');}
 function closePanel(){document.getElementById('panel').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
@@ -3890,8 +3966,10 @@ function openNew(){
   setV('f-type',DATA.types[0]||'Social'); setV('f-date',''); setV('f-time',''); setV('f-duration','60');
   setV('f-name',''); setV('f-location',''); setV('f-organizer',currentUser);
   setV('f-summary',''); setV('f-link',''); setV('f-photo','');
+  setV('f-main-speaker',''); setV('f-opening-speaker',''); setV('f-introducer',''); setV('f-meet','');
   document.getElementById('f-cancelled').checked=false;
   document.getElementById('f-hide-newsletter').checked=false;
+  updateTypeUI();
   showPhotoPrev();
   openPanel();
 }
@@ -3905,6 +3983,9 @@ function openEdit(rowIndex){
   setV('f-type',e.eventType); setV('f-date',e.date); setV('f-time',to24(e.time)); setV('f-duration',e.duration);
   setV('f-name',e.eventName); setV('f-location',e.location); setV('f-organizer',e.organizer);
   setV('f-summary',e.summary); setV('f-link',e.link); setV('f-photo',e.photo);
+  setV('f-main-speaker',e.mainSpeaker||''); setV('f-opening-speaker',e.openingSpeaker||'');
+  setV('f-introducer',e.introducer||''); setV('f-meet',e.googleMeet||'');
+  updateTypeUI();
   document.getElementById('f-cancelled').checked=!!e.cancelled;
   document.getElementById('f-hide-newsletter').checked=!!e.hideFromNewsletter;
   document.getElementById('notes-section').style.display='';
@@ -3930,6 +4011,8 @@ function savePanel(){
   var payload={rowIndex:editingRow,eventType:getV('f-type'),date:getV('f-date'),time:to12(getV('f-time')),
     duration:getV('f-duration'),location:getV('f-location'),eventName:getV('f-name'),organizer:getV('f-organizer'),
     link:getV('f-link'),photo:getV('f-photo'),summary:getV('f-summary'),
+    mainSpeaker:getV('f-main-speaker'),openingSpeaker:getV('f-opening-speaker'),
+    introducer:getV('f-introducer'),googleMeet:getV('f-meet'),
     cancelled:document.getElementById('f-cancelled').checked,
     hideFromNewsletter:document.getElementById('f-hide-newsletter').checked,editor:currentUser};
   var pw=localStorage.getItem('pipelinePw')||'';
@@ -3958,7 +4041,7 @@ function deleteCurrent(){
 
 // ── Data + Auth ───────────────────────────────────────────────
 function loadData(){
-  gs('getEventEditorData').then(function(d){DATA=d;fillOptions();render();})
+  gs('getEventEditorData').then(function(d){DATA=d;syncAdvToggle();fillOptions();render();})
     .catch(function(err){toast('Load error: '+(err.message||err),true);});
 }
 function doLogin(){
