@@ -36,7 +36,7 @@ permalink: /speakers/
   .sp-summary { color: #555; font-size: 0.9em; line-height: 1.45; margin-top: 0.2em; }
   .sp-summary p { margin: 0 0 0.45em; }
   .sp-summary p:last-child { margin-bottom: 0; }
-  .sp-summary a { color: #17458F; overflow-wrap: anywhere; word-break: break-word; }
+  .sp-summary a { color: #17458F; text-decoration: underline; overflow-wrap: anywhere; word-break: break-word; }
   .sp-summary ul { margin: 0.2em 0 0.45em; padding-left: 1.3em; }
   .sp-md-h { font-size: 0.95em; font-weight: bold; color: #374151; margin: 0.35em 0 0.2em; }
   .heart-btn {
