@@ -175,6 +175,17 @@ const DETAIL_TYPES = ['meeting', 'board meeting', 'assembly'];
 // no weekly Grey Bears — those stay in Looking Ahead / the calendar grid).
 const HAPPENING_TYPES = ['social', 'service', 'fundraiser', 'committee', 'district event', 'other'];
 
+// Pick a call-to-action label based on where the link points.
+function linkLabel(url) {
+  const u = String(url || '').toLowerCase();
+  if (/eventbrite|tickets?|ticketing|brownpaper/.test(u))        return 'Buy Tickets';
+  if (/rsvp/.test(u))                                            return 'RSVP';
+  if (/signupgenius|sign[-_]?up|volunteer/.test(u))             return 'Sign Up';
+  if (/forms\.gle|docs\.google\.com\/forms|google\.com\/forms|forms\.office/.test(u)) return 'Sign Up';
+  if (/donate|givebutter|gofundme|fundraise/.test(u))           return 'Donate';
+  return 'More Info';
+}
+
 // ── Section: Masthead ─────────────────────────────────────────────────────
 function masthead(today) {
   const ds = fmt(today, {month:'long', day:'numeric', year:'numeric'});
@@ -237,7 +248,7 @@ function comingUp(rows) {
         html += `\n  <p class="meet-link"><a href="${esc(meetLink)}" target="_blank" rel="noopener">Join via Google Meet</a></p>`;
       }
       if (speakerUrl && !speaker && !topic) {
-        html += `\n  <p class="meet-link"><a href="${esc(speakerUrl)}" target="_blank" rel="noopener">More info &rarr;</a></p>`;
+        html += `\n  <p class="meet-link"><a href="${esc(speakerUrl)}" target="_blank" rel="noopener">${esc(linkLabel(speakerUrl))} &rarr;</a></p>`;
       }
 
       const filled = ROLE_FIELDS.filter(rf => fv(row, COL[rf.key]));
@@ -304,7 +315,7 @@ function clubEvents(rows) {
       html += `\n  <p class="event-narrative">${textToHtml(summary)}</p>`;
     }
     if (url) {
-      html += `\n  <p class="meet-link"><a href="${esc(url)}" target="_blank" rel="noopener">More info &rarr;</a></p>`;
+      html += `\n  <p class="meet-link"><a href="${esc(url)}" target="_blank" rel="noopener">${esc(linkLabel(url))} &rarr;</a></p>`;
     }
     html += `</div>`;
     if (idx < rows.length - 1) html += `\n<hr class="section-rule">`;
