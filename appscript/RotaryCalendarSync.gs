@@ -3632,6 +3632,9 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 .ev-meta{font-size:0.8em;color:#64748b;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ev-chip{flex-shrink:0;font-size:0.7em;font-weight:700;padding:3px 10px;border-radius:20px;color:#3a2f00}
 .ev-cancelled-tag{flex-shrink:0;font-size:0.66em;font-weight:700;color:#b91c1c;background:#fee2e2;padding:3px 9px;border-radius:20px}
+.ev-thumb{flex-shrink:0;width:46px;height:46px;object-fit:cover;border-radius:7px;border:1px solid #e2e8f0}
+.ev-signup{color:#1a56db;font-weight:600;font-size:0.85em;text-decoration:none;white-space:nowrap}
+.ev-signup:hover{text-decoration:underline}
 .empty{text-align:center;color:#94a3b8;padding:3em 1em;font-size:0.95em;line-height:1.6}
 /* Slide-over panel */
 #scrim{position:fixed;inset:0;background:rgba(15,23,42,0.45);opacity:0;visibility:hidden;transition:opacity .2s;z-index:50}
@@ -3808,13 +3811,18 @@ function render(){
     var cd=cardDate(e.date), color=TYPE_COLOR[e.eventType]||'#d1d5db';
     var meta=[]; if(e.time)meta.push(esc(e.time)); if(e.location)meta.push(esc(e.location)); if(e.organizer)meta.push('· '+esc(e.organizer));
     var nameHtml=e.eventName?esc(e.eventName):'<span class="ev-untitled">(untitled '+esc(e.eventType)+')</span>';
+    // A signup/info link becomes a "– signup" link on the title (it stops the
+    // click from also opening the edit panel).
+    if(e.link)nameHtml+=' <a class="ev-signup" href="'+esc(e.link)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">– signup</a>';
+    // Scaled thumbnail sits just before the type chip when the event has a photo.
+    var thumb=e.photo?'<img class="ev-thumb" src="'+esc(driveThumb(e.photo,120))+'" onerror="this.style.display=&#39;none&#39;">':'';
     var tag=e.cancelled?'<span class="ev-cancelled-tag">Cancelled</span>':'<span class="ev-chip" style="background:'+color+'">'+esc(e.eventType)+'</span>';
     var card=document.createElement('div');
     card.className='ev'+(e.cancelled?' cancelled':'');
     card.style.borderLeftColor=color;
     card.innerHTML=
       '<div class="ev-date"><div class="ev-dow">'+cd.dow+'</div><div class="ev-day">'+cd.day+'</div><div class="ev-mon">'+cd.mon+'</div></div>'+
-      '<div class="ev-main"><div class="ev-name">'+nameHtml+'</div><div class="ev-meta">'+meta.join(' ')+'</div></div>'+tag;
+      '<div class="ev-main"><div class="ev-name">'+nameHtml+'</div><div class="ev-meta">'+meta.join(' ')+'</div></div>'+thumb+tag;
     card.onclick=(function(r){return function(){openEdit(r);};})(e.rowIndex);
     list.appendChild(card);
   });
