@@ -148,12 +148,14 @@ function driveThumb(u, size) {
 function mdInline(s) {
   var stash = [];
   function keep(html) { stash.push(html); return '\u0000' + (stash.length - 1) + '\u0000'; }
-  // [text](url) markdown links first
+  // [text](url) markdown links first. Also tolerate the reversed form
+  // [url](label) that ClubRunner email exports produce: if the bracket text
+  // is the URL and the target isn't, swap them so the label stays clickable.
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function(_, t, u) {
-    var safe = /^https?:\/\//i.test(u) ? u : '';
-    return keep(safe
-      ? '<a href="' + safe + '" target="_blank" rel="noopener">' + t + '</a>'
-      : t);
+    var tUrl = /^https?:\/\//i.test(t), uUrl = /^https?:\/\//i.test(u);
+    if (uUrl) return keep('<a href="' + u + '" target="_blank" rel="noopener">' + t + '</a>');
+    if (tUrl) return keep('<a href="' + t + '" target="_blank" rel="noopener">' + u + '</a>');
+    return keep(t);
   });
   // bare http(s) URLs → clickable, trimming trailing sentence punctuation
   s = s.replace(/https?:\/\/[^\s<]+/g, function(u) {
