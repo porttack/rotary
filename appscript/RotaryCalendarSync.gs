@@ -213,8 +213,36 @@ function onOpen() {
     .addItem("🎤  Setup Speaker Pipeline Tab",  "setupSpeakerPipeline")
     .addItem("🔧  Migrate Confirmed → In Progress", "migratePipelineConfirmedStatus")
     .addItem("🧹  Purge Old Rate Counters",         "purgeOldRateCounters")
+    .addItem("✉️  Authorize Email (run once)",       "authorizeMailScope")
     .addItem("⚡  Install Edit Trigger (run once)", "installEditTrigger")
     .addToUi();
+}
+
+/**
+ * One-time email authorization. The form-submission emails (notifySubmission_,
+ * confirmSubmitter_) call MailApp.sendEmail, which needs the
+ * https://www.googleapis.com/auth/script.send_mail scope. A web app deployed
+ * before that scope was granted runs without it, so every send throws
+ * "You do not have permission to call MailApp.sendEmail" (silently, since the
+ * email helpers swallow errors). Running THIS function from the editor triggers
+ * a fresh consent prompt that includes the mail scope; once granted, the
+ * "Execute as: Me" web app can send. Sends a test message to the owner so you
+ * can confirm delivery end-to-end.
+ */
+function authorizeMailScope() {
+  const me = Session.getEffectiveUser().getEmail();
+  MailApp.sendEmail(
+    me,
+    'SLV Rotary — email authorized ✅',
+    'If you are reading this, the script can now send email. ' +
+    'Speaker-form notifications and acknowledgements will go out from now on.'
+  );
+  try {
+    SpreadsheetApp.getUi().alert(
+      'Email authorized — a test message was sent to ' + me + '.\n\n' +
+      'Check your inbox to confirm it arrived.'
+    );
+  } catch (_) {}
 }
 
 // ── EDIT TRIGGER ─────────────────────────────────────────────
@@ -1452,6 +1480,8 @@ function getPublicSpeakers_() {
   try {
     const sheet = getPipelineSheet_();
     if (!sheet) return { speakers: [] };
+    const tz = Session.getScriptTimeZone();
+    const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
     const data = sheet.getDataRange().getValues();
     const speakers = [];
     for (var i = 1; i < data.length; i++) {
@@ -1460,12 +1490,22 @@ function getPublicSpeakers_() {
       if (['new', 'in-progress', 'scheduled'].indexOf(status) === -1) continue;
       const name = String(row[CP.SPEAKER_NAME - 1] || '').trim();
       if (!name) continue;
+      const tv = row[CP.TENTATIVE_DATE - 1];
+      const tentativeDate = tv instanceof Date ? Utilities.formatDate(tv, tz, 'yyyy-MM-dd') : String(tv || '');
+      // Scheduled speakers only surface once they're upcoming (today or later).
+      if (status === 'scheduled' && (!tentativeDate || tentativeDate < todayStr)) continue;
+      // Top photo, else bottom photo — shown as a small thumbnail on the page.
+      const photo = String(row[CP.PHOTO_URL - 1] || '').trim() || String(row[CP.PHOTO_BOTTOM - 1] || '').trim();
       speakers.push({
         rowIndex:      i + 1,
         speakerName:   name,
         topic:         String(row[CP.TOPIC - 1] || ''),
+        summary:       String(row[CP.SUMMARY - 1] || ''),
+        priority:      String(row[CP.PRIORITY - 1] || ''),
+        source:        String(row[CP.SOURCE - 1] || ''),   // offer = requested to speak (speak.md)
         status:        status,
-        tentativeDate: String(row[CP.TENTATIVE_DATE - 1] || ''),
+        tentativeDate: tentativeDate,
+        photo:         photo,
         hearts:        parseInt(row[CP.HEARTS - 1]) || 0,
       });
     }
@@ -4493,6 +4533,7 @@ function buildCard(card) {
     '<div class="card-meta">' +
       '<span class="badge ' + card.source + '">' + card.source + '</span>' +
       (card.priority ? '<span class="badge priority-' + card.priority.toLowerCase() + '">' + esc(card.priority) + '</span>' : '') +
+      (card.hearts ? '<span class="badge" style="background:#fee2e2;color:#b91c1c" title="Public support hearts from the /speakers/ website page">♥ ' + card.hearts + '</span>' : '') +
     '</div>' +
     (tagChips ? '<div class="card-tags">' + tagChips + '</div>' : '') +
     ((card.isRotarian || card.isLocal || card.fundraisingLiterature) ?
@@ -5244,7 +5285,7 @@ function renderTable(){
       '<td>'+esc(card.topic||'—')+'</td>'+
       '<td><span class="tag tag-'+card.status.replace('-','_')+'">'+esc(statusLabels[card.status]||card.status)+'</span></td>'+
       '<td>'+esc(card.assignedTo||'—')+'</td><td>'+esc(card.tentativeDate||'—')+'</td>'+
-      '<td class="vote-cell"><button style="background:none;border:none;cursor:pointer;font-size:0.9em" onclick="voteRow(event,'+card.rowIndex+')">'+(iVoted?'❤️':'🤍')+'</button> '+intNames.length+'</td>'+
+      '<td class="vote-cell"><button style="background:none;border:none;cursor:pointer;font-size:0.9em" onclick="voteRow(event,'+card.rowIndex+')">'+(iVoted?'❤️':'🤍')+'</button> '+intNames.length+(card.hearts?' <span title="Public support hearts from the /speakers/ website page" style="color:#b91c1c">♥'+card.hearts+'</span>':'')+'</td>'+
       '<td><span class="tag tag-'+card.source+'">'+card.source+'</span></td>'+
       '<td style="color:#888;font-size:0.8em">'+esc(card.updatedAt||'')+'</td>';
     tr.addEventListener('click',function(){
@@ -5688,6 +5729,7 @@ function render(){
             (card.isRotarian?'<span class="badge" style="background:#e0e7ff;color:#3730a3">Rotarian</span>':'')+
             (card.isLocal?'<span class="badge" style="background:#dcfce7;color:#166534">Local</span>':'')+
             (card.fundraisingLiterature?'<span class="badge" style="background:#fef9c3;color:#854d0e">&#9888; Fundraising lit.</span>':'')+
+            (card.hearts?'<span class="badge" style="background:#fee2e2;color:#b91c1c" title="Public support hearts from the /speakers/ website page">♥ '+card.hearts+'</span>':'')+
             voteHtml(card)+
           '</div>'+
           stageSel+

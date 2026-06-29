@@ -169,6 +169,85 @@ The sync reads the image cell using the Sheets API, writes the extracted URL to 
 
 ---
 
+## Moving to a new Google account
+
+Everything dynamic is tied to **one Google account**: the Sheet, its bound Apps
+Script project, the web-app deployments, the published CSV, and the Drive
+"Rotary" folder of photos/newsletters. The GitHub Pages repo itself is **not**
+tied to the account — only a few config URLs change. Work through this checklist
+when handing the project to a different Gmail/Workspace account.
+
+> **Recommended approach: copy + reconfigure.** From the new account, open the
+> Sheet and do **File → Make a copy**. A copy duplicates the Sheet *and* its
+> bound Apps Script code, but **does not copy** Script Properties, installable
+> triggers, or web-app deployments — so those must be redone (steps 2–6 below).
+> Transferring ownership instead keeps the same deployments but still forces
+> re-authorization; copying is the cleaner, more predictable path for a prototype.
+
+1. **Copy the Sheet** into the new account (File → Make a copy). This brings the
+   `Events`, `Speaker Pipeline`, and `Members` tabs and the full `.gs` code.
+   Delete any old `Backup …` tabs you don't need.
+
+2. **Re-enter Script Properties** — Apps Script editor → **Project Settings →
+   Script Properties**. These are *not* copied and the apps silently misbehave
+   without them:
+   | Property | Used by |
+   |---|---|
+   | `KANBAN_PASSWORD` | Login gate for the Speaker Pipeline apps **and** the Event Editor |
+   | `NOTIFY_EMAILS` | Comma/space-separated recipients for new speaker-form submissions |
+   | `ANTHROPIC_API_KEY` | Calendar Assistant (Claude) |
+   | `GEMINI_API_KEY` | Calendar Assistant default + pipeline AI command line (optional) |
+
+   (The auto-created `sub_YYYY-MM-DD` rate-limit counters can be ignored; run
+   **🧹 Purge Old Rate Counters** later to tidy them.)
+
+3. **Point at the new calendar** — set `CALENDAR_ID` at the top of the `.gs` to
+   the new account's calendar ID (Calendar Settings → Integrate calendar), or
+   share the existing calendar to the new account with "Make changes to events"
+   and use that ID.
+
+4. **Authorize scopes** — run any **🔄 Rotary Sync** menu item once and accept
+   the OAuth prompt. Then run **✉️ Authorize Email (run once)** specifically, so
+   `MailApp` is granted the `script.send_mail` scope — otherwise the speaker-form
+   confirmation/notification emails fail silently. Also run **⚡ Install Edit
+   Trigger** to restore automatic row coloring.
+
+5. **Re-deploy the web app(s)** under the new account — Deploy → New deployment →
+   Web app:
+   - **Duty Editor / pipeline / Event Editor**: Execute as **Me**, access
+     **Anyone**. Copy the new `…/exec` URL.
+   - **Calendar Assistant** (optional): a second Web app deployment, Execute as
+     **Me**, access **Only myself** (reached via `?app=assistant`).
+
+   The new `…/exec` URL is **different** from the old one. Update it in
+   **`_config.yml` → `apps_script_url`** — that one value feeds the speaker
+   forms (`request.md` / `speak.md`), the public `/speakers/` page, and all the
+   pipeline/editor cross-links.
+
+6. **Re-publish the CSV** — File → Share → Publish to web → **Events** sheet →
+   **CSV** → Publish. The new published URL (and the tab `gid`) differ. Update it
+   in every place it's hardcoded:
+   - `assets/js/rotary-common.js` (the shared fetch used by `newsletter.html`)
+   - `calendar.html`
+   - `year.html`
+   - `CLAUDE.md` (documentation reference)
+
+7. **Drive photos & newsletters** — uploaded speaker/event photos and generated
+   newsletter Docs live in a Drive **Rotary** (and **Rotary/Photos**) folder owned
+   by the *old* account. Existing `drive.google.com/...` image URLs keep working
+   only while those files stay shared "Anyone with the link". Before retiring the
+   old account, move that folder to the new account (or re-upload key images and
+   re-run **🖼️ Sync Photos**), or the newsletter/pipeline thumbnails will break.
+
+8. **Commit & push** the edited `_config.yml`, `assets/js/rotary-common.js`,
+   `calendar.html`, and `year.html`. GitHub Pages redeploys on push; the
+   `rotary.porttack.com` domain and the in-site links to it are unchanged.
+
+After this, submit one test speaker request to confirm the row lands in the new
+**Speaker Pipeline** tab and both emails arrive.
+
+---
+
 ## Local development
 
 ```bash

@@ -21,6 +21,19 @@ permalink: /speakers/
   .sp-badge-scheduled  { background: #d1fae5; color: #065f46; }
   .sp-badge-in-progress{ background: #dbeafe; color: #1e3a8a; }
   .sp-badge-new        { background: #f3f4f6; color: #374151; }
+  .sp-prio-high    { background: #fed7aa; color: #9a3412; }
+  .sp-prio-medium  { background: #bfdbfe; color: #1e40af; }
+  .sp-prio-low     { background: #f3f4f6; color: #4b5563; }
+  .sp-prio-request { background: #eef3fb; color: #17458F; }
+  .sp-card-body { display: flex; gap: 0.9em; align-items: flex-start; }
+  .sp-card-main { flex: 1; min-width: 0; }
+  .sp-photo {
+    flex-shrink: 0; width: 64px; height: 64px;
+    object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0;
+  }
+  .sp-badges { display: flex; align-items: center; gap: 0.45em; flex-wrap: wrap; margin: 0.1em 0 0.45em; }
+  .sp-date { font-size: 0.8em; color: #b45309; font-weight: bold; white-space: nowrap; }
+  .sp-summary { color: #555; font-size: 0.9em; line-height: 1.45; margin-top: 0.2em; }
   .heart-btn {
     background: none; border: none; cursor: pointer;
     font-size: 1.1em; color: #17458F; padding: 2px 4px;
@@ -113,6 +126,15 @@ function fmtDate(s) {
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+// Drive "uc?export=view" / "/d/<id>" links don't render in <img>; convert to the
+// thumbnail endpoint, which does. Non-Drive URLs pass through unchanged.
+function driveThumb(u, size) {
+  if (!u) return '';
+  var id = '', i = u.indexOf('id=');
+  if (i >= 0) { id = u.substring(i + 3).split('&')[0]; }
+  else { var j = u.indexOf('/d/'); if (j >= 0) id = u.substring(j + 3).split('/')[0]; }
+  return id ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w' + (size || 200) : u;
+}
 
 // ── render ───────────────────────────────────────────────────────
 function renderSpeakers(speakers) {
@@ -121,6 +143,11 @@ function renderSpeakers(speakers) {
     wrap.innerHTML = '<p style="font-family:Arial,sans-serif;color:#888">No speakers in the pipeline yet.</p>';
     return;
   }
+  var prioMap = {
+    high:   { cls: 'sp-prio-high',   label: 'Strongly Recommended' },
+    medium: { cls: 'sp-prio-medium', label: 'Recommended' },
+    low:    { cls: 'sp-prio-low',    label: 'Idea' }
+  };
   wrap.innerHTML = speakers.map(function(sp) {
     var ri = sp.rowIndex;
     var hearted = hasHearted(ri);
@@ -129,14 +156,35 @@ function renderSpeakers(speakers) {
       'in-progress': 'sp-badge-in-progress',
       'new':         'sp-badge-new'
     }[sp.status] || 'sp-badge-new';
-    var dateStr = (sp.status === 'scheduled' && sp.tentativeDate) ? fmtDate(sp.tentativeDate) : '';
+    var dateStr = sp.tentativeDate ? fmtDate(sp.tentativeDate) : '';
     var badgeLabel = sp.status === 'scheduled'   ? ('Scheduled' + (dateStr ? ': ' + dateStr : '')) :
                      sp.status === 'in-progress' ? 'In Discussion' : 'Suggested';
+    // "Requested to speak" = a speaker who offered via the speak.md form (source=offer);
+    // otherwise show the committee's priority, if one was set.
+    var prio = sp.source === 'offer'
+      ? { cls: 'sp-prio-request', label: 'Requested to speak' }
+      : prioMap[(sp.priority || '').toLowerCase()];
+    var prioBadge = prio ? '<span class="sp-badge ' + prio.cls + '">' + prio.label + '</span>' : '';
+    // Scheduled cards show the date inside their status badge; others get a chip.
+    var dateChip = (sp.status !== 'scheduled' && dateStr)
+      ? '<span class="sp-date">Tentative: ' + esc(dateStr) + '</span>' : '';
+    var photoImg = sp.photo
+      ? '<img class="sp-photo" src="' + esc(driveThumb(sp.photo, 128)) + '" alt="" onerror="this.style.display=\'none\'">' : '';
     return '<div class="sp-card" id="sp-card-' + ri + '">' +
-      '<div class="sp-name">' + esc(sp.speakerName) + '</div>' +
-      (sp.topic ? '<div class="sp-topic">' + esc(sp.topic) + '</div>' : '') +
+      '<div class="sp-card-body">' +
+        '<div class="sp-card-main">' +
+          '<div class="sp-name">' + esc(sp.speakerName) + '</div>' +
+          '<div class="sp-badges">' +
+            prioBadge +
+            '<span class="sp-badge ' + badgeClass + '">' + badgeLabel + '</span>' +
+            dateChip +
+          '</div>' +
+          (sp.topic ? '<div class="sp-topic">' + esc(sp.topic) + '</div>' : '') +
+          (sp.summary ? '<div class="sp-summary">' + esc(sp.summary) + '</div>' : '') +
+        '</div>' +
+        photoImg +
+      '</div>' +
       '<div class="sp-meta">' +
-        '<span class="sp-badge ' + badgeClass + '">' + badgeLabel + '</span>' +
         '<button class="heart-btn" id="hbtn-' + ri + '" onclick="doHeart(' + ri + ')"' + (hearted ? ' disabled' : '') + '>' +
           '<span id="hico-' + ri + '">' + (hearted ? '♥' : '♡') + '</span>' +
           '<span class="heart-count" id="hcnt-' + ri + '">' + sp.hearts + '</span>' +
