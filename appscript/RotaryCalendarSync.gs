@@ -1870,8 +1870,8 @@ function saveEvent(password, payload) {
     set(COL.SPEAKER_URL,       p.link      || '');
     if (p.photo) set(COL.PHOTO_TOP, p.photo);   // don't clobber an embedded image with a blank
     set(COL.SUMMARY,           p.summary   || '');
-    // Speaker/program fields only apply to meeting types (advanced mode). Duty
-    // columns are deliberately never written — the Duty Editor owns those.
+    // Speaker/program fields only apply to meeting types. Duty columns are
+    // deliberately never written — the Duty Editor owns those.
     if (SPEAKER_EVENT_TYPES.indexOf(type) !== -1) {
       set(COL.MAIN_SPEAKER,    p.mainSpeaker    || '');
       set(COL.OPENING_SPEAKER, p.openingSpeaker || '');
@@ -3722,6 +3722,7 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 .ev-name{font-weight:600;color:#1e293b;font-size:0.96em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ev-untitled{color:#94a3b8;font-style:italic;font-weight:400}
 .ev-meta{font-size:0.8em;color:#64748b;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev-topic{font-size:0.85em;color:#475569;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ev-chip{flex-shrink:0;font-size:0.7em;font-weight:700;padding:3px 10px;border-radius:20px;color:#3a2f00}
 .ev-cancelled-tag{flex-shrink:0;font-size:0.66em;font-weight:700;color:#b91c1c;background:#fee2e2;padding:3px 9px;border-radius:20px}
 .ev-thumb{flex-shrink:0;width:46px;height:46px;object-fit:cover;border-radius:7px;border:1px solid #e2e8f0}
@@ -3781,15 +3782,15 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 <header>
   <h1>📋 Club Events</h1>
   <span id="hdr-user" style="font-size:0.85em;opacity:0.85"></span>
-  <button class="hbtn" id="adv-toggle" onclick="toggleAdvanced()" title="Also edit meetings, board meetings, and every other event type">Show all types</button>
   <a class="hbtn" href="__EXEC_URL__" target="_top">Duty Editor →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
 
 <div id="main">
-  <p id="hint">Add or edit socials, service projects, fundraisers and other dates for the next year. Tap <strong>Show all types</strong> to also edit meetings (speaker, topic, Google Meet, introducer); duty roles stay in the Duty Editor.</p>
+  <p id="hint">Browse and edit club events for the next year. Use the type menu to switch between everyday events, meetings, and the rest; duty roles stay in the Duty Editor.</p>
   <div id="toolbar">
     <input id="search" placeholder="Search events…" oninput="render()">
+    <select id="typefilter" onchange="setTypeFilter(this.value)" title="Filter by event type" style="padding:10px 9px;border:1px solid #cfd6e4;border-radius:9px;font-size:0.9em;background:#fff"></select>
     <select id="weeks" onchange="render()" title="How far ahead to show" style="padding:10px 9px;border:1px solid #cfd6e4;border-radius:9px;font-size:0.9em;background:#fff">
       <option value="0">All</option>
       <option value="4">4 wks</option>
@@ -3851,9 +3852,9 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 
 <script>
 var DATA={events:[],members:[],types:[],allTypes:[]}, currentUser='', editingRow=0, toastTimer=null;
-var advanced=localStorage.getItem('eventEditorAdvanced')==='1';
+var typeFilter=localStorage.getItem('eventEditorTypeFilter')||'__EVENTS__';
 var SPEAKER_TYPES=['Meeting','Assembly','Board Meeting'];
-var ADV_EXCLUDE=['Grey Bears']; // editing these here is rare — keep them out of the advanced list
+var ADV_EXCLUDE=['Grey Bears']; // hidden from the "All types" view (rarely edited here); still selectable by name
 var DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 var MONF=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -3917,10 +3918,11 @@ function render(){
   var wk=parseInt((document.getElementById('weeks')||{}).value,10)||0;
   var cutoff=wk?isoAhead(wk*7):'';
   var shown=DATA.events.filter(function(e){
-    // Basic mode: only the member-editable types. Advanced: everything except
-    // Grey Bears (rarely edited here — kept out so the list stays readable).
-    if(advanced){ if(ADV_EXCLUDE.indexOf(e.eventType)!==-1)return false; }
-    else if(DATA.types.indexOf(e.eventType)===-1)return false;
+    // Type filter: Events = the everyday member types; All = everything except
+    // Grey Bears; otherwise an exact single type.
+    if(typeFilter==='__EVENTS__'){ if(DATA.types.indexOf(e.eventType)===-1)return false; }
+    else if(typeFilter==='__ALL__'){ if(ADV_EXCLUDE.indexOf(e.eventType)!==-1)return false; }
+    else if(e.eventType!==typeFilter)return false;
     if(cutoff && e.date>cutoff)return false;   // week-count view filter
     if(!q)return true;
     return (e.eventName+' '+e.eventType+' '+e.location+' '+e.organizer+' '+(e.mainSpeaker||'')+' '+e.date).toLowerCase().indexOf(q)>-1;
@@ -3931,11 +3933,24 @@ function render(){
     var mk=monthKey(e.date);
     if(mk!==curMonth){curMonth=mk;var h=document.createElement('div');h.className='month-hd';h.textContent=mk;list.appendChild(h);}
     var cd=cardDate(e.date), color=TYPE_COLOR[e.eventType]||'#d1d5db';
+    var isMtg=SPEAKER_TYPES.indexOf(e.eventType)>-1, isHol=e.eventType==='Holiday';
     var meta=[]; if(e.time)meta.push(esc(e.time)); if(e.location)meta.push(esc(e.location)); if(e.organizer)meta.push('· '+esc(e.organizer));
-    var nameHtml=e.eventName?esc(e.eventName):'<span class="ev-untitled">(untitled '+esc(e.eventType)+')</span>';
-    // A signup/info link becomes a "– signup" link on the title (it stops the
-    // click from also opening the edit panel).
-    if(e.link)nameHtml+=' <a class="ev-signup" href="'+esc(e.link)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">– signup</a>';
+    // Title line (+ a topic line for meetings), by event category.
+    var nameHtml, topicLine='';
+    if(isMtg){
+      nameHtml=e.mainSpeaker?esc(e.mainSpeaker):'<span class="ev-untitled">Speaker: TBD</span>';
+      topicLine='<div class="ev-topic">'+(e.eventName?esc(e.eventName):'<span class="ev-untitled">Topic: TBD</span>')+'</div>';
+    } else if(isHol){
+      nameHtml=(e.eventName?esc(e.eventName):'Holiday')+' <span class="ev-untitled">– holiday</span>';
+    } else {
+      nameHtml=e.eventName?esc(e.eventName):'<span class="ev-untitled">(untitled '+esc(e.eventType)+')</span>';
+    }
+    // A link becomes "– info" (meetings/holidays) or "– signup" (everything
+    // else) on the title; the click is stopped from opening the edit panel.
+    if(e.link){
+      var lbl=(isMtg||isHol)?'– info':'– signup';
+      nameHtml+=' <a class="ev-signup" href="'+esc(e.link)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+lbl+'</a>';
+    }
     // Scaled thumbnail sits just before the type chip when the event has a photo.
     var thumb=e.photo?'<img class="ev-thumb" src="'+esc(driveThumb(e.photo,120))+'" onerror="this.style.display=&#39;none&#39;">':'';
     var tag=e.cancelled?'<span class="ev-cancelled-tag">Cancelled</span>':'<span class="ev-chip" style="background:'+color+'">'+esc(e.eventType)+'</span>';
@@ -3944,7 +3959,7 @@ function render(){
     card.style.borderLeftColor=color;
     card.innerHTML=
       '<div class="ev-date"><div class="ev-dow">'+cd.dow+'</div><div class="ev-day">'+cd.day+'</div><div class="ev-mon">'+cd.mon+'</div></div>'+
-      '<div class="ev-main"><div class="ev-name">'+nameHtml+'</div><div class="ev-meta">'+meta.join(' ')+'</div></div>'+thumb+tag;
+      '<div class="ev-main"><div class="ev-name">'+nameHtml+'</div>'+topicLine+'<div class="ev-meta">'+meta.join(' ')+'</div></div>'+thumb+tag;
     card.onclick=(function(r){return function(){openEdit(r);};})(e.rowIndex);
     list.appendChild(card);
   });
@@ -3952,13 +3967,19 @@ function render(){
 
 // ── Panel ─────────────────────────────────────────────────────
 function fillOptions(){
+  // The add/edit panel can create any event type.
   var sel=document.getElementById('f-type'); sel.innerHTML='';
-  var typeList=(advanced&&DATA.allTypes&&DATA.allTypes.length)
-    ?DATA.allTypes.filter(function(t){return ADV_EXCLUDE.indexOf(t)===-1;})
-    :DATA.types;
+  var typeList=(DATA.allTypes&&DATA.allTypes.length)?DATA.allTypes:DATA.types;
   typeList.forEach(function(t){var o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
   var dl=document.getElementById('member-list'); dl.innerHTML='';
   DATA.members.forEach(function(m){var o=document.createElement('option');o.value=m;dl.appendChild(o);});
+  // Type filter dropdown: Events (default), All types, then each type.
+  var tf=document.getElementById('typefilter');
+  if(tf){
+    var opts='<option value="__EVENTS__">Events</option><option value="__ALL__">All types</option>';
+    typeList.forEach(function(t){opts+='<option value="'+esc(t)+'">'+esc(t)+'</option>';});
+    tf.innerHTML=opts; tf.value=typeFilter;
+  }
 }
 // Show the speaker block + relabel the shared fields when a meeting type is picked.
 function updateTypeUI(){
@@ -3972,17 +3993,8 @@ function updateTypeUI(){
   document.getElementById('photo-bottom-fld').style.display=isMtg?'':'none';
   document.getElementById('f-name').placeholder=isMtg?'e.g. Water Conservation':'e.g. Beach Cleanup';
 }
-// Header toggle: persist the choice, rebuild the type dropdown + list.
-function toggleAdvanced(){
-  advanced=!advanced;
-  localStorage.setItem('eventEditorAdvanced',advanced?'1':'');
-  syncAdvToggle();
-  fillOptions(); render();
-}
-function syncAdvToggle(){
-  var b=document.getElementById('adv-toggle');
-  if(b)b.textContent=advanced?'✓ All types':'Show all types';
-}
+// Type filter dropdown (Events / All / a single type), persisted per browser.
+function setTypeFilter(v){typeFilter=v;localStorage.setItem('eventEditorTypeFilter',v);render();}
 function openPanel(){document.getElementById('panel').classList.add('open');document.getElementById('scrim').classList.add('open');}
 function closePanel(){document.getElementById('panel').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
 function setV(id,v){document.getElementById(id).value=(v==null?'':v);}
@@ -3995,7 +4007,8 @@ function openNew(){
   document.getElementById('panel-title').textContent='Add Event';
   document.getElementById('btn-del').style.display='none';
   document.getElementById('notes-section').style.display='none';
-  setV('f-type',DATA.types[0]||'Social'); setV('f-date',''); setV('f-time',''); setV('f-duration','60');
+  var defType=(typeFilter==='__EVENTS__'||typeFilter==='__ALL__')?(DATA.types[0]||'Social'):typeFilter;
+  setV('f-type',defType); setV('f-date',''); setV('f-time',''); setV('f-duration','60');
   setV('f-name',''); setV('f-location',''); setV('f-organizer',currentUser);
   setV('f-summary',''); setV('f-link',''); setV('f-photo',''); setV('f-photo-bottom','');
   setV('f-main-speaker',''); setV('f-opening-speaker',''); setV('f-introducer',''); setV('f-meet','');
@@ -4073,7 +4086,7 @@ function deleteCurrent(){
 
 // ── Data + Auth ───────────────────────────────────────────────
 function loadData(){
-  gs('getEventEditorData').then(function(d){DATA=d;syncAdvToggle();fillOptions();render();})
+  gs('getEventEditorData').then(function(d){DATA=d;fillOptions();render();})
     .catch(function(err){toast('Load error: '+(err.message||err),true);});
 }
 function doLogin(){

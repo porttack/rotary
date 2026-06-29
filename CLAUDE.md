@@ -202,17 +202,21 @@ editing events without exposing the full sheet. Password-gated
 with `KANBAN_PASSWORD` (same login as the Speaker Pipeline apps); reached from
 tool cards in `calendar.html` and the `/pipeline/` Tools page.
 
-**Scope:** by default the list and the type dropdown show only
-`EDITOR_EVENT_TYPES` (Social, Service, Fundraiser, Committee, Other) within the
-next `EDITOR_WEEKS_AHEAD` weeks (52 — capped at ~a year so "all types" can't
-balloon into multiple years of weekly meetings). A **"Show all types"** header
-toggle (persisted in `localStorage` as `eventEditorAdvanced`) switches to *all*
-`EVENT_TYPES` **except Grey Bears** (client-side `ADV_EXCLUDE`; editing Grey
-Bears here is rare, so it's kept out of the list to reduce clutter). A small
-**"Next N weeks"** dropdown (`#weeks`, default *All*) narrows the list view.
-Both the toggle and the week filter are client-side only; `getEventEditorData()`
-always returns every known type within the window, so server functions accept
-any row whose current type is in `EVENT_TYPES`.
+**Scope:** all events within the next `EDITOR_WEEKS_AHEAD` weeks (52 — capped at
+~a year so the list can't balloon into multiple years of weekly meetings). Two
+client-side toolbar filters narrow the list: a **type** dropdown (`#typefilter`,
+persisted as `eventEditorTypeFilter`) with *Events* (default — the
+`EDITOR_EVENT_TYPES` everyday set), *All types* (everything except Grey Bears via
+`ADV_EXCLUDE`), or a single named type; and a **"Next N weeks"** dropdown
+(`#weeks`, default *All*). Both are display-only; `getEventEditorData()` always
+returns every known type within the window, and the add/edit panel can create
+any `EVENT_TYPE`, so server functions accept any row whose type is in
+`EVENT_TYPES`.
+
+**List rows:** meetings show Speaker (or *Speaker: TBD*) with the Topic (or
+*Topic: TBD*) beneath and time · location · organizer below that; holidays show
+the name with a *"– holiday"* suffix; a link renders as *"– info"* for
+meetings/holidays and *"– signup"* for other types.
 
 **Meeting fields (advanced mode):** when the selected type is in
 `SPEAKER_EVENT_TYPES` (Meeting/Assembly/Board Meeting), the panel reveals extra
