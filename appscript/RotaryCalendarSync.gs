@@ -4532,7 +4532,6 @@ function buildCard(card) {
     '<div class="card-meta">' +
       '<span class="badge ' + card.source + '">' + card.source + '</span>' +
       (card.priority ? '<span class="badge priority-' + card.priority.toLowerCase() + '">' + esc(card.priority) + '</span>' : '') +
-      (card.hearts ? '<span class="badge" style="background:#fee2e2;color:#b91c1c" title="Public support hearts from the /speakers/ website page">♥ ' + card.hearts + '</span>' : '') +
     '</div>' +
     (tagChips ? '<div class="card-tags">' + tagChips + '</div>' : '') +
     ((card.isRotarian || card.isLocal || card.fundraisingLiterature) ?
@@ -4545,8 +4544,8 @@ function buildCard(card) {
       statuses.map(function(s) { return '<option value="' + s + '"' + (s === card.status ? ' selected' : '') + '>' + esc(statusLabels[s] || s) + '</option>'; }).join('') +
     '</select>' +
     '<div class="vote-row">' +
-      '<button class="vote-btn' + (iVoted ? ' voted' : '') + '" data-row="' + card.rowIndex + '">' +
-        (iVoted ? '❤️' : '🤍') + ' ' + interestedNames.length +
+      '<button class="vote-btn' + (iVoted ? ' voted' : '') + '" data-row="' + card.rowIndex + '" title="Interest — members + public website hearts">' +
+        (iVoted ? '❤️' : '🤍') + ' ' + (interestedNames.length + (card.hearts || 0)) +
       '</button>' +
     '</div>';
   div.addEventListener('click', function(e) {
@@ -4579,7 +4578,7 @@ function buildCard(card) {
       var names = res.interested ? res.interested.split(',').map(function(n){return n.trim();}).filter(Boolean) : [];
       var voted = names.indexOf(currentUser) !== -1;
       btn.className = 'vote-btn' + (voted ? ' voted' : '');
-      btn.textContent = (voted ? '❤️' : '🤍') + ' ' + names.length;
+      btn.textContent = (voted ? '❤️' : '🤍') + ' ' + (names.length + (card.hearts || 0));
       saveBoardCache();
     });
   });
@@ -5389,7 +5388,7 @@ function renderTable(){
       '<td>'+esc(card.topic||'—')+'</td>'+
       '<td><span class="tag tag-'+card.status+'">'+esc(statusLabels[card.status]||card.status)+'</span></td>'+
       '<td>'+esc(card.assignedTo||'—')+'</td><td>'+esc(card.tentativeDate||'—')+'</td>'+
-      '<td class="vote-cell"><button style="background:none;border:none;cursor:pointer;font-size:0.9em" onclick="voteRow(event,'+card.rowIndex+')">'+(iVoted?'❤️':'🤍')+'</button> '+intNames.length+(card.hearts?' <span title="Public support hearts from the /speakers/ website page" style="color:#b91c1c">♥'+card.hearts+'</span>':'')+'</td>';
+      '<td class="vote-cell"><button style="background:none;border:none;cursor:pointer;font-size:0.9em" title="Interest — members + public website hearts" onclick="voteRow(event,'+card.rowIndex+')">'+(iVoted?'❤️':'🤍')+'</button> '+(intNames.length+(card.hearts||0))+'</td>';
     tr.addEventListener('click',function(){openPanel(card.rowIndex);});
     tbody.appendChild(tr);
   });
@@ -5974,7 +5973,6 @@ function render(){
             (card.isRotarian?'<span class="badge" style="background:#e0e7ff;color:#3730a3">Rotarian</span>':'')+
             (card.isLocal?'<span class="badge" style="background:#dcfce7;color:#166534">Local</span>':'')+
             (card.fundraisingLiterature?'<span class="badge" style="background:#fef9c3;color:#854d0e">&#9888; Fundraising lit.</span>':'')+
-            (card.hearts?'<span class="badge" style="background:#fee2e2;color:#b91c1c" title="Public support hearts from the /speakers/ website page">♥ '+card.hearts+'</span>':'')+
             voteHtml(card)+
           '</div>'+
           stageSel+
@@ -6002,7 +6000,7 @@ async function addNote(ro){
 function voteHtml(card){
   var names=card.interested?card.interested.split(',').map(function(n){return n.trim();}).filter(Boolean):[];
   var voted=names.indexOf(currentUser)!==-1;
-  return '<span style="cursor:pointer;font-size:0.85em" onclick="vote('+card.rowIndex+')">'+(voted?'❤️':'🤍')+' '+names.length+'</span>';
+  return '<span style="cursor:pointer;font-size:0.85em" title="Interest — members + public website hearts" onclick="vote('+card.rowIndex+')">'+(voted?'❤️':'🤍')+' '+(names.length+(card.hearts||0))+'</span>';
 }
 function vote(ro){
   gs3('togglePipelineVote',ro,currentUser).then(function(res){
