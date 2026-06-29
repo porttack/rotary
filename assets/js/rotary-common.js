@@ -168,8 +168,8 @@ function photoSrc(row, primaryCol, fallbackCol) {
 
 const fmt          = (d, opts) => d.toLocaleDateString('en-US', opts);
 const fmtLong      = d => fmt(d, {weekday:'long', month:'long', day:'numeric', year:'numeric'});
-const fmtShort     = d => fmt(d, {month:'short', day:'numeric'});
-const fmtDayDate   = d => fmt(d, {weekday:'short', month:'short', day:'numeric'});
+const fmtShort     = d => fmt(d, {month:'long', day:'numeric'});
+const fmtDayDate   = d => fmt(d, {weekday:'short', month:'long', day:'numeric'});
 const fmtMonthYear = d => fmt(d, {month:'long', year:'numeric'});
 
 // ── Shared meeting entry renderer ─────────────────────────────────────────
