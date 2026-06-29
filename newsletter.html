@@ -140,7 +140,7 @@ permalink: /newsletter/
 
 <script src="{{ '/assets/js/rotary-common.js' | relative_url }}"></script>
 <script>
-const DETAIL_COUNT = 3;
+const MEETING_WEEKS_AHEAD = 3;   // "Meetings Coming Up" window (next 3 weeks)
 const WEEKS_AHEAD  = 12;   // "Looking Ahead" dates list window
 const EVENT_WEEKS_AHEAD = 26;  // "Club Events & Socials" window (~6 months out)
 
@@ -199,57 +199,64 @@ function comingUp(rows) {
     const photoBottom = photoSrc(row, COL.photoBottom, COL.photoBottomUrl);
     const meetLink    = fv(row, COL.meetLink);
     const timeStr    = fv(row, COL.time);
+    const cancelled  = isCancelled(row);
 
     let heading = `${esc(fmtShort(d))}: ${esc(type)}`;
-    if (speaker && topic)  heading += ` &mdash; ${linkWrap(speaker, speakerUrl)}: ${esc(topic)}`;
-    else if (speaker)      heading += ` &mdash; ${linkWrap(speaker, speakerUrl)}`;
-    else if (topic)        heading += ` &mdash; ${linkWrap(topic, speakerUrl)}`;
+    if (cancelled)              heading += ` &mdash; <span style="color:#b91c1c">&#x274C; CANCELLED</span>`;
+    else if (speaker && topic)  heading += ` &mdash; ${linkWrap(speaker, speakerUrl)}: ${esc(topic)}`;
+    else if (speaker)           heading += ` &mdash; ${linkWrap(speaker, speakerUrl)}`;
+    else if (topic)             heading += ` &mdash; ${linkWrap(topic, speakerUrl)}`;
+    else                        heading += ` &mdash; <span style="color:#888">speaker TBD</span>`;
 
     let metaParts = [`${esc(fmtLong(d))}${timeStr ? ' at ' + esc(timeStr) : ''}`];
     if (location) metaParts.push(mapLink(location));
     const meta = metaParts.join(' &nbsp;&middot;&nbsp; ');
 
     let html = `<div class="event-block">
-  <h3 class="event-heading">${heading}</h3>
+  <h3 class="event-heading${cancelled ? ' past' : ''}">${heading}</h3>
   <p class="event-meta">${meta}</p>`;
 
-    if (photoTop && photoTop.startsWith('http')) {
-      html += `\n  <img src="${esc(photoTop)}" alt="${esc(speaker || topic || type)}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
-    }
-    if (opening) {
-      html += `\n  <p class="event-opening"><strong>Opening:</strong> ${esc(opening)}</p>`;
-    }
-    if (summary) {
-      html += `\n  <p class="event-narrative">${textToHtml(summary)}</p>`;
-    }
-    if (photoBottom && photoBottom.startsWith('http')) {
-      html += `\n  <img src="${esc(photoBottom)}" alt="${esc(speaker || topic || type)}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
-    }
-    if (meetLink) {
-      html += `\n  <p class="meet-link"><a href="${esc(meetLink)}" target="_blank" rel="noopener">Join via Google Meet</a></p>`;
-    }
-    if (speakerUrl && !speaker && !topic) {
-      html += `\n  <p class="meet-link"><a href="${esc(speakerUrl)}" target="_blank" rel="noopener">More info &rarr;</a></p>`;
-    }
+    // Cancelled meetings show date/heading only — no photos, summary, or duties.
+    if (!cancelled) {
+      if (photoTop && photoTop.startsWith('http')) {
+        html += `\n  <img src="${esc(photoTop)}" alt="${esc(speaker || topic || type)}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
+      }
+      if (opening) {
+        html += `\n  <p class="event-opening"><strong>Opening:</strong> ${esc(opening)}</p>`;
+      }
+      if (summary) {
+        html += `\n  <p class="event-narrative">${textToHtml(summary)}</p>`;
+      }
+      if (photoBottom && photoBottom.startsWith('http')) {
+        html += `\n  <img src="${esc(photoBottom)}" alt="${esc(speaker || topic || type)}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
+      }
+      if (meetLink) {
+        html += `\n  <p class="meet-link"><a href="${esc(meetLink)}" target="_blank" rel="noopener">Join via Google Meet</a></p>`;
+      }
+      if (speakerUrl && !speaker && !topic) {
+        html += `\n  <p class="meet-link"><a href="${esc(speakerUrl)}" target="_blank" rel="noopener">More info &rarr;</a></p>`;
+      }
 
-    const filled = ROLE_FIELDS.filter(rf => fv(row, COL[rf.key]));
-    const tbd    = ROLE_FIELDS.filter(rf => !fv(row, COL[rf.key]));
-    html += `\n  <div class="duty-roster"><h4>Meeting Duties</h4>`;
-    if (filled.length) {
-      html += `<table class="duty-table">` +
-        filled.map(rf => `<tr><td>${esc(rf.label)}</td><td>${esc(fv(row, COL[rf.key]))}</td></tr>`).join('') +
-        `</table>`;
+      const filled = ROLE_FIELDS.filter(rf => fv(row, COL[rf.key]));
+      const tbd    = ROLE_FIELDS.filter(rf => !fv(row, COL[rf.key]));
+      html += `\n  <div class="duty-roster"><h4>Meeting Duties</h4>`;
+      if (filled.length) {
+        html += `<table class="duty-table">` +
+          filled.map(rf => `<tr><td>${esc(rf.label)}</td><td>${esc(fv(row, COL[rf.key]))}</td></tr>`).join('') +
+          `</table>`;
+      }
+      if (tbd.length) {
+        html += `<p class="tbd-roles">${tbd.map(rf => esc(rf.label)).join(', ')}: TBD</p>`;
+      }
+      html += `</div>`;
     }
-    if (tbd.length) {
-      html += `<p class="tbd-roles">${tbd.map(rf => esc(rf.label)).join(', ')}: TBD</p>`;
-    }
-    html += `</div></div>`;
+    html += `</div>`;
     if (idx < rows.length - 1) html += `\n<hr class="section-rule">`;
     return html;
   }).join('\n');
 
   return `<section class="bulletin-section">
-<h2>Coming Up</h2>
+<h2>Meetings Coming Up</h2>
 ${blocks}
 </section>`;
 }
@@ -294,7 +301,7 @@ function clubEvents(rows) {
       html += `\n  <p class="event-narrative">${textToHtml(summary)}</p>`;
     }
     if (url) {
-      html += `\n  <p class="meet-link"><a href="${esc(url)}" target="_blank" rel="noopener">More info &amp; RSVP &rarr;</a></p>`;
+      html += `\n  <p class="meet-link"><a href="${esc(url)}" target="_blank" rel="noopener">More info &rarr;</a></p>`;
     }
     html += `</div>`;
     if (idx < rows.length - 1) html += `\n<hr class="section-rule">`;
@@ -445,6 +452,7 @@ function renderNewsletter(allRows) {
   const today  = new Date(); today.setHours(0,0,0,0);
   const cutoff = new Date(today.getTime() + WEEKS_AHEAD * 7 * 86400000);
   const eventCutoff = new Date(today.getTime() + EVENT_WEEKS_AHEAD * 7 * 86400000);
+  const meetingCutoff = new Date(today.getTime() + MEETING_WEEKS_AHEAD * 7 * 86400000);
 
   const detailRows = [], eventRows = [], skimRows = [], recentRows = [];
 
@@ -457,11 +465,13 @@ function renderNewsletter(allRows) {
     const isDetail  = DETAIL_TYPES.includes(type);
 
     if (dateOnly >= today) {
+      // Meetings within the next 3 weeks always appear — even if the speaker is
+      // still TBD or the meeting has been cancelled.
+      if (dateOnly <= meetingCutoff && isDetail) {
+        detailRows.push(row);
+      }
       if (dateOnly <= cutoff) {
         skimRows.push(row);
-        if (!cancelled && isDetail && (fv(row, COL.mainSpeaker) || fv(row, COL.mainTopic))) {
-          detailRows.push(row);
-        }
       }
       if (dateOnly <= eventCutoff && !cancelled && HAPPENING_TYPES.includes(type)) {
         eventRows.push(row);
@@ -477,7 +487,7 @@ function renderNewsletter(allRows) {
   recentRows.sort((a,b) => parseRowDate(b) - parseRowDate(a));
 
   const parts = [masthead(today)];
-  if (detailRows.length) parts.push(comingUp(detailRows.slice(0, DETAIL_COUNT)));
+  if (detailRows.length) parts.push(comingUp(detailRows));
   if (eventRows.length)  parts.push(clubEvents(eventRows));
   if (skimRows.length)   parts.push(lookingAhead(skimRows));
   if (recentRows.length) parts.push(recentMeetings(recentRows.slice(0, 2)));
