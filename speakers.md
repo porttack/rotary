@@ -31,7 +31,7 @@ permalink: /speakers/
     flex-shrink: 0; width: 64px; height: 64px;
     object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0;
   }
-  .sp-badges { display: flex; align-items: center; gap: 0.45em; flex-wrap: wrap; margin: 0.1em 0 0.45em; }
+  .sp-badges { display: flex; align-items: center; gap: 0.45em; flex-wrap: wrap; margin: 0.55em 0 0.1em; }
   .sp-date { font-size: 0.8em; color: #b45309; font-weight: bold; white-space: nowrap; }
   .sp-summary { color: #555; font-size: 0.9em; line-height: 1.45; margin-top: 0.2em; }
   .sp-summary p { margin: 0 0 0.45em; }
@@ -217,6 +217,20 @@ function renderSpeakers(speakers) {
     medium: { cls: 'sp-prio-medium', label: 'Recommended' },
     low:    { cls: 'sp-prio-low',    label: 'Idea' }
   };
+  // Same ordering as the internal Pipeline Table: dated speakers first (soonest
+  // date first), then by priority (High → Medium → Low → none), then most
+  // recently added (highest row) first.
+  var PRIO_RANK = { high: 0, medium: 1, low: 2 };
+  speakers = speakers.slice().sort(function(a, b) {
+    var ad = a.tentativeDate || '', bd = b.tentativeDate || '';
+    if (ad && !bd) return -1;
+    if (!ad && bd) return 1;
+    if (ad && bd && ad !== bd) return ad < bd ? -1 : 1;
+    var ap = PRIO_RANK[(a.priority || '').toLowerCase()]; ap = (ap == null ? 3 : ap);
+    var bp = PRIO_RANK[(b.priority || '').toLowerCase()]; bp = (bp == null ? 3 : bp);
+    if (ap !== bp) return ap - bp;
+    return b.rowIndex - a.rowIndex;
+  });
   wrap.innerHTML = speakers.map(function(sp) {
     var ri = sp.rowIndex;
     var hearted = hasHearted(ri);
@@ -243,15 +257,17 @@ function renderSpeakers(speakers) {
       '<div class="sp-card-body">' +
         '<div class="sp-card-main">' +
           '<div class="sp-name">' + esc(sp.speakerName) + '</div>' +
-          '<div class="sp-badges">' +
-            prioBadge +
-            '<span class="sp-badge ' + badgeClass + '">' + badgeLabel + '</span>' +
-            dateChip +
-          '</div>' +
           (sp.topic ? '<div class="sp-topic">' + esc(sp.topic) + '</div>' : '') +
           (sp.summary ? '<div class="sp-summary">' + renderSummary(sp.summary) + '</div>' : '') +
         '</div>' +
         photoImg +
+      '</div>' +
+      // Priority + status + date sit at the bottom of the card, just above the
+      // heart / note row.
+      '<div class="sp-badges">' +
+        prioBadge +
+        '<span class="sp-badge ' + badgeClass + '">' + badgeLabel + '</span>' +
+        dateChip +
       '</div>' +
       '<div class="sp-meta">' +
         '<button class="heart-btn" id="hbtn-' + ri + '" onclick="doHeart(' + ri + ')"' + (hearted ? ' disabled' : '') + '>' +
