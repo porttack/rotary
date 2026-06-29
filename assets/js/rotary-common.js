@@ -94,9 +94,10 @@ function abbrevTime(ts) {
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-// Render a plain-text narrative with light Markdown: [text](url) links, bare
-// URLs, **bold**, *italic*, and line breaks. Used for summary/narrative fields,
-// so a URL pasted into Summary becomes a clickable link automatically.
+// Render a plain-text narrative with light Markdown: # headings, [text](url)
+// links, bare URLs, **bold**, *italic*, and line breaks. Used for
+// summary/narrative fields, so a URL pasted into Summary becomes a clickable
+// link automatically.
 function textToHtml(s) {
   if (!s) return '';
   var SEN = String.fromCharCode(1);            // sentinel; survives esc(), never in real text
@@ -119,8 +120,28 @@ function textToHtml(s) {
 
   var html = esc(work)
     .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-    .replace(/\n/g, '<br>');
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+
+  // Line-level: a line of "#".."######" + text becomes a heading, rendered as a
+  // block <strong> (valid inside the <p> wrapper, unlike <h2>) so it stands out
+  // without breaking out of the narrative paragraph. A block heading provides
+  // its own line break, so we only emit a <br> between two plain lines — never
+  // adjacent to a heading, which would double the spacing.
+  var HSIZE = { 1: '1.5em', 2: '1.3em', 3: '1.15em', 4: '1.05em', 5: '1em', 6: '1em' };
+  var lines = html.split('\n'), out = '', prevHeading = false;
+  for (var i = 0; i < lines.length; i++) {
+    var hm = lines[i].match(/^(#{1,6})\s+(.*)$/);
+    if (hm) {
+      out += '<strong style="display:block;font-size:' + HSIZE[hm[1].length] +
+             ';margin:.5em 0 .15em">' + hm[2] + '</strong>';
+      prevHeading = true;
+    } else {
+      if (i > 0 && !prevHeading) out += '<br>';
+      out += lines[i];
+      prevHeading = false;
+    }
+  }
+  html = out;
 
   var re = new RegExp(SEN + '(\\d+)' + SEN, 'g');
   return html.replace(re, function(_, i) { return tokens[+i]; });
