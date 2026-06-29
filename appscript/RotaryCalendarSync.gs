@@ -5127,6 +5127,11 @@ tr:hover td{background:#f8f9ff}
 .tag-request{background:#dbeafe;color:#1e3a8a}
 .tag-manual{background:#f3f4f6;color:#555}
 .tag-chip{font-size:0.75em;padding:1px 6px;border-radius:8px;background:#e0e7ff;color:#3730a3;font-weight:500;margin-right:2px}
+.cell-topic{color:#555;font-size:0.95em;margin-top:2px}
+.prio{display:inline-block;padding:1px 7px;border-radius:10px;font-size:0.74em;font-weight:bold}
+.prio-high{background:#fed7aa;color:#9a3412}
+.prio-medium{background:#bfdbfe;color:#1e40af}
+.prio-low{background:#f3f4f6;color:#4b5563}
 .vote-cell{color:#888;font-size:0.85em}
 .expand-row td{background:#f8faff!important;padding:0}
 .expand-inner{padding:0.8em 1em;display:grid;grid-template-columns:1fr 1fr;gap:0.5em 1.5em}
@@ -5297,7 +5302,7 @@ tr:hover td{background:#f8f9ff}
 
 <script>
 var currentUser='',allCards=[],members=[],statuses=[],statusLabels={};
-var filterStatus='all',sortCol='updatedAt',sortAsc=false,upcomingMeetings=[],assigneeFilter='';
+var filterStatus='all',sortCol='smart',sortAsc=false,upcomingMeetings=[],assigneeFilter='';
 var panelRow=null,selectedEventsRow=null;
 var AI_ENABLED=__AI_ENABLED__; // server-injected feature flag
 function gs(fn,a){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a);})}
@@ -5355,6 +5360,19 @@ function matchAssignee(c){
   if(assigneeFilter==='__UNASSIGNED__')return !c.assignedTo;
   return c.assignedTo===assigneeFilter;
 }
+// Default ordering: dated cards first (soonest date first), then by priority
+// (High → Medium → Low → none), then most-recently-added (highest row) first.
+var PRIO_RANK={high:0,medium:1,low:2};
+function smartCompare(a,b){
+  var ad=a.tentativeDate||'',bd=b.tentativeDate||'';
+  if(ad&&!bd)return -1;
+  if(!ad&&bd)return 1;
+  if(ad&&bd&&ad!==bd)return ad<bd?-1:1;
+  var ap=PRIO_RANK[(a.priority||'').toLowerCase()];ap=(ap==null?3:ap);
+  var bp=PRIO_RANK[(b.priority||'').toLowerCase()];bp=(bp==null?3:bp);
+  if(ap!==bp)return ap-bp;
+  return b.rowIndex-a.rowIndex;
+}
 function renderTable(){
   var q=(document.getElementById('search').value||'').toLowerCase();
   var rows=allCards.filter(function(c){
@@ -5364,10 +5382,11 @@ function renderTable(){
     if(q&&!(c.speakerName+c.topic+c.assignedTo).toLowerCase().includes(q))return false;
     return true;
   });
-  rows.sort(function(a,b){var av=a[sortCol]||'',bv=b[sortCol]||'';return sortAsc?(av>bv?1:-1):(av<bv?1:-1);});
+  if(sortCol==='smart'){rows.sort(smartCompare);}
+  else{rows.sort(function(a,b){var av=a[sortCol]||'',bv=b[sortCol]||'';return sortAsc?(av>bv?1:-1):(av<bv?1:-1);});}
   var content=document.getElementById('content');
-  var cols=['speakerName','topic','status','assignedTo','tentativeDate','interested'];
-  var colLabels={speakerName:'Speaker',topic:'Topic',status:'Status',assignedTo:'Assigned',tentativeDate:'Date',interested:'♡'};
+  var cols=['speakerName','priority','status','assignedTo','tentativeDate','interested'];
+  var colLabels={speakerName:'Speaker / Topic',priority:'Priority',status:'Status',assignedTo:'Assigned',tentativeDate:'Date',interested:'♡'};
   var tableHtml;
   if(!rows.length){
     tableHtml='<p style="color:#888;padding:1em">No matching speakers.</p>';
@@ -5383,9 +5402,13 @@ function renderTable(){
     var tr=document.createElement('tr');tr.style.cursor='pointer';
     var intNames=card.interested?card.interested.split(',').map(function(n){return n.trim();}).filter(Boolean):[];
     var iVoted=intNames.indexOf(currentUser)!==-1;
+    var pk=(card.priority||'').toLowerCase();
+    var prioCell=({high:'Strongly Recommended',medium:'Recommended',low:'Idea'})[pk];
+    prioCell=prioCell?'<span class="prio prio-'+pk+'">'+prioCell+'</span>':'—';
     tr.innerHTML='<td><strong>'+esc(card.speakerName||'(no name)')+'</strong>'+
-      (card.tags?'<br>'+card.tags.split(',').map(function(t){t=t.trim();return t?'<span class="tag-chip">'+esc(t)+'</span>':''}).join(''):'')+'</td>'+
-      '<td>'+esc(card.topic||'—')+'</td>'+
+      (card.topic?'<div class="cell-topic">'+esc(card.topic)+'</div>':'')+
+      (card.tags?'<div>'+card.tags.split(',').map(function(t){t=t.trim();return t?'<span class="tag-chip">'+esc(t)+'</span>':''}).join('')+'</div>':'')+'</td>'+
+      '<td>'+prioCell+'</td>'+
       '<td><span class="tag tag-'+card.status+'">'+esc(statusLabels[card.status]||card.status)+'</span></td>'+
       '<td>'+esc(card.assignedTo||'—')+'</td><td>'+esc(card.tentativeDate||'—')+'</td>'+
       '<td class="vote-cell"><button style="background:none;border:none;cursor:pointer;font-size:0.9em" title="Interest — members + public website hearts" onclick="voteRow(event,'+card.rowIndex+')">'+(iVoted?'❤️':'🤍')+'</button> '+(intNames.length+(card.hearts||0))+'</td>';
