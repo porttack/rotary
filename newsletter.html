@@ -251,18 +251,21 @@ function comingUp(rows) {
         html += `\n  <p class="meet-link"><a href="${esc(speakerUrl)}" target="_blank" rel="noopener">${esc(linkLabel(speakerUrl))} &rarr;</a></p>`;
       }
 
-      const filled = ROLE_FIELDS.filter(rf => fv(row, COL[rf.key]));
-      const tbd    = ROLE_FIELDS.filter(rf => !fv(row, COL[rf.key]));
-      html += `\n  <div class="duty-roster"><h4>Meeting Duties</h4>`;
-      if (filled.length) {
-        html += `<table class="duty-table">` +
-          filled.map(rf => `<tr><td>${esc(rf.label)}</td><td>${esc(fv(row, COL[rf.key]))}</td></tr>`).join('') +
-          `</table>`;
+      // Board meetings don't run a duty roster (no greeter, AV, etc.).
+      if (type.toLowerCase() !== 'board meeting') {
+        const filled = ROLE_FIELDS.filter(rf => fv(row, COL[rf.key]));
+        const tbd    = ROLE_FIELDS.filter(rf => !fv(row, COL[rf.key]));
+        html += `\n  <div class="duty-roster"><h4>Meeting Duties</h4>`;
+        if (filled.length) {
+          html += `<table class="duty-table">` +
+            filled.map(rf => `<tr><td>${esc(rf.label)}</td><td>${esc(fv(row, COL[rf.key]))}</td></tr>`).join('') +
+            `</table>`;
+        }
+        if (tbd.length) {
+          html += `<p class="tbd-roles">${tbd.map(rf => esc(rf.label)).join(', ')}: TBD</p>`;
+        }
+        html += `</div>`;
       }
-      if (tbd.length) {
-        html += `<p class="tbd-roles">${tbd.map(rf => esc(rf.label)).join(', ')}: TBD</p>`;
-      }
-      html += `</div>`;
     }
     html += `</div>`;
     if (idx < rows.length - 1) html += `\n<hr class="section-rule">`;
