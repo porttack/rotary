@@ -201,15 +201,15 @@ function comingUp(rows) {
     const timeStr    = fv(row, COL.time);
     const cancelled  = isCancelled(row);
 
-    // Assemblies are meetings without a speaker — never show "speaker TBD",
-    // but do surface a topic if one was entered.
-    const isAssembly = type.toLowerCase() === 'assembly';
+    // Only regular meetings have a speaker — assemblies and board meetings
+    // never show "speaker TBD", but do surface a topic if one was entered.
+    const hasSpeakerSlot = type.toLowerCase() === 'meeting';
     let heading = `${esc(fmtShort(d))}: ${esc(type)}`;
     if (cancelled)              heading += ` &mdash; <span style="color:#b91c1c">&#x274C; CANCELLED</span>`;
     else if (speaker && topic)  heading += ` &mdash; ${linkWrap(speaker, speakerUrl)}: ${esc(topic)}`;
     else if (speaker)           heading += ` &mdash; ${linkWrap(speaker, speakerUrl)}`;
     else if (topic)             heading += ` &mdash; ${linkWrap(topic, speakerUrl)}`;
-    else if (!isAssembly)       heading += ` &mdash; <span style="color:#888">speaker TBD</span>`;
+    else if (hasSpeakerSlot)    heading += ` &mdash; <span style="color:#888">speaker TBD</span>`;
 
     let metaParts = [`${esc(fmtLong(d))}${timeStr ? ' at ' + esc(timeStr) : ''}`];
     if (location) metaParts.push(mapLink(location));
