@@ -36,7 +36,7 @@ permalink: /speakers/
   .sp-summary { color: #555; font-size: 0.9em; line-height: 1.45; margin-top: 0.2em; }
   .sp-summary p { margin: 0 0 0.45em; }
   .sp-summary p:last-child { margin-bottom: 0; }
-  .sp-summary a { color: #17458F; }
+  .sp-summary a { color: #17458F; overflow-wrap: anywhere; word-break: break-word; }
   .sp-summary ul { margin: 0.2em 0 0.45em; padding-left: 1.3em; }
   .sp-md-h { font-size: 0.95em; font-weight: bold; color: #374151; margin: 0.35em 0 0.2em; }
   .heart-btn {
@@ -142,21 +142,30 @@ function driveThumb(u, size) {
 }
 
 // ── lightweight markdown ─────────────────────────────────────────
-// A summary "looks like" markdown if it has a [text](url) link or a # heading line.
-function looksLikeMarkdown(s) {
-  return /\[[^\]]+\]\([^)]+\)/.test(s) || /^\s*#{1,6}\s/m.test(s);
-}
-// Inline spans on already-HTML-escaped text: links, bold, italic.
+// Inline spans on already-HTML-escaped text: markdown links, bare URLs,
+// bold, italic. Existing links/URLs are stashed so later passes (and the
+// bare-URL linkifier) don't re-process text already inside an <a>.
 function mdInline(s) {
-  return s
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function(_, t, u) {
-      var safe = /^https?:\/\//i.test(u) ? u : '';
-      return safe
-        ? '<a href="' + safe + '" target="_blank" rel="noopener">' + t + '</a>'
-        : t;
-    })
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*(?!\s)([^*]+?)\*/g, '$1<em>$2</em>');
+  var stash = [];
+  function keep(html) { stash.push(html); return '\u0000' + (stash.length - 1) + '\u0000'; }
+  // [text](url) markdown links first
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function(_, t, u) {
+    var safe = /^https?:\/\//i.test(u) ? u : '';
+    return keep(safe
+      ? '<a href="' + safe + '" target="_blank" rel="noopener">' + t + '</a>'
+      : t);
+  });
+  // bare http(s) URLs → clickable, trimming trailing sentence punctuation
+  s = s.replace(/https?:\/\/[^\s<]+/g, function(u) {
+    var trail = '', m = u.match(/[).,;:!?]+$/);
+    if (m) { trail = m[0]; u = u.slice(0, -trail.length); }
+    return keep('<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>') + trail;
+  });
+  // emphasis
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+       .replace(/(^|[^*])\*(?!\s)([^*]+?)\*/g, '$1<em>$2</em>');
+  // restore stashed anchors
+  return s.replace(/\u0000(\d+)\u0000/g, function(_, i) { return stash[+i]; });
 }
 // Block-level: headings, bullet lists, paragraphs with <br> for soft breaks.
 function mdToHtml(raw) {
@@ -187,8 +196,11 @@ function mdToHtml(raw) {
   closeP(); closeUl();
   return html;
 }
+// Always render through the lightweight markdown/linkify pass: it escapes
+// HTML first, turns bare URLs and [text](url) into links, honors # headings,
+// -/* bullets and **bold**/*italic*, and converts soft line breaks to <br>.
 function renderSummary(s) {
-  return looksLikeMarkdown(s) ? mdToHtml(s) : esc(s);
+  return mdToHtml(s);
 }
 
 // ── render ───────────────────────────────────────────────────────
