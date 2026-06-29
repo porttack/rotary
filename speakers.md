@@ -34,6 +34,11 @@ permalink: /speakers/
   .sp-badges { display: flex; align-items: center; gap: 0.45em; flex-wrap: wrap; margin: 0.1em 0 0.45em; }
   .sp-date { font-size: 0.8em; color: #b45309; font-weight: bold; white-space: nowrap; }
   .sp-summary { color: #555; font-size: 0.9em; line-height: 1.45; margin-top: 0.2em; }
+  .sp-summary p { margin: 0 0 0.45em; }
+  .sp-summary p:last-child { margin-bottom: 0; }
+  .sp-summary a { color: #17458F; }
+  .sp-summary ul { margin: 0.2em 0 0.45em; padding-left: 1.3em; }
+  .sp-md-h { font-size: 0.95em; font-weight: bold; color: #374151; margin: 0.35em 0 0.2em; }
   .heart-btn {
     background: none; border: none; cursor: pointer;
     font-size: 1.1em; color: #17458F; padding: 2px 4px;
@@ -136,6 +141,56 @@ function driveThumb(u, size) {
   return id ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w' + (size || 200) : u;
 }
 
+// ── lightweight markdown ─────────────────────────────────────────
+// A summary "looks like" markdown if it has a [text](url) link or a # heading line.
+function looksLikeMarkdown(s) {
+  return /\[[^\]]+\]\([^)]+\)/.test(s) || /^\s*#{1,6}\s/m.test(s);
+}
+// Inline spans on already-HTML-escaped text: links, bold, italic.
+function mdInline(s) {
+  return s
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function(_, t, u) {
+      var safe = /^https?:\/\//i.test(u) ? u : '';
+      return safe
+        ? '<a href="' + safe + '" target="_blank" rel="noopener">' + t + '</a>'
+        : t;
+    })
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*(?!\s)([^*]+?)\*/g, '$1<em>$2</em>');
+}
+// Block-level: headings, bullet lists, paragraphs with <br> for soft breaks.
+function mdToHtml(raw) {
+  var lines = esc(raw).split(/\r?\n/);
+  var html = '', inP = false, inUl = false;
+  function closeP() { if (inP) { html += '</p>'; inP = false; } }
+  function closeUl() { if (inUl) { html += '</ul>'; inUl = false; } }
+  lines.forEach(function(line) {
+    var h = line.match(/^\s*(#{1,6})\s+(.*)$/);
+    if (h) {
+      closeP(); closeUl();
+      var lvl = Math.min(h[1].length + 2, 6);
+      html += '<h' + lvl + ' class="sp-md-h">' + mdInline(h[2]) + '</h' + lvl + '>';
+      return;
+    }
+    var li = line.match(/^\s*[-*]\s+(.*)$/);
+    if (li) {
+      closeP();
+      if (!inUl) { html += '<ul>'; inUl = true; }
+      html += '<li>' + mdInline(li[1]) + '</li>';
+      return;
+    }
+    if (line.trim() === '') { closeP(); closeUl(); return; }
+    closeUl();
+    if (!inP) { html += '<p>'; inP = true; } else { html += '<br>'; }
+    html += mdInline(line);
+  });
+  closeP(); closeUl();
+  return html;
+}
+function renderSummary(s) {
+  return looksLikeMarkdown(s) ? mdToHtml(s) : esc(s);
+}
+
 // ── render ───────────────────────────────────────────────────────
 function renderSpeakers(speakers) {
   var wrap = document.getElementById('sp-cards');
@@ -158,7 +213,7 @@ function renderSpeakers(speakers) {
     }[sp.status] || 'sp-badge-new';
     var dateStr = sp.tentativeDate ? fmtDate(sp.tentativeDate) : '';
     var badgeLabel = sp.status === 'scheduled'   ? ('Scheduled' + (dateStr ? ': ' + dateStr : '')) :
-                     sp.status === 'in-progress' ? 'In Discussion' : 'Suggested';
+                     sp.status === 'in-progress' ? 'In Progress' : 'New Request';
     // "Requested to speak" = a speaker who offered via the speak.md form (source=offer);
     // otherwise show the committee's priority, if one was set.
     var prio = sp.source === 'offer'
@@ -180,7 +235,7 @@ function renderSpeakers(speakers) {
             dateChip +
           '</div>' +
           (sp.topic ? '<div class="sp-topic">' + esc(sp.topic) + '</div>' : '') +
-          (sp.summary ? '<div class="sp-summary">' + esc(sp.summary) + '</div>' : '') +
+          (sp.summary ? '<div class="sp-summary">' + renderSummary(sp.summary) + '</div>' : '') +
         '</div>' +
         photoImg +
       '</div>' +
