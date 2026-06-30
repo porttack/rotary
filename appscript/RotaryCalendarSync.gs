@@ -972,14 +972,12 @@ function generateNewsletter() {
 
     if (d >= today && d <= cutoff) {
       upcomingSkim.push(row);  // all future events for skim + grid
-      // Important events render as their full post in the Important section at
-      // the top, so they're pulled out of Coming Up to avoid a duplicate post.
-      // They stay in the chronological Looking Ahead skim list below.
-      if (important && !cancelled) {
-        importantItems.push(row);
-      } else if (!cancelled && DETAIL_TYPES.includes(type)) {
+      if (!cancelled && DETAIL_TYPES.includes(type)) {
         upcomingDetail.push(row);
       }
+      // Important events are ALSO featured at the top, in addition to keeping
+      // their normal spot in Coming Up / Looking Ahead.
+      if (important && !cancelled) importantItems.push(row);
     } else if (d < today && type === "meeting") {
       recentMeetings.push(row);
     }

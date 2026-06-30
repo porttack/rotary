@@ -544,24 +544,21 @@ function renderNewsletter(allRows) {
 
     const isDetail  = DETAIL_TYPES.includes(type);
     if (dateOnly >= today) {
-      // Important events render as their full post in the Important section at
-      // the top, so they're pulled out of the normal full-detail sections to
-      // avoid showing the same post twice. They stay in the chronological
-      // Looking Ahead skim list below.
-      if (important && !cancelled && dateOnly <= eventCutoff) {
-        importantItems.push(row);
-      } else {
-        // Meetings within the next 3 weeks always appear — even if the speaker
-        // is still TBD or the meeting has been cancelled.
-        if (dateOnly <= meetingCutoff && isDetail) {
-          detailRows.push(row);
-        }
-        if (dateOnly <= eventCutoff && !cancelled && HAPPENING_TYPES.includes(type)) {
-          eventRows.push(row);
-        }
+      // Meetings within the next 3 weeks always appear — even if the speaker is
+      // still TBD or the meeting has been cancelled.
+      if (dateOnly <= meetingCutoff && isDetail) {
+        detailRows.push(row);
       }
       if (dateOnly <= cutoff) {
         skimRows.push(row);
+      }
+      if (dateOnly <= eventCutoff && !cancelled && HAPPENING_TYPES.includes(type)) {
+        eventRows.push(row);
+      }
+      // Important events are ALSO featured at the top, in addition to keeping
+      // their normal spot in Coming Up / Club Events / Looking Ahead.
+      if (important && !cancelled && dateOnly <= eventCutoff) {
+        importantItems.push(row);
       }
     } else if (type === 'meeting') {
       recentRows.push(row);
