@@ -1637,6 +1637,10 @@ function getPublicSpeakers_() {
       if (status === 'scheduled' && (!tentativeDate || tentativeDate < todayStr)) continue;
       // Top photo, else bottom photo — shown as a small thumbnail on the page.
       const photo = String(row[CP.PHOTO_URL - 1] || '').trim() || String(row[CP.PHOTO_BOTTOM - 1] || '').trim();
+      // Heart count must match the pipeline apps: anonymous public hearts
+      // (HEARTS) PLUS the logged-in members who +1'd (names in INTERESTED).
+      const interested = String(row[CP.INTERESTED - 1] || '').split(',')
+        .map(function(s) { return s.trim(); }).filter(Boolean).length;
       speakers.push({
         rowIndex:      i + 1,
         speakerName:   name,
@@ -1647,7 +1651,7 @@ function getPublicSpeakers_() {
         status:        status,
         tentativeDate: tentativeDate,
         photo:         photo,
-        hearts:        parseInt(row[CP.HEARTS - 1]) || 0,
+        hearts:        (parseInt(row[CP.HEARTS - 1]) || 0) + interested,
       });
     }
     // Sort: scheduled (asc by date) → in-progress → new (most-recent first)
@@ -5425,7 +5429,8 @@ tr:hover td{background:#f8f9ff}
   #search{width:100%;font-size:1em;padding:8px 9px}
   .filter-btn{font-size:0.9em;padding:6px 12px}
   #content{overflow-x:auto}
-  table{font-size:0.9em;min-width:560px}
+  table{font-size:0.9em;min-width:0}
+  .hide-sm{display:none}
   /* Editable expand form: single column with comfortable fields. */
   .expand-inner{grid-template-columns:1fr}
   .ef label{font-size:0.9em}
@@ -5556,8 +5561,10 @@ tr:hover td{background:#f8f9ff}
   <button class="filter-btn" onclick="setFilter('limbo',this)">Limbo</button>
   <button class="filter-btn" onclick="setFilter('scheduled',this)">Scheduled</button>
   <button class="filter-btn" onclick="setFilter('done',this)">Done</button>
-  <span style="font-size:0.82em;color:#666;margin-left:0.4em">Assigned to:</span>
-  <select id="assignee-filter" onchange="setAssignee(this.value)" style="font-size:0.82em;padding:3px 6px;border:1px solid #ccc;border-radius:4px"><option value="">All</option></select>
+  <span style="display:inline-flex;align-items:center;gap:0.3em;white-space:nowrap;margin-left:0.4em">
+    <span style="font-size:0.82em;color:#666">Assigned to:</span>
+    <select id="assignee-filter" onchange="setAssignee(this.value)" style="font-size:0.82em;padding:3px 6px;border:1px solid #ccc;border-radius:4px"><option value="">All</option></select>
+  </span>
 </div>
 <div id="content"><p style="color:#888;padding:1em">Loading…</p></div>
 
@@ -5666,14 +5673,16 @@ function renderTable(){
   if(sortCol==='smart'){rows.sort(smartCompare);}
   else{rows.sort(function(a,b){var av=a[sortCol]||'',bv=b[sortCol]||'';return sortAsc?(av>bv?1:-1):(av<bv?1:-1);});}
   var content=document.getElementById('content');
-  var cols=['speakerName','priority','status','assignedTo','tentativeDate','interested'];
-  var colLabels={speakerName:'Speaker / Topic',priority:'Priority',status:'Status',assignedTo:'Assigned',tentativeDate:'Date',interested:'♡'};
+  // Status + Priority share one column; Assigned + Date hide on phones (.hide-sm).
+  var cols=['speakerName','status','assignedTo','tentativeDate','interested'];
+  var colLabels={speakerName:'Speaker / Topic',status:'Status / Priority',assignedTo:'Assigned',tentativeDate:'Date',interested:'♡'};
+  var HIDE_SM={assignedTo:1,tentativeDate:1};
   var tableHtml;
   if(!rows.length){
     tableHtml='<p style="color:#888;padding:1em">No matching speakers.</p>';
   }else{
     tableHtml='<table><thead><tr>'+cols.map(function(c){
-      return'<th onclick="sortBy(&#39;'+c+'&#39;)">'+(colLabels[c]||c)+(sortCol===c?(sortAsc?' ▲':' ▼'):'')+'</th>';
+      return'<th'+(HIDE_SM[c]?' class="hide-sm"':'')+' onclick="sortBy(&#39;'+c+'&#39;)">'+(colLabels[c]||c)+(sortCol===c?(sortAsc?' ▲':' ▼'):'')+'</th>';
     }).join('')+'</tr></thead><tbody id="tbody"></tbody></table>';
   }
   content.innerHTML='<div id="layout"><aside id="cal-side">'+buildCalSidebar()+'</aside><div id="main">'+tableHtml+'</div></div>';
@@ -5689,9 +5698,9 @@ function renderTable(){
     tr.innerHTML='<td><strong>'+esc(card.speakerName||'(no name)')+'</strong>'+
       (card.topic?'<div class="cell-topic">'+esc(card.topic)+'</div>':'')+
       (card.tags?'<div>'+card.tags.split(',').map(function(t){t=t.trim();return t?'<span class="tag-chip">'+esc(t)+'</span>':''}).join('')+'</div>':'')+'</td>'+
-      '<td>'+prioCell+'</td>'+
-      '<td><span class="tag tag-'+card.status+'">'+esc(statusLabels[card.status]||card.status)+'</span></td>'+
-      '<td>'+esc(card.assignedTo||'—')+'</td><td>'+esc(card.tentativeDate||'—')+'</td>'+
+      '<td><span class="tag tag-'+card.status+'">'+esc(statusLabels[card.status]||card.status)+'</span>'+
+        (prioCell!=='—'?'<div style="margin-top:4px">'+prioCell+'</div>':'')+'</td>'+
+      '<td class="hide-sm">'+esc(card.assignedTo||'—')+'</td><td class="hide-sm">'+esc(card.tentativeDate||'—')+'</td>'+
       '<td class="vote-cell"><button style="background:none;border:none;cursor:pointer;font-size:0.9em" title="Interest — members + public website hearts" onclick="voteRow(event,'+card.rowIndex+')">'+(iVoted?'❤️':'🤍')+'</button> '+(intNames.length+(card.hearts||0))+'</td>';
     tr.addEventListener('click',function(){openPanel(card.rowIndex);});
     tbody.appendChild(tr);
