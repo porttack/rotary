@@ -309,12 +309,15 @@ function loadYear() {
           const hasPM = hours.some(h => h >= 12);
           timeOfDay = (hasAM && hasPM) ? 'both' : hasAM ? 'am' : 'pm';
         }
+        // A day "has a speaker" when an active meeting that day names a main
+        // speaker — used to bold the date so booked meetings stand out.
+        const hasSpeaker = active.some(e => e.type === 'meeting' && e.mainSpeaker);
         // Active events first (time-sorted), cancelled appended at end
         const details = [
           ...byTime(active).map(e => makeDet(e, false)),
           ...byTime(cancelled).map(e => makeDet(e, true)),
         ];
-        dayInfo[iso] = { types, allCancelled: false, timeOfDay, details };
+        dayInfo[iso] = { types, allCancelled: false, timeOfDay, hasSpeaker, details };
       });
 
       window._yearTipData = dayInfo;
@@ -348,6 +351,8 @@ function loadYear() {
               const key      = `${yr}-${String(moIdx + 1).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
               const info     = dayInfo[key];
               const tCls     = key === todayKey ? ' today' : '';
+              // Bold the day number when a meeting that day has a speaker booked.
+              const dn       = (info && info.hasSpeaker) ? `<strong>${dayNum}</strong>` : dayNum;
               if (!info) {
                 html += `<td${tCls ? ' class="today"' : ''}>${dayNum}</td>`;
               } else if (info.allCancelled) {
@@ -355,13 +360,13 @@ function loadYear() {
               } else if (info.types.length === 1) {
                 const bg  = TYPE_COLOR[info.types[0]] || '#f3f4f6';
                 const bdr = borderStyle(info.timeOfDay);
-                html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${bg};${bdr}">${dayNum}</td>`;
+                html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${bg};${bdr}">${dn}</td>`;
               } else {
                 const c1   = TYPE_COLOR[info.types[0]] || '#f3f4f6';
                 const c2   = TYPE_COLOR[info.types[1]] || '#f3f4f6';
                 const grad = `linear-gradient(135deg,${c1} 50%,${c2} 50%)`;
                 const bdr  = borderStyle(info.timeOfDay);
-                html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${grad};${bdr}">${dayNum}</td>`;
+                html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${grad};${bdr}">${dn}</td>`;
               }
             }
           }
