@@ -31,6 +31,18 @@ permalink: /newsletter/
     margin-bottom: 0.8em;
   }
 
+  .important-section {
+    background: #fffbeb; border: 1px solid #fcd34d;
+    border-radius: 8px; padding: 0.6em 1.1em 1em;
+  }
+  .important-section > h2 { color: #b45309; border-bottom-color: #f59e0b; }
+  .important-item {
+    font-size: 0.95em; padding: 0.3em 0; font-family: Arial, sans-serif;
+    border-bottom: 1px solid #fde68a;
+  }
+  .important-item:last-child { border-bottom: none; }
+  .important-star { color: #d97706; }
+
   .event-block { margin-bottom: 1.2em; }
   .event-heading { color: #1a56db; font-size: 1.05em; margin: 0.8em 0 0.15em; }
   .event-heading.past { color: #555; }
@@ -193,6 +205,56 @@ function masthead(today) {
   <h1>SLV Rotary</h1>
   <p class="masthead-sub">Weekly Newsletter &nbsp;&middot;&nbsp; ${esc(ds)}</p>
 </header>`;
+}
+
+// ── Section: Important ────────────────────────────────────────────────────
+// Featured at the very top. Holds any flagged-important upcoming item: events
+// render as a one-line highlight; messages render as a full announcement block.
+function importantSection(rows) {
+  const blocks = rows.map(row => {
+    if (isMessageType(row)) return messageBlock(row);
+    const d       = parseRowDate(row);
+    const type    = fv(row, COL.eventType) || 'Event';
+    const speaker = fv(row, COL.mainSpeaker);
+    const topic   = fv(row, COL.mainTopic);
+    const url     = fv(row, COL.speakerUrl);
+    const detail  = (speaker && topic) ? `${linkWrap(speaker, url)}: ${esc(topic)}`
+                  : speaker ? linkWrap(speaker, url)
+                  : topic   ? linkWrap(topic, url) : '';
+    return `<div class="important-item"><span class="important-star">&#9733;</span> ` +
+      `<strong>${esc(fmtDayDate(d))}</strong> &nbsp; ${esc(type)}` +
+      `${detail ? ' &nbsp;&middot;&nbsp; ' + detail : ''}</div>`;
+  }).join('\n');
+
+  return `<section class="bulletin-section important-section">
+<h2>Important</h2>
+${blocks}
+</section>`;
+}
+
+// A Message announcement: headline + narrative body + optional link. Shared by
+// the Important section (important messages) and the Announcements section.
+function messageBlock(row) {
+  const headline = fv(row, COL.mainTopic) || 'Announcement';
+  const summary  = fv(row, COL.summary);
+  const url      = fv(row, COL.speakerUrl);
+  let html = `<div class="event-block">
+  <h3 class="event-heading">${esc(headline)}</h3>`;
+  if (summary) html += `\n  <p class="event-narrative">${textToHtml(summary)}</p>`;
+  if (url) html += `\n  <p class="meet-link"><a href="${esc(url)}" target="_blank" rel="noopener">${esc(linkLabel(url))} &rarr;</a></p>`;
+  html += `</div>`;
+  return html;
+}
+
+// ── Section: Announcements ────────────────────────────────────────────────
+// Non-important Message rows still within their "show until" date.
+function announcements(rows) {
+  const blocks = rows.map(messageBlock).join('\n<hr class="section-rule">\n');
+  return `<hr class="section-rule">
+<section class="bulletin-section">
+<h2>Announcements</h2>
+${blocks}
+</section>`;
 }
 
 // ── Section: Coming Up ────────────────────────────────────────────────────
@@ -406,6 +468,7 @@ function calendarGrid(allRows, today) {
     const ds = normDateStr(fv(row, COL.date));
     if (!ds) return;
     if (isCancelled(row)) return;
+    if (isMessageType(row)) return;   // dateless announcement, not a grid event
     if (!evMap[ds]) evMap[ds] = [];
     evMap[ds].push({
       type: fv(row, COL.eventType).toLowerCase() || 'meeting',
@@ -472,6 +535,7 @@ function renderNewsletter(allRows) {
   const meetingCutoff = new Date(today.getTime() + MEETING_WEEKS_AHEAD * 7 * 86400000);
 
   const detailRows = [], eventRows = [], skimRows = [], recentRows = [];
+  const importantItems = [], messageRows = [];
 
   allRows.forEach(row => {
     const d = parseRowDate(row);
@@ -479,8 +543,18 @@ function renderNewsletter(allRows) {
     const dateOnly  = new Date(d.getFullYear(), d.getMonth(), d.getDate());
     const cancelled = isCancelled(row);
     const type      = fv(row, COL.eventType).toLowerCase() || 'meeting';
-    const isDetail  = DETAIL_TYPES.includes(type);
+    const important = isImportant(row);
 
+    // Messages are dateless announcements: their date is a "show until" date.
+    // They live only in the Important / Announcements sections.
+    if (isMessageType(row)) {
+      if (dateOnly >= today && !cancelled) {
+        (important ? importantItems : messageRows).push(row);
+      }
+      return;
+    }
+
+    const isDetail  = DETAIL_TYPES.includes(type);
     if (dateOnly >= today) {
       // Meetings within the next 3 weeks always appear — even if the speaker is
       // still TBD or the meeting has been cancelled.
@@ -493,6 +567,10 @@ function renderNewsletter(allRows) {
       if (dateOnly <= eventCutoff && !cancelled && HAPPENING_TYPES.includes(type)) {
         eventRows.push(row);
       }
+      // Important events are teased at the top in addition to their normal spot.
+      if (important && !cancelled && dateOnly <= eventCutoff) {
+        importantItems.push(row);
+      }
     } else if (type === 'meeting') {
       recentRows.push(row);
     }
@@ -502,11 +580,15 @@ function renderNewsletter(allRows) {
   eventRows.sort((a,b)  => parseRowDate(a) - parseRowDate(b));
   skimRows.sort((a,b)   => parseRowDate(a) - parseRowDate(b));
   recentRows.sort((a,b) => parseRowDate(b) - parseRowDate(a));
+  importantItems.sort((a,b) => parseRowDate(a) - parseRowDate(b));
+  messageRows.sort((a,b)    => parseRowDate(a) - parseRowDate(b));
 
   const parts = [masthead(today)];
+  if (importantItems.length) parts.push(importantSection(importantItems));
   if (detailRows.length) parts.push(comingUp(detailRows));
   if (eventRows.length)  parts.push(clubEvents(eventRows));
   if (skimRows.length)   parts.push(lookingAhead(skimRows));
+  if (messageRows.length) parts.push(announcements(messageRows));
   if (recentRows.length) parts.push(recentMeetings(recentRows.slice(0, 2)));
   parts.push(calendarGrid(allRows, today));
   parts.push(bulletinFooter(today));

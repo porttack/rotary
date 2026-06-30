@@ -121,6 +121,8 @@ function rowToEvent(row) {
   const dateStr = f(row, COL.date);
   const timeStr = f(row, COL.time);
   if (!dateStr) return null;
+  // Messages are dateless newsletter announcements — never on the calendar.
+  if (f(row, COL.eventType).toLowerCase() === 'message') return null;
 
   // Date is YYYY-MM-DD; time is "7:00 PM". Build a parseable string.
   let start;

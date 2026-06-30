@@ -28,9 +28,12 @@ manage the club event spreadsheet via natural language.
 
 ## Event types
 Meeting | Assembly (meeting without a speaker) | Board Meeting | Social | Service |
-Grey Bears | Fundraiser | District Event | Committee | Holiday | Other
+Grey Bears | Fundraiser | District Event | Committee | Holiday | Message | Other
 
 Holiday events are display-only and are NEVER synced to Google Calendar.
+Message events are dateless newsletter announcements (e.g. a dues reminder): the
+date field is a "show until" date, they appear in the newsletter only until that
+date passes, and they are NEVER synced to Google Calendar.
 Grey Bears events never need speakers, topics, or duty assignments.
 
 ## Fields available when adding or updating an event
@@ -85,9 +88,10 @@ const COL = {
   CREATED_BY:       32, // AF - Member who created this row via the Event Editor (delete permission)
   EVENT_NOTES:      33, // AG - Timestamped notes log (newest first), like the speaker pipeline
   EXCLUDE_NEWSLETTER:34,// AH - Checkbox: if TRUE, hide this event from the newsletter bulletin
+  IMPORTANT:        35,  // AI - Checkbox: if TRUE, feature this item in the newsletter's "Important" section
 };
 
-const NUM_COLS = 34;
+const NUM_COLS = 35;
 
 // Duty field key → COL mapping (shared by web app and sheet save logic)
 const DUTY_COLS = {
@@ -107,14 +111,20 @@ const DUTY_COLS = {
 const DUTY_ROSTER_TYPES = ["meeting"];
 
 // Event type options
-const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service", "Grey Bears", "Fundraiser", "District Event", "Committee", "Holiday", "Other"];
+const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service", "Grey Bears", "Fundraiser", "District Event", "Committee", "Holiday", "Message", "Other"];
+
+// "Message" is a dateless newsletter announcement (e.g. a dues reminder). Its
+// DATE column holds a "show until" date — it appears in the newsletter only,
+// until that date passes — and is never synced to Google Calendar nor shown on
+// the calendar / year grids. Kept in MESSAGE_TYPE so the special-casing reads clearly.
+const MESSAGE_TYPE = "Message";
 
 // Event types a club member may create/edit from the member-facing Event Editor
 // web app (?app=events). Deliberately excludes the speaker/duty-driven meetings
 // (Meeting, Assembly, Board Meeting), the auto-generated Grey Bears series, and
 // Holiday / District Event rows — all managed elsewhere. Keep in sync with
 // EVENT_TYPES above.
-const EDITOR_EVENT_TYPES = ["Social", "Service", "Fundraiser", "Committee", "Other"];
+const EDITOR_EVENT_TYPES = ["Social", "Service", "Fundraiser", "Committee", "Message", "Other"];
 
 // Speaker/program meeting types. In the Event Editor's "Show all types" mode
 // these unlock the extra Main Speaker / Opening Speaker / Introducer / Google
@@ -139,6 +149,7 @@ const TYPE_STYLES = {
   "district event": { color: "#14532d", bold: true  },  // dark green
   "committee":      { color: "#000000", bold: false },  // black
   "holiday":        { color: "#b91c1c", bold: true  },  // red
+  "message":        { color: "#b45309", bold: true  },  // amber - newsletter announcement
   "other":          { color: "#000000", bold: false },  // black
 };
 const DEFAULT_STYLE = { color: "#000000", bold: false };
@@ -352,6 +363,7 @@ function setupSheet() {
     "Created By",               // AF - Event Editor: who created the row (delete permission)
     "Event Notes",              // AG - Event Editor: timestamped notes log
     "Hide from Newsletter",     // AH - Checkbox: exclude this event from the newsletter bulletin
+    "Important",                // AI - Checkbox: feature in the newsletter's "Important" section
   ];
 
   // Make sure the grid is wide enough for all columns (covers older sheets
@@ -404,6 +416,7 @@ function setupSheet() {
     140,  // AF Created By
     320,  // AG Event Notes
     140,  // AH Hide from Newsletter
+    90,   // AI Important
   ];
   widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
 
@@ -424,6 +437,9 @@ function setupSheet() {
 
   // Hide-from-Newsletter checkbox (AH) — same treatment as Cancelled
   sheet.getRange(2, COL.EXCLUDE_NEWSLETTER, 1000, 1).insertCheckboxes();
+
+  // Important checkbox (AI) — same treatment as Cancelled / Hide-from-Newsletter
+  sheet.getRange(2, COL.IMPORTANT, 1000, 1).insertCheckboxes();
 
   // DAY_LABEL: single ARRAYFORMULA in D2 covers the whole column automatically.
   // This prevents Sheets from copying the formula into adjacent cells when new rows are added.
@@ -545,8 +561,9 @@ function pushToCalendar() {
     const sheetRow = i + 2;
     const dateVal  = row[COL.DATE - 1];
     if (!dateVal) { skipped++; return; }
-    // Holidays are display-only — never push to Google Calendar
-    if (String(row[COL.EVENT_TYPE - 1] || "").toLowerCase() === "holiday") { skipped++; return; }
+    // Holidays and Messages are display-only — never push to Google Calendar
+    const pushType = String(row[COL.EVENT_TYPE - 1] || "").toLowerCase();
+    if (pushType === "holiday" || pushType === "message") { skipped++; return; }
 
     // Skip rows that haven't changed since the last push
     const currentHash = rowHash(row);
@@ -930,6 +947,8 @@ function generateNewsletter() {
   const upcomingDetail  = [];
   const upcomingSkim    = [];
   const recentMeetings  = [];
+  const importantItems  = [];   // any flagged-important upcoming event or message
+  const announcements   = [];   // non-important Message rows still showing
 
   data.forEach(row => {
     const dateVal = row[COL.DATE - 1];
@@ -938,12 +957,26 @@ function generateNewsletter() {
     const d = new Date(dateVal); d.setHours(0,0,0,0);
     const cancelled = row[COL.CANCELLED - 1];
     const type      = val(row, COL.EVENT_TYPE).toLowerCase() || "meeting";
+    const important = row[COL.IMPORTANT - 1] === true;
+    const isMessage = type === "message";
+
+    // Messages: dateless announcements. Show until their date passes; they live
+    // only in the Important / Announcements sections (never in detail/skim/grid).
+    if (isMessage) {
+      if (d >= today && !cancelled) {
+        if (important) importantItems.push(row);
+        else           announcements.push(row);
+      }
+      return;
+    }
 
     if (d >= today && d <= cutoff) {
       upcomingSkim.push(row);  // all future events for skim + grid
       if (!cancelled && DETAIL_TYPES.includes(type)) {
         upcomingDetail.push(row);
       }
+      // Important events are also teased at the top, in addition to their normal spot.
+      if (important && !cancelled) importantItems.push(row);
     } else if (d < today && type === "meeting") {
       recentMeetings.push(row);
     }
@@ -952,6 +985,8 @@ function generateNewsletter() {
   upcomingDetail.sort((a,b) => a[COL.DATE-1] - b[COL.DATE-1]);
   upcomingSkim.sort((a,b)   => a[COL.DATE-1] - b[COL.DATE-1]);
   recentMeetings.sort((a,b) => b[COL.DATE-1] - a[COL.DATE-1]);
+  importantItems.sort((a,b) => a[COL.DATE-1] - b[COL.DATE-1]);
+  announcements.sort((a,b)  => a[COL.DATE-1] - b[COL.DATE-1]);
 
   const detailRows = upcomingDetail
     .filter(r => val(r, COL.MAIN_SPEAKER) || val(r, COL.MAIN_TOPIC))
@@ -1052,6 +1087,49 @@ function generateNewsletter() {
     }
   }
 
+  // A Message announcement block: bold headline, narrative body, optional link.
+  function addMessageBlock(row) {
+    const headline = val(row, COL.MAIN_TOPIC) || "Announcement";
+    const text     = val(row, COL.SUMMARY);
+    const link     = val(row, COL.SPEAKER_URL);
+    const hp = body.appendParagraph(headline);
+    hp.setHeading(H3);
+    hp.editAsText().setForegroundColor("#b45309").setFontSize(13);
+    hp.setSpacingBefore(8).setSpacingAfter(2);
+    if (text) body.appendParagraph(text).editAsText().setFontSize(11);
+    if (link) {
+      const lp = body.appendParagraph("More info: " + link);
+      const t  = lp.editAsText();
+      t.setFontSize(10);
+      const s = "More info: ".length, e = s + link.length - 1;
+      t.setForegroundColor(s, e, "#1a56db");
+      t.setLinkUrl(s, e, link);
+    }
+  }
+
+  // One-line teaser for an important *event* in the Important section.
+  function addImportantEventLine(row) {
+    const dateVal = row[COL.DATE - 1];
+    const type    = val(row, COL.EVENT_TYPE) || "Event";
+    const speaker = val(row, COL.MAIN_SPEAKER);
+    const topic   = val(row, COL.MAIN_TOPIC);
+    const link    = val(row, COL.SPEAKER_URL);
+    let line = "★ " + Utilities.formatDate(dateVal, tz, "EEE, MMM d") + ": " + type;
+    if (speaker && topic) line += " — " + speaker + ": " + topic;
+    else if (speaker)     line += " — " + speaker;
+    else if (topic)       line += " — " + topic;
+    const p = body.appendParagraph(line);
+    p.editAsText().setFontSize(11);
+    p.setSpacingBefore(2).setSpacingAfter(2);
+    if (link) {
+      const s = p.getText().length;
+      const spacer = "  ", label = "info";
+      p.appendText(spacer + label);
+      const ls = s + spacer.length, le = ls + label.length - 1;
+      p.editAsText().setForegroundColor(ls, le, "#1a56db").setLinkUrl(ls, le, link);
+    }
+  }
+
   // ── MASTHEAD ─────────────────────────────────────────────────
   const titleP = body.appendParagraph(CLUB_NAME);
   titleP.setHeading(H1);
@@ -1063,6 +1141,20 @@ function generateNewsletter() {
   subP.editAsText().setFontSize(10).setForegroundColor("#666666").setItalic(true);
   subP.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
   subP.setSpacingAfter(12);
+
+  // ── IMPORTANT ────────────────────────────────────────────────
+  if (importantItems.length > 0) {
+    const ih = body.appendParagraph("Important");
+    ih.setHeading(H2);
+    ih.editAsText().setForegroundColor("#b45309").setFontSize(18);
+    ih.setSpacingAfter(6);
+    importantItems.forEach(row => {
+      if (val(row, COL.EVENT_TYPE).toLowerCase() === "message") addMessageBlock(row);
+      else addImportantEventLine(row);
+    });
+    body.appendParagraph("").setSpacingAfter(0);
+    addRule();
+  }
 
   // ── COMING UP — DETAIL BLOCKS ─────────────────────────────────
   if (detailRows.length > 0) {
@@ -1250,6 +1342,18 @@ function generateNewsletter() {
     });
   }
 
+  // ── ANNOUNCEMENTS — non-important messages still showing ─────
+  if (announcements.length > 0) {
+    body.appendParagraph("").setSpacingAfter(0);
+    addRule();
+    body.appendParagraph("").setSpacingAfter(0);
+    const ah = body.appendParagraph("Announcements");
+    ah.setHeading(H2);
+    ah.editAsText().setForegroundColor("#1a3a6b").setFontSize(18);
+    ah.setSpacingAfter(6);
+    announcements.forEach(addMessageBlock);
+  }
+
   // ── RECENT MEETINGS ──────────────────────────────────────────
   if (recentRows.length > 0) {
     body.appendParagraph("").setSpacingAfter(0);
@@ -1329,6 +1433,7 @@ function generateNewsletter() {
     const dv = row[COL.DATE - 1];
     if (!dv || !(dv instanceof Date)) return;
     if (row[COL.CANCELLED - 1]) return;
+    if (val(row, COL.EVENT_TYPE).toLowerCase() === "message") return; // not a dated event
     const key = Utilities.formatDate(dv, tz, "yyyy-MM-dd");
     if (!eventMap[key]) eventMap[key] = [];
     eventMap[key].push({
@@ -1816,6 +1921,7 @@ function getEventEditorData() {
         createdBy: String(row[COL.CREATED_BY - 1]        || ''),
         notes:     String(row[COL.EVENT_NOTES - 1]       || ''),
         hideFromNewsletter: !!row[COL.EXCLUDE_NEWSLETTER - 1],
+        important: !!row[COL.IMPORTANT - 1],
       });
     });
   }
@@ -1880,6 +1986,7 @@ function saveEvent(password, payload) {
       if (p.photoBottom) set(COL.PHOTO_BOTTOM, p.photoBottom); // don't clobber an embedded image with a blank
     }
     set(COL.EXCLUDE_NEWSLETTER, !!p.hideFromNewsletter);
+    set(COL.IMPORTANT,         !!p.important);
     set(COL.STATUS,            '✏️ Edited by ' + who + ' ' + ts);
     targetRow = rowIndex;
   } else {
@@ -1970,6 +2077,7 @@ function eventEditorBuildRow_(p, type, who, ts) {
     row[COL.PHOTO_BOTTOM - 1]    = p.photoBottom    || '';
   }
   row[COL.EXCLUDE_NEWSLETTER - 1] = !!p.hideFromNewsletter;
+  row[COL.IMPORTANT - 1]         = !!p.important;
   row[COL.CREATED_BY - 1]        = who;        // who may later delete this event
   row[COL.STATUS - 1]            = '➕ Added by ' + who + ' ' + ts;
   return row;
@@ -2166,8 +2274,10 @@ function getDutyEditorHtml() {
   td { padding: 4px 6px; vertical-align: middle; }
   td.lbl { width: 130px; font-weight: bold; color: #17458F; white-space: nowrap; font-size: 0.92em; }
   select { width: 100%; padding: 4px; font-size: 0.95em; border: 1px solid #ccc; border-radius: 3px; background: #fff; }
-  td.duty select + select { margin-top: 4px; }
+  td.duty { display: flex; gap: 6px; }
+  td.duty select { flex: 1 1 0; min-width: 0; }
   td.duty select.secondary { color: #555; }
+  @media (max-width: 480px) { td.duty { flex-direction: column; } }
   .btn { background: #17458F; color: #fff; border: none; padding: 8px 22px; border-radius: 4px;
          cursor: pointer; font-size: 0.97em; margin-top: 0.8em; }
   .btn:disabled { background: #aaa; cursor: default; }
@@ -3809,8 +3919,8 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
   <div id="panel-body">
     <div class="fld"><label>Event Type</label><select id="f-type" onchange="updateTypeUI()"></select></div>
     <div class="fld-row">
-      <div class="fld"><label>Date</label><input type="date" id="f-date"></div>
-      <div class="fld"><label>Time</label><input type="time" id="f-time"></div>
+      <div class="fld"><label id="lbl-date">Date</label><input type="date" id="f-date"></div>
+      <div class="fld" id="time-fld"><label>Time</label><input type="time" id="f-time"></div>
       <div class="fld" style="max-width:95px"><label>Min</label><input type="number" id="f-duration" min="0" step="15"></div>
     </div>
     <div class="fld"><label id="lbl-name">Event Name</label><input type="text" id="f-name" placeholder="e.g. Beach Cleanup"></div>
@@ -3820,7 +3930,7 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
       <div class="fld"><label>Introducer</label><input type="text" id="f-introducer" list="member-list" placeholder="Who introduces the speaker"></div>
       <div class="fld"><label>Google Meet Link</label><input type="url" id="f-meet" placeholder="https://meet.google.com/… (usually blank)"></div>
     </div>
-    <div class="fld"><label>Location</label><input type="text" id="f-location" placeholder="Venue and city"></div>
+    <div class="fld" id="loc-fld"><label>Location</label><input type="text" id="f-location" placeholder="Venue and city"></div>
     <div class="fld"><label id="lbl-organizer">Organizer</label><input type="text" id="f-organizer" list="member-list" placeholder="Who is running this"><datalist id="member-list"></datalist></div>
     <div class="fld"><label id="lbl-summary">Details (for newsletter)</label><textarea id="f-summary" placeholder="What is happening, who should come…"></textarea></div>
     <div class="fld"><label id="lbl-link">Info / Signup Link</label><input type="url" id="f-link" placeholder="https://…"></div>
@@ -3833,6 +3943,7 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
       <input type="url" id="f-photo-bottom" placeholder="https://… second image, shown below the write-up" oninput="showPhotoPrevB()">
       <div id="f-photo-bottom-prev" style="margin-top:6px"></div>
     </div>
+    <label class="chk"><input type="checkbox" id="f-important"> Important <span style="color:#94a3b8;font-weight:400">(feature at top of newsletter)</span></label>
     <label class="chk"><input type="checkbox" id="f-cancelled"> Mark as cancelled</label>
     <label class="chk"><input type="checkbox" id="f-hide-newsletter"> Hide from newsletter</label>
     <div id="notes-section" style="margin-top:1.1em;display:none">
@@ -3858,7 +3969,7 @@ var ADV_EXCLUDE=['Grey Bears']; // hidden from the "All types" view (rarely edit
 var DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 var MONF=['January','February','March','April','May','June','July','August','September','October','November','December'];
-var TYPE_COLOR={'Meeting':'#c7d8f7','Assembly':'#a5f3fc','Board Meeting':'#93c5fd','Social':'#fde68a','Service':'#fdba74','Grey Bears':'#fde8d0','Fundraiser':'#e9d5ff','District Event':'#86efac','Committee':'#fce7f3','Holiday':'#fca5a5','Other':'#d1d5db'};
+var TYPE_COLOR={'Meeting':'#c7d8f7','Assembly':'#a5f3fc','Board Meeting':'#93c5fd','Social':'#fde68a','Service':'#fdba74','Grey Bears':'#fde8d0','Fundraiser':'#e9d5ff','District Event':'#86efac','Committee':'#fce7f3','Holiday':'#fca5a5','Message':'#fed7aa','Other':'#d1d5db'};
 
 function gs(fn,arg){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](arg);});}
 function gs2(fn,a,b){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b);});}
@@ -3933,8 +4044,11 @@ function render(){
     var mk=monthKey(e.date);
     if(mk!==curMonth){curMonth=mk;var h=document.createElement('div');h.className='month-hd';h.textContent=mk;list.appendChild(h);}
     var cd=cardDate(e.date), color=TYPE_COLOR[e.eventType]||'#d1d5db';
-    var isMtg=SPEAKER_TYPES.indexOf(e.eventType)>-1, isHol=e.eventType==='Holiday';
-    var meta=[]; if(e.time)meta.push(esc(e.time)); if(e.location)meta.push(esc(e.location)); if(e.organizer)meta.push('· '+esc(e.organizer));
+    var isMtg=SPEAKER_TYPES.indexOf(e.eventType)>-1, isHol=e.eventType==='Holiday', isMsg=e.eventType==='Message';
+    // Messages are dateless — show "through <date>" rather than time/location.
+    var meta=[];
+    if(isMsg){ meta.push('through '+esc(e.date)); }
+    else { if(e.time)meta.push(esc(e.time)); if(e.location)meta.push(esc(e.location)); if(e.organizer)meta.push('· '+esc(e.organizer)); }
     // Title line (+ a topic line for meetings), by event category.
     var nameHtml, topicLine='';
     if(isMtg){
@@ -3942,13 +4056,17 @@ function render(){
       topicLine='<div class="ev-topic">'+(e.eventName?esc(e.eventName):'<span class="ev-untitled">Topic: TBD</span>')+'</div>';
     } else if(isHol){
       nameHtml=(e.eventName?esc(e.eventName):'Holiday')+' <span class="ev-untitled">– holiday</span>';
+    } else if(isMsg){
+      nameHtml=(e.eventName?esc(e.eventName):'(untitled)')+' <span class="ev-untitled">– message</span>';
     } else {
       nameHtml=e.eventName?esc(e.eventName):'<span class="ev-untitled">(untitled '+esc(e.eventType)+')</span>';
     }
-    // A link becomes "– info" (meetings/holidays) or "– signup" (everything
-    // else) on the title; the click is stopped from opening the edit panel.
+    // A star marks important items, featured at the top of the newsletter.
+    if(e.important)nameHtml='<span title="Important" style="color:#d97706">★</span> '+nameHtml;
+    // A link becomes "– info" (meetings/holidays/messages) or "– signup"
+    // (everything else); the click is stopped from opening the edit panel.
     if(e.link){
-      var lbl=(isMtg||isHol)?'– info':'– signup';
+      var lbl=(isMtg||isHol||isMsg)?'– info':'– signup';
       nameHtml+=' <a class="ev-signup" href="'+esc(e.link)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+lbl+'</a>';
     }
     // Scaled thumbnail sits just before the type chip when the event has a photo.
@@ -3982,16 +4100,22 @@ function fillOptions(){
   }
 }
 // Show the speaker block + relabel the shared fields when a meeting type is picked.
+// Messages are dateless newsletter announcements — the date is a "show until"
+// date and the time/location aren't relevant, so those fields are hidden.
 function updateTypeUI(){
-  var isMtg=SPEAKER_TYPES.indexOf(getV('f-type'))>-1;
-  document.getElementById('speaker-fields').style.display=isMtg?'':'none';
-  document.getElementById('lbl-name').textContent=isMtg?'Main Topic':'Event Name';
-  document.getElementById('lbl-link').textContent=isMtg?'Speaker URL':'Info / Signup Link';
+  var type=getV('f-type');
+  var isMtg=SPEAKER_TYPES.indexOf(type)>-1, isMsg=type==='Message';
+  document.getElementById('speaker-fields').style.display=(isMtg&&!isMsg)?'':'none';
+  document.getElementById('lbl-date').textContent=isMsg?'Show Until':'Date';
+  document.getElementById('time-fld').style.display=isMsg?'none':'';
+  document.getElementById('loc-fld').style.display=isMsg?'none':'';
+  document.getElementById('lbl-name').textContent=isMsg?'Headline':(isMtg?'Main Topic':'Event Name');
+  document.getElementById('lbl-link').textContent=isMsg?'Link (optional)':(isMtg?'Speaker URL':'Info / Signup Link');
   document.getElementById('lbl-organizer').textContent=isMtg?'Speaker Organizer':'Organizer';
-  document.getElementById('lbl-summary').textContent=isMtg?'Speaker Bio / Summary (newsletter)':'Details (for newsletter)';
+  document.getElementById('lbl-summary').textContent=isMsg?'Message text (for newsletter)':(isMtg?'Speaker Bio / Summary (newsletter)':'Details (for newsletter)');
   document.getElementById('lbl-photo').textContent=isMtg?'Speaker Photo (top)':'Photo (optional)';
-  document.getElementById('photo-bottom-fld').style.display=isMtg?'':'none';
-  document.getElementById('f-name').placeholder=isMtg?'e.g. Water Conservation':'e.g. Beach Cleanup';
+  document.getElementById('photo-bottom-fld').style.display=(isMtg&&!isMsg)?'':'none';
+  document.getElementById('f-name').placeholder=isMsg?'e.g. 2026 Dues Are Due':(isMtg?'e.g. Water Conservation':'e.g. Beach Cleanup');
 }
 // Type filter dropdown (Events / All / a single type), persisted per browser.
 function setTypeFilter(v){typeFilter=v;localStorage.setItem('eventEditorTypeFilter',v);render();}
@@ -4012,6 +4136,7 @@ function openNew(){
   setV('f-name',''); setV('f-location',''); setV('f-organizer',currentUser);
   setV('f-summary',''); setV('f-link',''); setV('f-photo',''); setV('f-photo-bottom','');
   setV('f-main-speaker',''); setV('f-opening-speaker',''); setV('f-introducer',''); setV('f-meet','');
+  document.getElementById('f-important').checked=false;
   document.getElementById('f-cancelled').checked=false;
   document.getElementById('f-hide-newsletter').checked=false;
   updateTypeUI();
@@ -4031,6 +4156,7 @@ function openEdit(rowIndex){
   setV('f-main-speaker',e.mainSpeaker||''); setV('f-opening-speaker',e.openingSpeaker||'');
   setV('f-introducer',e.introducer||''); setV('f-meet',e.googleMeet||'');
   updateTypeUI();
+  document.getElementById('f-important').checked=!!e.important;
   document.getElementById('f-cancelled').checked=!!e.cancelled;
   document.getElementById('f-hide-newsletter').checked=!!e.hideFromNewsletter;
   document.getElementById('notes-section').style.display='';
@@ -4059,6 +4185,7 @@ function savePanel(){
     mainSpeaker:getV('f-main-speaker'),openingSpeaker:getV('f-opening-speaker'),
     introducer:getV('f-introducer'),googleMeet:getV('f-meet'),photoBottom:getV('f-photo-bottom'),
     cancelled:document.getElementById('f-cancelled').checked,
+    important:document.getElementById('f-important').checked,
     hideFromNewsletter:document.getElementById('f-hide-newsletter').checked,editor:currentUser};
   var pw=localStorage.getItem('pipelinePw')||'';
   // A note typed but not yet "Add"ed should be saved too — editing an existing

@@ -11,9 +11,12 @@ const COL = {
   fourWayTest:21, thought:22, detective:23, bagPerson:24, comments:25,
   photoTopUrl:28, photoBottomUrl:29,
   excludeNewsletter:33, // AH - checkbox: hide this event from the newsletter
+  important:34,         // AI - checkbox: feature in the newsletter's "Important" section
 };
 
 const isHiddenFromNewsletter = row => fv(row, COL.excludeNewsletter).toUpperCase() === 'TRUE';
+const isImportant            = row => fv(row, COL.important).toUpperCase() === 'TRUE';
+const isMessageType          = row => fv(row, COL.eventType).toLowerCase() === 'message';
 
 // ── Parsing ───────────────────────────────────────────────────────────────
 

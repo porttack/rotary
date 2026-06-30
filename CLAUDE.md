@@ -102,6 +102,11 @@ The year.html page adds `&t=Date.now()` on each fetch to bust the browser cache.
 | 31 | CREATED_BY | Created By | Member who created the row via the Event Editor; gates who may delete it |
 | 32 | EVENT_NOTES | Event Notes | Timestamped notes log (newest first), written by the Event Editor |
 | 33 | EXCLUDE_NEWSLETTER | Hide from Newsletter | Checkbox; TRUE/FALSE. When TRUE, the event is omitted from both newsletter outputs (newsletter.html page + Apps Script Google Doc). Settable from the Event Editor. |
+| 34 | IMPORTANT | Important | Checkbox; TRUE/FALSE. When TRUE, the item is featured in the newsletter's top **Important** section (both outputs). Works on any type; for `Message` rows it routes the message to Important instead of Announcements. Settable from the Event Editor. |
+
+NUM_COLS is now **35**. After pasting a new `.gs`, run **🔄 Rotary Sync →
+Setup / Reset Sheet Headers** once so `setupSheet` widens the grid, writes the
+`Important` header, and adds its checkbox.
 
 ---
 
@@ -111,6 +116,11 @@ All event types are defined in `EVENT_TYPES` in RotaryCalendarSync.gs and
 must be kept in sync between `year.html` (`TYPE_COLOR`, `canonicalType`) and
 the Apps Script (`GRID_BG`, `TYPE_ABBREV`, `TYPE_STYLES`). When adding a new
 type, update all four places plus the year.html legend.
+
+`Message` is the exception: it is newsletter-only, so it is **not** drawn on the
+year/calendar grids (both views skip it) and is not in the grid color maps or
+the year.html legend — only `EVENT_TYPES`, `TYPE_STYLES`, and the Event Editor's
+`TYPE_COLOR` chip map carry it.
 
 | Type | year.html color | Meaning |
 |---|---|---|
@@ -124,6 +134,7 @@ type, update all four places plus the year.html legend.
 | District Event | `#86efac` | Rotary District 5170 events |
 | Committee | `#fce7f3` | Committee meetings |
 | Holiday | `#fca5a5` | Public holiday — display only, **never synced to Google Calendar** |
+| Message | `#fed7aa` | Dateless newsletter announcement (e.g. dues reminder). DATE is a "show until" date; **newsletter-only** — never synced to Calendar nor shown on the year/calendar grids. Goes to the newsletter's Announcements section, or the Important section when IMPORTANT = TRUE. |
 | Other | `#d1d5db` | Anything that doesn't fit above |
 | *(cancelled)* | `#e5e7eb` | Any event with Cancelled = TRUE |
 
@@ -215,8 +226,15 @@ any `EVENT_TYPE`, so server functions accept any row whose type is in
 
 **List rows:** meetings show Speaker (or *Speaker: TBD*) with the Topic (or
 *Topic: TBD*) beneath and time · location · organizer below that; holidays show
-the name with a *"– holiday"* suffix; a link renders as *"– info"* for
-meetings/holidays and *"– signup"* for other types.
+the name with a *"– holiday"* suffix; messages show the headline with a
+*"– message"* suffix and a *"through <show-until date>"* meta line; a link
+renders as *"– info"* for meetings/holidays/messages and *"– signup"* for other
+types. Items flagged Important are prefixed with a ★.
+
+**Message type:** picking `Message` relabels Date → "Show Until", Event Name →
+"Headline", Details → "Message text", and hides the Time and Location fields
+(`time-fld` / `loc-fld`) — a message is a dateless announcement, so its DATE is
+the date after which it disappears from the newsletter.
 
 **Meeting fields (advanced mode):** when the selected type is in
 `SPEAKER_EVENT_TYPES` (Meeting/Assembly/Board Meeting), the panel reveals extra
@@ -235,9 +253,9 @@ by edits here.
 Organizer → `SPEAKER_ORGANIZER`, Link → `SPEAKER_URL`, Photo → `PHOTO_TOP`,
 Details → `SUMMARY`. For non-meeting types the speaker columns stay blank; for
 meeting types they hold the real speaker/program data (the repurposed columns
-*are* the real meeting columns). The editor also exposes two checkboxes that map
-to real columns: Mark as cancelled → `CANCELLED`, Hide from newsletter →
-`EXCLUDE_NEWSLETTER`.
+*are* the real meeting columns). The editor also exposes three checkboxes that
+map to real columns: Important → `IMPORTANT`, Mark as cancelled → `CANCELLED`,
+Hide from newsletter → `EXCLUDE_NEWSLETTER`.
 
 **Writes:** `saveEvent(password, payload)` creates or updates one row (new rows
 write cols A–C + E-onward to skip the `DAY_LABEL` formula in col D), then
@@ -247,7 +265,10 @@ enough to make saves time out; every view re-sorts on read, so sheet order is
 cosmetic). New rows stamp `CREATED_BY` with the logged-in member. The
 `EXCLUDE_NEWSLETTER` checkbox lets a member hide a routine event (e.g. recurring
 AG meetings) from the bulletin without cancelling it; both newsletter outputs
-skip rows where it is TRUE.
+skip rows where it is TRUE. The `IMPORTANT` checkbox features the item in the
+newsletter's top **Important** section (both outputs); important events also stay
+in their normal section, while important messages move from Announcements to
+Important.
 `deleteEvent(password, rowIndex, editor)` removes a row but **only if `editor`
 matches `CREATED_BY`** — anyone else must mark it cancelled instead (the Delete
 button is hidden in the UI for non-creators). `addEventNote(password, rowIndex,
@@ -258,12 +279,13 @@ Drive → Rotary → Photos). Changes are **not** auto-pushed to Google Calendar
 that stays the manual "Push to Calendar" menu step (same as the AI Assistant's
 changes).
 
-**Adding new columns:** `CREATED_BY`, `EVENT_NOTES`, and `EXCLUDE_NEWSLETTER`
-were appended to the schema (NUM_COLS is now **34**). After pasting a new `.gs`,
-run **🔄 Rotary Sync → Setup / Reset Sheet Headers** once — `setupSheet` widens
-the grid, writes the new headers, and adds the Hide-from-Newsletter checkbox.
-Until then, the Event Editor (and any code reading all `NUM_COLS`) will error on
-sheets that still have the old column count.
+**Adding new columns:** `CREATED_BY`, `EVENT_NOTES`, `EXCLUDE_NEWSLETTER`, and
+`IMPORTANT` were appended to the schema (NUM_COLS is now **35**). After pasting a
+new `.gs`, run **🔄 Rotary Sync → Setup / Reset Sheet Headers** once —
+`setupSheet` widens the grid, writes the new headers, and adds the
+Hide-from-Newsletter and Important checkboxes. Until then, the Event Editor (and
+any code reading all `NUM_COLS`) will error on sheets that still have the old
+column count.
 
 ---
 

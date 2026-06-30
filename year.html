@@ -131,6 +131,7 @@ function canonicalType(raw) {
       t.includes('party') || t.includes('picnic') ||
       t.includes('celebration') || t.includes('banquet'))      return 'social';
   if (t.includes('holiday'))                                    return 'holiday';
+  if (t.includes('message'))                                    return 'message';
   if (t.includes('committee'))                                  return 'committee';
   if (t.includes('assembly'))                                   return 'assembly';
   if (t.includes('meeting') || t.includes('breakfast') ||
@@ -244,6 +245,7 @@ function loadYear() {
         const iso = fv(row, COL.date);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
         const type      = canonicalType(fv(row, COL.eventType));
+        if (type === 'message') return;   // dateless newsletter announcement, not a grid event
         const cancelled = fv(row, COL.cancelled).toUpperCase() === 'TRUE';
         const hour      = timeHour(fv(row, COL.time));
         if (!evsByDate[iso]) evsByDate[iso] = [];
