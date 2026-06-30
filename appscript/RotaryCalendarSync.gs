@@ -3839,8 +3839,8 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 .hbtn:hover{background:rgba(255,255,255,0.3)}
 #main{flex:1;overflow-y:auto;padding:0.9em;max-width:760px;width:100%;margin:0 auto}
 #hint{font-size:0.8em;color:#64748b;margin:0 0.2em 0.8em;line-height:1.45}
-#toolbar{display:flex;gap:0.6em;margin-bottom:0.6em;position:sticky;top:0;z-index:5}
-#search{flex:1;padding:10px 13px;border:1px solid #cfd6e4;border-radius:9px;font-size:0.95em;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.05)}
+#toolbar{display:flex;flex-wrap:wrap;gap:0.6em;margin-bottom:0.6em;position:sticky;top:0;z-index:5}
+#search{flex:1;min-width:150px;padding:10px 13px;border:1px solid #cfd6e4;border-radius:9px;font-size:0.95em;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.05)}
 #search:focus{outline:none;border-color:#1a56db;box-shadow:0 0 0 3px rgba(26,86,219,0.12)}
 #add-btn{background:#16a34a;color:#fff;border:none;padding:10px 18px;border-radius:9px;font-weight:700;cursor:pointer;font-size:0.92em;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.15)}
 #add-btn:hover{background:#15803d}
@@ -3899,7 +3899,13 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 .auth-box input{width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;margin-bottom:0.6em;font-size:0.95em}
 .auth-box button{background:#17458F;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:0.95em;width:100%}
 .auth-err{color:#b91c1c;font-size:0.85em;margin-top:0.4em;min-height:1em}
-@media(max-width:520px){#panel{width:100%;max-width:100%;right:-100%}}
+@media(max-width:520px){
+  #panel{width:100%;max-width:100%;right:-100%}
+  /* Toolbar wraps: search on its own row, filters + Add share the next. */
+  #search{flex:1 1 100%}
+  #typefilter,#weeks{flex:1 1 auto}
+  #add-btn{flex:0 0 auto}
+}
 </style>
 </head>
 <body>
