@@ -972,11 +972,14 @@ function generateNewsletter() {
 
     if (d >= today && d <= cutoff) {
       upcomingSkim.push(row);  // all future events for skim + grid
-      if (!cancelled && DETAIL_TYPES.includes(type)) {
+      // Important events render as their full post in the Important section at
+      // the top, so they're pulled out of Coming Up to avoid a duplicate post.
+      // They stay in the chronological Looking Ahead skim list below.
+      if (important && !cancelled) {
+        importantItems.push(row);
+      } else if (!cancelled && DETAIL_TYPES.includes(type)) {
         upcomingDetail.push(row);
       }
-      // Important events are also teased at the top, in addition to their normal spot.
-      if (important && !cancelled) importantItems.push(row);
     } else if (d < today && type === "meeting") {
       recentMeetings.push(row);
     }
@@ -1107,26 +1110,46 @@ function generateNewsletter() {
     }
   }
 
-  // One-line teaser for an important *event* in the Important section.
-  function addImportantEventLine(row) {
-    const dateVal = row[COL.DATE - 1];
-    const type    = val(row, COL.EVENT_TYPE) || "Event";
-    const speaker = val(row, COL.MAIN_SPEAKER);
-    const topic   = val(row, COL.MAIN_TOPIC);
-    const link    = val(row, COL.SPEAKER_URL);
-    let line = "★ " + Utilities.formatDate(dateVal, tz, "EEE, MMM d") + ": " + type;
-    if (speaker && topic) line += " — " + speaker + ": " + topic;
-    else if (speaker)     line += " — " + speaker;
-    else if (topic)       line += " — " + topic;
-    const p = body.appendParagraph(line);
-    p.editAsText().setFontSize(11);
-    p.setSpacingBefore(2).setSpacingAfter(2);
+  // Full post for an important *event* in the Important section: heading, meta,
+  // top photo, narrative, link — the fuller write-up, not a one-line teaser.
+  function addImportantEventBlock(row) {
+    const dateVal  = row[COL.DATE - 1];
+    const timeVal  = row[COL.TIME - 1];
+    const type     = val(row, COL.EVENT_TYPE) || "Event";
+    const location = val(row, COL.LOCATION);
+    const speaker  = val(row, COL.MAIN_SPEAKER);
+    const topic    = val(row, COL.MAIN_TOPIC);
+    const summary  = val(row, COL.SUMMARY);
+    const link     = val(row, COL.SPEAKER_URL);
+    const photoTop = val(row, COL.PHOTO_TOP);
+
+    let hText = Utilities.formatDate(dateVal, tz, "MMM d") + ": " + type;
+    if (speaker && topic) hText += " — " + speaker + ": " + topic;
+    else if (speaker)     hText += " — " + speaker;
+    else if (topic)       hText += " — " + topic;
+
+    const eh = body.appendParagraph(hText);
+    eh.setHeading(H3);
+    eh.editAsText().setForegroundColor("#1a56db").setFontSize(14);
+    eh.setSpacingBefore(8).setSpacingAfter(2);
+
+    let meta = fmtDateTime(dateVal, timeVal);
+    if (location) meta += "  ·  " + location;
+    const mp = body.appendParagraph(meta);
+    mp.editAsText().setFontSize(10).setForegroundColor("#555555").setItalic(true);
+    mp.setSpacingAfter(6);
+
+    embedPhoto(photoTop);
+
+    if (summary) body.appendParagraph(summary).editAsText().setFontSize(11);
+
     if (link) {
-      const s = p.getText().length;
-      const spacer = "  ", label = "info";
-      p.appendText(spacer + label);
-      const ls = s + spacer.length, le = ls + label.length - 1;
-      p.editAsText().setForegroundColor(ls, le, "#1a56db").setLinkUrl(ls, le, link);
+      const lp = body.appendParagraph("More info: " + link);
+      const t  = lp.editAsText();
+      t.setFontSize(10);
+      const s = "More info: ".length, e = s + link.length - 1;
+      t.setForegroundColor(s, e, "#1a56db");
+      t.setLinkUrl(s, e, link);
     }
   }
 
@@ -1150,7 +1173,7 @@ function generateNewsletter() {
     ih.setSpacingAfter(6);
     importantItems.forEach(row => {
       if (val(row, COL.EVENT_TYPE).toLowerCase() === "message") addMessageBlock(row);
-      else addImportantEventLine(row);
+      else addImportantEventBlock(row);
     });
     body.appendParagraph("").setSpacingAfter(0);
     addRule();
