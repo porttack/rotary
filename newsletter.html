@@ -137,8 +137,41 @@ permalink: /newsletter/
     .cal-table { font-size: 0.68em; }
     .cal-table td { min-width: 28px; padding: 2px; }
   }
+
+  /* Section chooser (viewer preference; not part of the printed bulletin) */
+  #section-controls {
+    max-width: 760px; margin: 0 auto 0.4em; text-align: right;
+    font-family: Arial, sans-serif;
+  }
+  .sec-menu { display: inline-block; position: relative; }
+  .sec-menu > summary {
+    list-style: none; cursor: pointer; display: inline-block;
+    font-size: 0.8em; color: #17458F; border: 1px solid #c5cae9;
+    background: #f5f7fc; border-radius: 6px; padding: 5px 11px;
+  }
+  .sec-menu > summary::-webkit-details-marker { display: none; }
+  .sec-menu[open] > summary { background: #e8eef9; }
+  #sec-menu-list {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
+    background: #fff; border: 1px solid #c5cae9; border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.15); padding: 0.3em 0;
+    min-width: 200px; text-align: left;
+  }
+  #sec-menu-list label {
+    display: flex; align-items: center; gap: 0.55em;
+    padding: 6px 14px; font-size: 0.85em; color: #333;
+    cursor: pointer; white-space: nowrap;
+  }
+  #sec-menu-list label:hover { background: #f0f4ff; }
+  @media print { #section-controls { display: none !important; } }
 </style>
 
+<div id="section-controls" style="display:none;">
+  <details class="sec-menu">
+    <summary>Sections &#9662;</summary>
+    <div id="sec-menu-list"></div>
+  </details>
+</div>
 <div id="bulletin-loading" style="text-align:center;padding:2em;color:#666;">
   Loading this week&rsquo;s bulletin&hellip;
 </div>
@@ -573,13 +606,13 @@ function renderNewsletter(allRows) {
   messageRows.sort((a,b)    => parseRowDate(a) - parseRowDate(b));
 
   const parts = [masthead(today)];
-  if (importantItems.length) parts.push(importantSection(importantItems));
-  if (detailRows.length) parts.push(comingUp(detailRows));
-  if (eventRows.length)  parts.push(clubEvents(eventRows));
-  if (skimRows.length)   parts.push(lookingAhead(skimRows));
-  if (messageRows.length) parts.push(announcements(messageRows));
-  if (recentRows.length) parts.push(recentMeetings(recentRows.slice(0, 2)));
-  parts.push(calendarGrid(allRows, today));
+  if (sectionOn('important') && importantItems.length) parts.push(importantSection(importantItems));
+  if (sectionOn('coming-up') && detailRows.length) parts.push(comingUp(detailRows));
+  if (sectionOn('club-events') && eventRows.length)  parts.push(clubEvents(eventRows));
+  if (sectionOn('looking-ahead') && skimRows.length)   parts.push(lookingAhead(skimRows));
+  if (sectionOn('announcements') && messageRows.length) parts.push(announcements(messageRows));
+  if (sectionOn('recent') && recentRows.length) parts.push(recentMeetings(recentRows.slice(0, 2)));
+  if (sectionOn('calendar')) parts.push(calendarGrid(allRows, today));
   parts.push(bulletinFooter(today));
 
   const el = document.getElementById('bulletin');
@@ -588,14 +621,60 @@ function renderNewsletter(allRows) {
   el.style.display = 'block';
 }
 
+// ── Section chooser ───────────────────────────────────────────────────────
+// A viewer preference (per browser) for which sections to show. Looking Ahead
+// and Recent Meetings are off by default; the choice persists in localStorage.
+const SECTIONS = [
+  { key: 'important',     label: 'Important' },
+  { key: 'coming-up',     label: 'Meetings Coming Up' },
+  { key: 'club-events',   label: 'Club Events & Socials' },
+  { key: 'looking-ahead', label: 'Looking Ahead' },
+  { key: 'announcements', label: 'Announcements' },
+  { key: 'recent',        label: 'Recent Meetings' },
+  { key: 'calendar',      label: 'Calendar' },
+];
+const SECTION_DEFAULT_HIDDEN = ['looking-ahead', 'recent'];
+const SECTION_KEY = 'newsletterHiddenSections';
+
+let hiddenSections = (function () {
+  try {
+    const v = JSON.parse(localStorage.getItem(SECTION_KEY) || 'null');
+    if (Array.isArray(v)) return v;
+  } catch (e) {}
+  return SECTION_DEFAULT_HIDDEN.slice();
+})();
+let allRowsCache = null;
+
+const sectionOn = key => hiddenSections.indexOf(key) === -1;
+function saveHiddenSections() {
+  try { localStorage.setItem(SECTION_KEY, JSON.stringify(hiddenSections)); } catch (e) {}
+}
+function toggleSection(key) {
+  const i = hiddenSections.indexOf(key);
+  if (i === -1) hiddenSections.push(key); else hiddenSections.splice(i, 1);
+  saveHiddenSections();
+  if (allRowsCache) renderNewsletter(allRowsCache);
+}
+function buildSectionMenu() {
+  const list = document.getElementById('sec-menu-list');
+  list.innerHTML = SECTIONS.map(s =>
+    `<label><input type="checkbox" data-key="${s.key}"${sectionOn(s.key) ? ' checked' : ''}> ${esc(s.label)}</label>`
+  ).join('');
+  list.querySelectorAll('input[data-key]').forEach(cb => {
+    cb.addEventListener('change', () => toggleSection(cb.getAttribute('data-key')));
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   fetch(CSV_URL)
     .then(r => r.text())
     .then(text => {
-      const rows = parseCSV(text).slice(1)
+      allRowsCache = parseCSV(text).slice(1)
         .filter(r => r.length > COL.time)
         .filter(r => !isHiddenFromNewsletter(r));
-      renderNewsletter(rows);
+      buildSectionMenu();
+      document.getElementById('section-controls').style.display = 'block';
+      renderNewsletter(allRowsCache);
     })
     .catch(() => {
       document.getElementById('bulletin-loading').textContent =
