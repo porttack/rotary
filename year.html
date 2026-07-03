@@ -93,6 +93,7 @@ permalink: /year/
     <span class="leg-item"><span class="leg-swatch" style="background:#d1d5db"></span>Other</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#e5e7eb"></span>Cancelled</span>
     <span class="leg-item"><span class="leg-swatch-split"></span>Two events</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:linear-gradient(to bottom,#86efac 45%,#fff 45%)"></span>Multi-day</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#e2e8f0; box-shadow:inset 0 2px 0 rgba(0,0,0,0.35)"></span>Morning</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#e2e8f0; box-shadow:inset 0 -2px 0 rgba(0,0,0,0.35)"></span>Evening</span>
     <span class="leg-item"><span class="leg-swatch" style="outline:2px solid #dc2626; outline-offset:-1px; font-weight:bold"></span>Today</span>
@@ -114,7 +115,7 @@ permalink: /year/
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
 
-const COL = { eventType: 1, cancelled: 2, date: 4, time: 5, location: 7, openingSpeaker: 10, mainSpeaker: 11, mainTopic: 12, summary: 14 };
+const COL = { eventType: 1, cancelled: 2, date: 4, time: 5, duration: 6, location: 7, openingSpeaker: 10, mainSpeaker: 11, mainTopic: 12, summary: 14 };
 
 // Map raw event type string → canonical key
 function canonicalType(raw) {
@@ -210,6 +211,36 @@ function timeHour(raw) {
   return null;
 }
 
+// ── Multi-day events ───────────────────────────────────────────
+// A row's span is derived from its start date/time + Duration (minutes):
+// end = start + duration; the event covers every calendar day it touches.
+// Blank/short durations stay single-day (the overwhelming majority).
+function isoAddDays(iso, n) {
+  const p = iso.split('-');
+  const d = new Date(+p[0], +p[1] - 1, +p[2]);
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function spanDayCount(iso, hour, durationMin) {
+  if (!durationMin || durationMin <= 0) return 1;
+  const p = iso.split('-');
+  const start  = new Date(+p[0], +p[1] - 1, +p[2], hour == null ? 0 : hour);
+  const endInc = new Date(start.getTime() + durationMin * 60000 - 1); // -1ms: end at midnight stays same day
+  const sd = new Date(+p[0], +p[1] - 1, +p[2]);
+  const ed = new Date(endInc.getFullYear(), endInc.getMonth(), endInc.getDate());
+  return Math.round((ed - sd) / 86400000) + 1;
+}
+// Short human range for the tooltip: "Mar 15–17" or "Mar 30 – Apr 2".
+function fmtRange(aIso, bIso) {
+  const pa = aIso.split('-'), pb = bIso.split('-');
+  const da = new Date(+pa[0], +pa[1] - 1, +pa[2]);
+  const db = new Date(+pb[0], +pb[1] - 1, +pb[2]);
+  const mo = d => d.toLocaleDateString('en-US', { month: 'short' });
+  return (pa[0] === pb[0] && pa[1] === pb[1])
+    ? `${mo(da)} ${+pa[2]}–${+pb[2]}`
+    : `${mo(da)} ${+pa[2]} – ${mo(db)} ${+pb[2]}`;
+}
+
 // Returns inline box-shadow CSS for a cell based on time-of-day.
 // Uses inset box-shadow instead of border so border-collapse: collapse
 // can't suppress it (collapsed borders obey document-order priority,
@@ -239,7 +270,9 @@ function loadYear() {
     .then(text => {
       const rows = parseCSV(text).slice(1).filter(r => r.length > COL.date);
 
-      // Collect events by date
+      // Collect events by date. Multi-day events (start + Duration crossing a
+      // calendar-day boundary) are expanded into one entry per day they touch,
+      // tagged so the grid can draw them as a top banner band.
       const evsByDate = {};
       rows.forEach(row => {
         const iso = fv(row, COL.date);
@@ -248,8 +281,9 @@ function loadYear() {
         if (type === 'message') return;   // dateless newsletter announcement, not a grid event
         const cancelled = fv(row, COL.cancelled).toUpperCase() === 'TRUE';
         const hour      = timeHour(fv(row, COL.time));
-        if (!evsByDate[iso]) evsByDate[iso] = [];
-        evsByDate[iso].push({
+        const duration  = parseInt(fv(row, COL.duration), 10) || 0;
+        const nDays     = spanDayCount(iso, hour, duration);
+        const base = {
           type,
           rawType:        fv(row, COL.eventType),
           cancelled,
@@ -260,7 +294,21 @@ function loadYear() {
           mainSpeaker:    fv(row, COL.mainSpeaker),
           mainTopic:      fv(row, COL.mainTopic),
           summary:        fv(row, COL.summary),
-        });
+        };
+        if (nDays <= 1) {
+          (evsByDate[iso] = evsByDate[iso] || []).push(base);
+          return;
+        }
+        const spanEnd = isoAddDays(iso, nDays - 1);
+        for (let k = 0; k < nDays; k++) {
+          const dayIso = isoAddDays(iso, k);
+          (evsByDate[dayIso] = evsByDate[dayIso] || []).push(Object.assign({}, base, {
+            multiday:  true,
+            spanStart: iso,
+            spanEnd,
+            hour: k === 0 ? hour : null, // time-of-day only means something on day 1
+          }));
+        }
       });
 
       // For each date, produce up to 2 distinct active types (sorted by priority),
@@ -280,34 +328,47 @@ function loadYear() {
             topic:          e.mainTopic,
             location:       e.location,
             summary:        e.summary,
+            multiday:       !!e.multiday,
+            spanLabel:      e.multiday ? fmtRange(e.spanStart, e.spanEnd) : '',
             isCancelled,
           };
         }
         function byTime(arr) {
           return [...arr].sort((a, b) => (a.hour ?? 99) - (b.hour ?? 99));
         }
+        function distinctTypes(arr, max) {
+          const seen = new Set(), out = [];
+          [...arr]
+            .sort((a, b) => (TYPE_PRIORITY[a.type] ?? 99) - (TYPE_PRIORITY[b.type] ?? 99))
+            .forEach(e => { if (!seen.has(e.type) && out.length < max) { seen.add(e.type); out.push(e.type); } });
+          return out;
+        }
 
         if (active.length === 0) {
           dayInfo[iso] = {
-            types: [], allCancelled: true,
+            bandType: null, fillTypes: [], allCancelled: true,
             details: byTime(cancelled).map(e => makeDet(e, true)),
           };
           return;
         }
-        const seen = new Set();
-        const sorted = active
-          .sort((a, b) => (TYPE_PRIORITY[a.type] ?? 99) - (TYPE_PRIORITY[b.type] ?? 99));
-        const types = [];
-        for (const e of sorted) {
-          if (!seen.has(e.type)) { seen.add(e.type); types.push(e.type); }
-          if (types.length === 2) break;
-        }
-        const hours = active.map(e => e.hour).filter(h => h !== null);
+
+        // Multi-day events become the top "banner" band; single-day events fill
+        // the cell (or its lower part when a banner is present).
+        const banners = active.filter(e =>  e.multiday);
+        const singles = active.filter(e => !e.multiday);
+        const bandType  = banners.length ? distinctTypes(banners, 1)[0] : null;
+        const fillTypes = distinctTypes(singles, 2);
+
+        // Morning/evening stripe: only meaningful for single-day events, and
+        // suppressed entirely on banner days (the band already owns the top).
         let timeOfDay = null;
-        if (hours.length) {
-          const hasAM = hours.some(h => h < 12);
-          const hasPM = hours.some(h => h >= 12);
-          timeOfDay = (hasAM && hasPM) ? 'both' : hasAM ? 'am' : 'pm';
+        if (!bandType) {
+          const hours = singles.map(e => e.hour).filter(h => h !== null);
+          if (hours.length) {
+            const hasAM = hours.some(h => h < 12);
+            const hasPM = hours.some(h => h >= 12);
+            timeOfDay = (hasAM && hasPM) ? 'both' : hasAM ? 'am' : 'pm';
+          }
         }
         // A day "has a speaker" when an active meeting that day names a main
         // speaker — used to bold the date so booked meetings stand out.
@@ -317,7 +378,7 @@ function loadYear() {
           ...byTime(active).map(e => makeDet(e, false)),
           ...byTime(cancelled).map(e => makeDet(e, true)),
         ];
-        dayInfo[iso] = { types, allCancelled: false, timeOfDay, hasSpeaker, details };
+        dayInfo[iso] = { bandType, fillTypes, allCancelled: false, timeOfDay, hasSpeaker, details };
       });
 
       window._yearTipData = dayInfo;
@@ -357,16 +418,24 @@ function loadYear() {
                 html += `<td${tCls ? ' class="today"' : ''}>${dayNum}</td>`;
               } else if (info.allCancelled) {
                 html += `<td class="ev-cancelled${tCls}" data-date="${key}">${dayNum}</td>`;
-              } else if (info.types.length === 1) {
-                const bg  = TYPE_COLOR[info.types[0]] || '#f3f4f6';
-                const bdr = borderStyle(info.timeOfDay);
-                html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${bg};${bdr}">${dn}</td>`;
               } else {
-                const c1   = TYPE_COLOR[info.types[0]] || '#f3f4f6';
-                const c2   = TYPE_COLOR[info.types[1]] || '#f3f4f6';
-                const grad = `linear-gradient(135deg,${c1} 50%,${c2} 50%)`;
-                const bdr  = borderStyle(info.timeOfDay);
-                html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${grad};${bdr}">${dn}</td>`;
+                const bdr   = borderStyle(info.timeOfDay);
+                const band  = info.bandType ? (TYPE_COLOR[info.bandType] || '#f3f4f6') : null;
+                const fills = info.fillTypes;
+                let bg;
+                if (band) {
+                  // Multi-day banner: color the top 45%, then white — or, if a
+                  // single-day event shares the day, that event's color below.
+                  const below = fills.length ? (TYPE_COLOR[fills[0]] || '#f3f4f6') : '#fff';
+                  bg = `linear-gradient(to bottom,${band} 45%,${below} 45%)`;
+                } else if (fills.length === 1) {
+                  bg = TYPE_COLOR[fills[0]] || '#f3f4f6';
+                } else {
+                  const c1 = TYPE_COLOR[fills[0]] || '#f3f4f6';
+                  const c2 = TYPE_COLOR[fills[1]] || '#f3f4f6';
+                  bg = `linear-gradient(135deg,${c1} 50%,${c2} 50%)`;
+                }
+                html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${bg};${bdr}">${dn}</td>`;
               }
             }
           }
@@ -424,6 +493,7 @@ document.addEventListener('DOMContentLoaded', function () {
       }
       if (ev.timeStr)        h += '<div class="tip-time">'    + esc(ev.timeStr)        + '</div>';
       if (ev.rawType)        h += '<div class="tip-type">'    + esc(ev.rawType)        + '</div>';
+      if (ev.multiday && ev.spanLabel) h += '<div class="tip-field">📆 ' + esc(ev.spanLabel) + ' <span style="color:#888">multi-day</span></div>';
       if (ev.openingSpeaker) h += '<div class="tip-field">🎙️ ' + esc(ev.openingSpeaker) + '</div>';
       if (ev.speaker)        h += '<div class="tip-field">🎤 ' + esc(ev.speaker)        + '</div>';
       if (ev.topic)          h += '<div class="tip-field">📋 ' + esc(ev.topic)          + '</div>';
