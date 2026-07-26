@@ -10,6 +10,7 @@ const COL = {
   photoTop:15, photoBottom:16, mc:17, setupTeardown:18, avZoom:19, greeter:20,
   fourWayTest:21, thought:22, detective:23, bagPerson:24, comments:25,
   photoTopUrl:28, photoBottomUrl:29,
+  introducer:30,        // AE - who introduces the speaker
   excludeNewsletter:33, // AH - checkbox: hide this event from the newsletter
   important:34,         // AI - checkbox: feature in the newsletter's "Important" section
 };
@@ -156,6 +157,30 @@ function mapLink(location, displayText) {
   return `<a href="${url}" target="_blank" rel="noopener">${esc(displayText || location)}</a>`;
 }
 
+// Google + Apple Maps deep-link URLs for a venue string. Kept as two separate
+// links (rather than one "smart" link) since there's no reliable way to detect
+// which app the visitor prefers from a plain <a href>.
+function mapUrls(location) {
+  const q = encodeURIComponent(location);
+  return {
+    google: `https://maps.google.com/?q=${q}`,
+    apple:  `https://maps.apple.com/?q=${q}`,
+  };
+}
+
+// The shareable, no-login detail-page URL for one event row. Keyed by
+// date + type (+ time, when present, to disambiguate same-day/same-type rows)
+// rather than a database id, since freshly-added rows (and Holiday/Message
+// rows, which are never pushed to Calendar) don't reliably have one.
+function eventDetailUrl(row) {
+  const type = fv(row, COL.eventType);
+  const date = normDateStr(fv(row, COL.date));
+  const time = fv(row, COL.time);
+  let u = '/event/?date=' + encodeURIComponent(date) + '&type=' + encodeURIComponent(type);
+  if (time) u += '&time=' + encodeURIComponent(time);
+  return u;
+}
+
 function linkWrap(text, url) {
   if (!url) return esc(text);
   return `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>`;
@@ -192,7 +217,7 @@ function renderMeetingEntry(row) {
   if (topic)   label += (speaker ? ' &mdash; ' : ': ') + esc(topic);
 
   let html = `<div class="event-block">
-  <h3 class="event-heading past">${label}</h3>`;
+  <h3 class="event-heading past">${label} <a href="${eventDetailUrl(row)}" style="font-size:0.6em;font-weight:normal;white-space:nowrap">Details &rarr;</a></h3>`;
   if (photoTop) {
     html += `\n  <img src="${esc(photoTop)}" alt="${esc(speaker||topic||'')}" class="event-photo" loading="lazy" onerror="this.style.display='none'">`;
   }

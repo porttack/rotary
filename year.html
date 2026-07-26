@@ -67,6 +67,10 @@ permalink: /year/
     font-family: Arial, sans-serif; font-size: 0.8em; line-height: 1.5;
     pointer-events: none; color: #222;
   }
+  /* Pinned (tap/click) state: allow interacting with the "View details" link.
+     Hover-following state stays pointer-events:none so the tooltip never
+     steals the mouseout that would otherwise close it. */
+  #year-tip.pinned { pointer-events: auto; }
   #year-tip .tip-time    { font-weight: bold; color: #17458F; }
   #year-tip .tip-type    { font-style: italic; color: #444; }
   #year-tip .tip-field   { margin-top: 0.15em; }
@@ -203,6 +207,13 @@ function parseCSV(text) {
 function fv(row, idx) { return (row[idx] || '').trim(); }
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+// Link to the shareable, no-login event detail page (see event.html).
+function yearEventLink(date, rawType, timeStr) {
+  let u = '/event/?date=' + encodeURIComponent(date) + '&type=' + encodeURIComponent(rawType);
+  if (timeStr) u += '&time=' + encodeURIComponent(timeStr);
+  return u;
+}
+
 // Parse time string → hour 0-23, or null if unparseable.
 // Handles "H:MM AM/PM", "H:MM:SS AM/PM" (Google Sheets may include seconds),
 // and bare 24-hour "H:MM" / "H:MM:SS".
@@ -331,6 +342,7 @@ function loadYear() {
 
         function makeDet(e, isCancelled) {
           return {
+            date:           e.multiday ? e.spanStart : iso,
             timeStr:        e.timeStr,
             rawType:        e.rawType,
             openingSpeaker: e.openingSpeaker,
@@ -518,6 +530,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const s = ev.summary.length > 220 ? ev.summary.slice(0, 220) + '…' : ev.summary;
         h += '<div class="tip-summary">' + esc(s) + '</div>';
       }
+      if (ev.date && ev.rawType) {
+        h += '<div class="tip-field"><a href="' + yearEventLink(ev.date, ev.rawType, ev.timeStr) +
+          '" style="font-size:0.92em">View details &rarr;</a></div>';
+      }
       if (ev.isCancelled) h += '</div>';
       return h;
     }).join('');
@@ -588,13 +604,15 @@ document.addEventListener('DOMContentLoaded', function () {
       if (td === pinned) {
         // Second tap on same cell → dismiss
         tip.style.display = 'none';
+        tip.classList.remove('pinned');
         pinned = null;
       } else {
-        if (showForCell(td)) { pinned = td; cur = null; placeNearEl(td); }
+        if (showForCell(td)) { pinned = td; cur = null; placeNearEl(td); tip.classList.add('pinned'); }
       }
       e.stopPropagation();
     } else if (pinned) {
       tip.style.display = 'none';
+      tip.classList.remove('pinned');
       pinned = null;
     }
   });

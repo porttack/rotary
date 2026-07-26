@@ -1,0 +1,268 @@
+---
+layout: page
+title: Event Details
+permalink: /event/
+---
+
+<style>
+  #card-wrap { max-width: 620px; margin: 0 auto; font-family: Arial, sans-serif; color: #222; }
+  #status { text-align: center; padding: 2.5em 1em; color: #666; }
+  #status a { color: #1a56db; }
+
+  .ev-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 1.4em 1.6em 1.6em; box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+  }
+  .ev-type-badge {
+    display: inline-block; font-size: 0.75em; font-weight: bold;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: #374151; border-radius: 10px; padding: 2px 10px; margin-bottom: 0.6em;
+  }
+  .ev-cancelled-badge {
+    display: inline-block; font-size: 0.78em; font-weight: bold;
+    color: #b91c1c; background: #fee2e2; border-radius: 10px;
+    padding: 2px 10px; margin: 0 0 0.6em 0.4em;
+  }
+  .ev-title { color: #17458F; font-size: 1.5em; margin: 0 0 0.15em; line-height: 1.3; }
+  .ev-when { color: #444; font-size: 1em; margin: 0 0 0.9em; }
+  .ev-when .dow { color: #17458F; font-weight: bold; }
+
+  .ev-section { margin-top: 1.1em; }
+  .ev-label {
+    font-size: 0.75em; font-weight: bold; text-transform: uppercase;
+    letter-spacing: 0.05em; color: #64748b; margin-bottom: 0.25em;
+  }
+  .ev-field { font-size: 0.98em; margin: 0.1em 0; }
+
+  .ev-map-btns { display: flex; gap: 0.6em; margin-top: 0.4em; flex-wrap: wrap; }
+  .ev-map-btn {
+    display: inline-flex; align-items: center; gap: 0.35em;
+    font-size: 0.85em; color: #17458F; text-decoration: none;
+    border: 1px solid #c5cae9; background: #f5f7fc; border-radius: 6px;
+    padding: 5px 11px;
+  }
+  .ev-map-btn:hover { background: #e8eef9; }
+
+  .ev-narrative { margin: 0.4em 0; line-height: 1.55; font-size: 0.98em; }
+  .ev-photo {
+    display: block; max-width: 100%; height: auto; margin: 0.7em 0;
+    border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  }
+  .ev-link-btn {
+    display: inline-block; margin-top: 0.3em; font-size: 0.9em;
+    color: #fff; background: #17458F; text-decoration: none;
+    border-radius: 6px; padding: 7px 14px;
+  }
+  .ev-link-btn:hover { background: #1a56db; }
+  .ev-link-btn.secondary { background: #f4f4f4; color: #333; border: 1px solid #ccc; }
+  .ev-link-btn.secondary:hover { background: #e8e8e8; }
+
+  .duty-table { border-collapse: collapse; font-size: 0.92em; margin-top: 0.2em; }
+  .duty-table td { padding: 0.15em 1.2em 0.15em 0; vertical-align: top; }
+  .duty-table td:first-child { font-weight: bold; color: #17458F; white-space: nowrap; }
+
+  #actions { display: flex; flex-wrap: wrap; gap: 0.6em; margin-top: 1.3em; }
+  #copy-msg { font-size: 0.85em; color: #166534; margin-left: 0.3em; }
+
+  #nav-back { text-align: center; margin-top: 1.4em; font-size: 0.85em; }
+  #nav-back a { color: #888; margin: 0 0.6em; text-decoration: none; }
+  #nav-back a:hover { color: #1a56db; }
+
+  @media (max-width: 500px) {
+    .ev-card { padding: 1.1em 1.1em 1.3em; }
+    .ev-title { font-size: 1.3em; }
+  }
+</style>
+
+<div id="card-wrap">
+  <p id="status">Loading&hellip;</p>
+  <div id="card" style="display:none"></div>
+  <div id="nav-back">
+    <a href="/calendar/">Calendar</a>&middot;<a href="/year/">Year View</a>&middot;<a href="/newsletter/">Newsletter</a>
+  </div>
+</div>
+
+<script src="{{ '/assets/js/rotary-common.js' | relative_url }}"></script>
+<script>
+// Exact-string type colors (the sheet's dropdown values), matching
+// TYPE_COLOR in year.html / GRID_BG in RotaryCalendarSync.gs.
+const TYPE_COLOR = {
+  'Meeting': '#c7d8f7', 'Assembly': '#a5f3fc', 'Board Meeting': '#93c5fd',
+  'Social': '#fde68a', 'Service': '#fdba74', 'Grey Bears': '#fde8d0',
+  'Fundraiser': '#e9d5ff', 'District Event': '#86efac', 'Committee': '#fce7f3',
+  'Holiday': '#fca5a5', 'Message': '#fed7aa', 'Other': '#d1d5db',
+};
+const MEETING_TYPES = ['Meeting', 'Assembly', 'Board Meeting'];
+
+const ROLE_FIELDS = [
+  { key: 'mc',            label: 'MC'             },
+  { key: 'setupTeardown', label: 'Setup/Teardown' },
+  { key: 'avZoom',        label: 'AV/Zoom'        },
+  { key: 'greeter',       label: 'Greeter'        },
+  { key: 'fourWayTest',   label: '4-Way-Test'     },
+  { key: 'thought',       label: 'Thought'        },
+  { key: 'detective',     label: 'Detective'      },
+  { key: 'bagPerson',     label: 'Bag Person'     },
+];
+
+// Same call-to-action heuristic newsletter.html uses for the info/signup link.
+function linkLabel(url) {
+  const u = String(url || '').toLowerCase();
+  if (/eventbrite|tickets?|ticketing|brownpaper/.test(u))                    return 'Buy Tickets';
+  if (/rsvp/.test(u))                                                        return 'RSVP';
+  if (/signupgenius|sign[-_]?up|volunteer/.test(u))                          return 'Sign Up';
+  if (/forms\.gle|docs\.google\.com\/forms|google\.com\/forms|forms\.office/.test(u)) return 'Sign Up';
+  if (/donate|givebutter|gofundme|fundraise/.test(u))                        return 'Donate';
+  return 'More Info';
+}
+
+function showStatus(html) {
+  document.getElementById('status').innerHTML = html;
+  document.getElementById('status').style.display = 'block';
+  document.getElementById('card').style.display = 'none';
+}
+
+function render(row) {
+  const type       = fv(row, COL.eventType) || 'Other';
+  const isMessage  = type === 'Message';
+  const isMeeting  = MEETING_TYPES.indexOf(type) !== -1;
+  const cancelled  = isCancelled(row);
+  const speaker    = fv(row, COL.mainSpeaker);
+  const topic      = fv(row, COL.mainTopic);
+  const opening    = fv(row, COL.openingSpeaker);
+  const organizer  = fv(row, COL.speakerOrganizer);
+  const introducer = fv(row, COL.introducer);
+  const location   = fv(row, COL.location);
+  const summary    = fv(row, COL.summary);
+  const url        = fv(row, COL.speakerUrl);
+  const meetLink   = fv(row, COL.meetLink);
+  const photoTop    = photoSrc(row, COL.photoTop,    COL.photoTopUrl);
+  const photoBottom = photoSrc(row, COL.photoBottom, COL.photoBottomUrl);
+  const timeStr    = fv(row, COL.time);
+
+  // Title: meetings lead with speaker/topic; everything else leads with its
+  // own name (Main Topic — the repurposed "Event Name" field); messages lead
+  // with their headline. Falls back to the event type when nothing else fits.
+  let title;
+  if (isMeeting) {
+    title = (speaker && topic) ? `${esc(speaker)}: ${esc(topic)}`
+      : speaker ? esc(speaker) : topic ? esc(topic) : `${esc(type)} &mdash; Speaker TBD`;
+  } else {
+    title = esc(topic || type);
+  }
+
+  let html = '<div class="ev-card">';
+  html += `<span class="ev-type-badge" style="background:${TYPE_COLOR[type] || '#d1d5db'}">${esc(type)}</span>`;
+  if (cancelled) html += '<span class="ev-cancelled-badge">&#x274C; Cancelled</span>';
+  html += `<h1 class="ev-title">${title}</h1>`;
+
+  // When line: messages are dateless ("show until"); everything else has a
+  // real date/time.
+  const d = parseRowDate(row);
+  if (isMessage) {
+    html += `<div class="ev-when">Showing on the site through <strong>${d ? esc(fmtLong(d)) : esc(fv(row, COL.date))}</strong></div>`;
+  } else if (d) {
+    html += `<div class="ev-when"><span class="dow">${esc(fmtLong(d))}</span>${timeStr ? ' at ' + esc(timeStr) : ''}</div>`;
+  }
+
+  // Location + map buttons
+  if (location && !isMessage) {
+    const urls = mapUrls(location);
+    html += `<div class="ev-section"><div class="ev-label">Location</div><div class="ev-field">${esc(location)}</div>
+      <div class="ev-map-btns">
+        <a class="ev-map-btn" href="${urls.google}" target="_blank" rel="noopener">&#128506;&#65039; Google Maps</a>
+        <a class="ev-map-btn" href="${urls.apple}" target="_blank" rel="noopener">&#128205; Apple Maps</a>
+      </div></div>`;
+  }
+
+  // Who's in charge
+  const whoRows = [];
+  if (isMeeting && introducer) whoRows.push(['Introducer', introducer]);
+  if (organizer) whoRows.push([isMeeting ? 'Speaker Organizer' : 'Organizer', organizer]);
+  if (isMeeting && opening) whoRows.push(['Opening', opening]);
+  if (!isMeeting && speaker) whoRows.push(['Speaker', speaker]);
+  if (whoRows.length) {
+    html += '<div class="ev-section"><div class="ev-label">Who’s Involved</div>';
+    whoRows.forEach(([label, name]) => { html += `<div class="ev-field"><strong>${esc(label)}:</strong> ${esc(name)}</div>`; });
+    html += '</div>';
+  }
+
+  if (photoTop) html += `<img src="${esc(photoTop)}" alt="" class="ev-photo" loading="lazy" onerror="this.style.display='none'">`;
+
+  if (summary) html += `<div class="ev-section ev-narrative">${textToHtml(summary)}</div>`;
+
+  if (photoBottom) html += `<img src="${esc(photoBottom)}" alt="" class="ev-photo" loading="lazy" onerror="this.style.display='none'">`;
+
+  const links = [];
+  if (meetLink) links.push(`<a class="ev-link-btn" href="${esc(meetLink)}" target="_blank" rel="noopener">Join via Google Meet</a>`);
+  if (url) links.push(`<a class="ev-link-btn secondary" href="${esc(url)}" target="_blank" rel="noopener">${esc(linkLabel(url))} &rarr;</a>`);
+  if (links.length) html += `<div class="ev-section">${links.join(' ')}</div>`;
+
+  // Duty roster: only the roles that are actually filled in.
+  const filledDuties = ROLE_FIELDS.filter(rf => fv(row, COL[rf.key]));
+  if (filledDuties.length) {
+    html += '<div class="ev-section"><div class="ev-label">Meeting Duties</div><table class="duty-table">' +
+      filledDuties.map(rf => `<tr><td>${esc(rf.label)}</td><td>${esc(fv(row, COL[rf.key]))}</td></tr>`).join('') +
+      '</table></div>';
+  }
+
+  html += '</div>';
+
+  html += `<div id="actions">
+    <button class="ev-link-btn secondary" onclick="copyLink(this)" style="cursor:pointer;border:none;font:inherit">&#128279; Copy Link</button>
+  </div>`;
+
+  document.getElementById('card').innerHTML = html;
+  document.getElementById('status').style.display = 'none';
+  document.getElementById('card').style.display = 'block';
+
+  const pageTitle = isMeeting ? (speaker || topic || type) : (topic || type);
+  document.title = pageTitle + ' — SLV Rotary';
+}
+
+function copyLink(btn) {
+  const url = window.location.href;
+  const done = (ok) => {
+    const old = btn.textContent;
+    btn.textContent = ok ? 'Copied ✓' : 'Could not copy — select from the address bar';
+    setTimeout(() => { btn.textContent = old; }, 2200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => done(true)).catch(() => done(false));
+  } else {
+    done(false);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  const params = new URLSearchParams(window.location.search);
+  const wantDate = normDateStr(params.get('date') || '');
+  const wantType = params.get('type') || '';
+  const wantTime = params.get('time') || '';
+
+  if (!wantDate || !wantType) {
+    showStatus('Missing event info in the link. <a href="/calendar/">Browse the calendar</a> instead.');
+    return;
+  }
+
+  fetch(CSV_URL + '&t=' + Date.now())
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then(text => {
+      const rows = parseCSV(text).slice(1).filter(r => r.length > COL.time);
+      let candidates = rows.filter(row =>
+        normDateStr(fv(row, COL.date)) === wantDate && fv(row, COL.eventType) === wantType);
+      if (wantTime) {
+        const timeMatch = candidates.filter(row => fv(row, COL.time) === wantTime);
+        if (timeMatch.length) candidates = timeMatch;
+      }
+      if (!candidates.length) {
+        showStatus('That event could not be found — it may have been moved, cancelled, or the link is out of date. <a href="/calendar/">Browse the calendar</a> instead.');
+        return;
+      }
+      render(candidates[0]);
+    })
+    .catch(() => {
+      showStatus('Could not load event data. <a href="/calendar/">Browse the calendar</a> instead.');
+    });
+});
+</script>

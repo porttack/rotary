@@ -305,6 +305,7 @@ function comingUpBlock(row) {
 
   let metaParts = [`${esc(fmtLong(d))}${timeStr ? ' at ' + esc(timeStr) : ''}`];
   if (location) metaParts.push(mapLink(location));
+  metaParts.push(`<a href="${eventDetailUrl(row)}">Details</a>`);
   const meta = metaParts.join(' &nbsp;&middot;&nbsp; ');
 
   let html = `<div class="event-block">
@@ -385,6 +386,7 @@ function clubEventBlock(row) {
     `${esc(fmtLong(d))}${timeStr ? ' at ' + esc(timeStr) : ''}`,
   ];
   if (location) metaParts.push(mapLink(location));
+  metaParts.push(`<a href="${eventDetailUrl(row)}">Details</a>`);
   const meta = metaParts.join(' &nbsp;&middot;&nbsp; ');
 
   let html = `<div class="event-block">
@@ -458,8 +460,9 @@ function lookingAhead(rows) {
     const venue = (location && !cancelled)
       ? ` <span class="skim-venue">&nbsp;&#x1F4CD; ${mapLink(location, location.split(',')[0].trim())}</span>`
       : '';
+    const details = ` <span class="skim-venue">&nbsp;<a href="${eventDetailUrl(row)}">Details</a></span>`;
 
-    inner += `<li class="skim-item${cancelled ? ' cancelled' : ''}">${line}${venue}</li>`;
+    inner += `<li class="skim-item${cancelled ? ' cancelled' : ''}">${line}${venue}${details}</li>`;
   });
 
   if (openList) inner += '</ul></div>';

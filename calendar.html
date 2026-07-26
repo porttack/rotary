@@ -153,12 +153,18 @@ function rowToEvent(row) {
   if (speaker) title += ` (${speaker})`;
   if (cancelled) title = `[CANCELLED] ${title}`;
 
+  // Clicking an event opens its shareable, no-login detail page (see
+  // event.html) rather than jumping straight to a Meet/speaker link — that
+  // page shows the Meet link, duties, and a map as its own actions.
+  let detailUrl = `/event/?date=${encodeURIComponent(dateStr)}&type=${encodeURIComponent(eventType)}`;
+  if (timeStr) detailUrl += `&time=${encodeURIComponent(timeStr)}`;
+
   return {
     id:        f(row, COL.eventId),
     title,
     start:     start.toISOString(),
     end:       end.toISOString(),
-    url:       f(row, COL.meetLink) || f(row, COL.speakerUrl) || undefined,
+    url:       detailUrl,
     color:     cancelled ? '#999' : '#17458F',
     classNames: cancelled ? ['cancelled'] : [],
     extendedProps: {
@@ -201,12 +207,6 @@ document.addEventListener('DOMContentLoaded', function () {
         initialView:   'dayGridMonth',
         headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,listMonth' },
         events,
-        eventClick(info) {
-          if (info.event.url) {
-            info.jsEvent.preventDefault();
-            window.open(info.event.url, '_blank');
-          }
-        },
         eventDidMount(info) {
           const p = info.event.extendedProps;
           const parts = [p.eventType, p.location, p.topic, p.summary].filter(Boolean);

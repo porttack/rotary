@@ -46,6 +46,7 @@ zero CI pipeline.
 | `year.html` | Mini year-at-a-glance grid (reads Sheet CSV) |
 | `newsletter.html` | Auto-rendered bulletin (reads Sheet CSV) |
 | `past.html` | Past events view |
+| `event.html` | Shareable, no-login single-event detail page (reads Sheet CSV) |
 | `duty.md` | Link/redirect to Duty Editor web app |
 | `speak.md` | Link to Google Form: offer to speak |
 | `request.md` | Link to Google Form: request a speaker |
@@ -145,6 +146,49 @@ The **border stripe** on year view cells signals time of day:
 
 Uses `box-shadow: inset` (not `border-top/bottom`) to avoid CSS
 `border-collapse` conflict resolution suppressing AM stripes in rows 2+.
+
+---
+
+## Event Detail Page
+
+`event.html` (`/event/`) is a shareable, no-login page for a single event —
+"tell someone about this specific thing" without handing them an Apps Script
+URL or asking them to hunt through the calendar. Reads the same published CSV
+as `year.html`/`calendar.html`/`newsletter.html` via
+`assets/js/rotary-common.js`, client-side, no auth.
+
+**Identity / URL scheme:** `/event/?date=YYYY-MM-DD&type=<Event Type>&time=<Time>`
+(`eventDetailUrl(row)` in `rotary-common.js` builds this). Deliberately **not**
+keyed by the hidden `Event ID` column — that's the Google Calendar sync ID,
+absent on any row that hasn't been pushed yet, and permanently absent on
+Holiday/Message rows (never pushed). Date + Event Type is usually unique on
+its own; `time` is included whenever the caller has it and only used to
+break a tie. Because it's just row content, the link stays valid even after a
+sheet re-sort (unlike a row-index-based link would).
+
+**Renders (only when present in the data):** type badge + cancelled badge,
+title (meetings: `Speaker: Topic`; other types: Main Topic; falls back to the
+event type), date/time (Messages show their "show until" date instead),
+location with **separate Google Maps and Apple Maps buttons** (`mapUrls()` in
+`rotary-common.js` — two links rather than one "smart" link, since there's no
+reliable way to detect which map app a visitor prefers from a plain `<a>`),
+Organizer/Introducer/Opening Speaker ("who's involved"), narrative
+(`textToHtml`), top/bottom photos, a Google Meet join button, the
+info/signup link, and a duty-roster table showing **only the roles that are
+actually filled in** (no TBD clutter — this is a public link, not the
+internal roster view). A "Copy Link" button copies `window.location.href`.
+
+**Linked from:** `year.html` tooltips ("View details →" per event; the
+tooltip's `#year-tip` is `pointer-events:none` while hover-following but gets
+a `.pinned` class with `pointer-events:auto` when tapped/clicked open, so the
+link is actually clickable on the pinned state), `calendar.html` (every
+FullCalendar event's `url` now points here — clicking an event opens the
+detail page instead of jumping straight to a Meet/speaker link; the detail
+page itself surfaces that link), and `newsletter.html` (a "Details" link in
+the Coming Up / Club Events meta line and the Looking Ahead skim list).
+`renderMeetingEntry()` in `rotary-common.js` also gained a "Details →" link,
+which flows through to both `newsletter.html`'s Recent Meetings section and
+`past.html` for free since they share that renderer.
 
 ---
 
