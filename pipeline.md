@@ -14,7 +14,7 @@ permalink: /pipeline/
   .section-label { font-size: 0.82em; font-weight: bold; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin: 1.5em 0 0.5em; }
 </style>
 
-<p style="color:#555;max-width:640px">Password-protected tools for SLV Rotary members.
+<p style="color:#555;max-width:640px">Tools for SLV Rotary members (most password-protected).
 Share this URL with your team.</p>
 
 <div class="section-label">Calendar Tools</div>
@@ -36,6 +36,12 @@ Share this URL with your team.</p>
   <div class="tool-badge">🤖 AI</div>
   <h2>Calendar Assistant</h2>
   <p>AI chat interface for adding, updating, or cancelling calendar events in natural language.</p>
+</a>
+
+<a class="tool-card" href="{{ site.apps_script_url }}?app=agenda" target="_blank">
+  <div class="tool-badge">📋 Agenda</div>
+  <h2>Meeting Agenda Generator</h2>
+  <p>Printable agenda for the next meeting, pulled from duties and speaker info. Print it or export to a Google Doc.</p>
 </a>
 
 </div>

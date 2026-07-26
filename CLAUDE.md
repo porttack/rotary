@@ -163,12 +163,14 @@ The "Anyone" Duty Editor deployment also serves the password-gated apps that
 route off `?app=` on the same `...exec` URL: `kanban`, `pipeline`,
 `speaker-pipeline`, and `events` (the Event Editor). These all share the
 `KANBAN_PASSWORD` Script Property gate, so redeploying a **New version** of
-the Duty Editor deployment publishes changes to all of them at once.
+the Duty Editor deployment publishes changes to all of them at once. `agenda`
+(the Meeting Agenda Generator) also routes off this deployment but is **not**
+password-gated — it's read-only, so no login is needed.
 
 The Duty Editor deployment URL is stored in `_config.yml` as `apps_script_url`
-and used by `duty.md` (no param). The Event Editor (`?app=events`) is reached
-from tool cards in `calendar.html` and the `/pipeline/` Tools page — it has no
-nav entry of its own.
+and used by `duty.md` (no param). The Event Editor (`?app=events`) and Agenda
+Generator (`?app=agenda`) are reached from tool cards in `calendar.html` and
+the `/pipeline/` Tools page — neither has a nav entry of its own.
 
 After editing the .gs file, go to **Deploy → Manage deployments**, select
 the relevant deployment, bump to **New version**, and redeploy. The Duty
@@ -289,6 +291,132 @@ column count.
 
 ---
 
+## Agenda Generator
+
+A read-only, unauthenticated web app (`?app=agenda`, `getAgendaEditorHtml()`)
+that renders a printable 15-row meeting agenda in the browser — styled after
+`assets/ref/meeting_agenda_example.docx` — for a chosen upcoming meeting, with
+buttons to **Print** (browser print, `@media print` hides the header/picker) or
+**Copy for Doc** (copies the agenda to the clipboard as rich HTML, built
+entirely client-side — see below). No password: it never writes to the Events
+sheet, so there's nothing to gate.
+Reached from tool cards in `calendar.html` and the `/pipeline/` Tools page.
+
+**Eligible meetings:** `isAgendaEligible_(type, dateVal)` gates both the picker
+(`getAgendaData()`) and `buildAgendaModel_()` itself (so a manually-passed
+`rowIndex` can't bypass it). Only `AGENDA_MEETING_TYPES` (Meeting, Assembly —
+any day) and `AGENDA_THURSDAY_TYPES` (Social, Service — **only** when
+`dateVal.getDay() === 4`, the club's regular meeting day) qualify; everything
+else, including Board Meeting, throws/is excluded. Update both constants
+together if the eligible-type policy changes.
+
+**Officers tab:** a simple two-column sheet (`Role | Name`, no header
+requirement beyond that) read by `getOfficers_()`. Some roles repeat (two
+Directors, two Service Chairs) — each role maps to an array of names, joined
+`"A / B"` when rendered. Not written by any tool; edit it by hand once a year
+when the board changes. Supplies the President (MC fallback + several agenda
+rows), Treasurer (raffle rows), and the five `COMMITTEE_CHAIR_ROLES` (Service,
+Youth, Membership, International, Foundation) for the Committee Announcements
+row. The Club Leadership list at the bottom of the agenda is every row of the
+Officers tab, in sheet order.
+
+**Row sourcing:** most of the 15 rows pull directly from the selected meeting's
+duty columns (4-Way-Test, Thought, Greeter, Detective, Bag Person), the
+Officers tab (President/Treasurer/chairs), and the speaker fields
+(Introducer ‖ Speaker Organizer for "who," Main Speaker/Topic for "how"). Rows
+1, 6, 11, 14, and 15 use **MC ‖ President** (`mcOrPres` — the meeting's MC duty
+if set, else the Officers-tab President) for "who," not the President alone.
+Row 12's "who" is deliberately left blank (`who: ""`) — the raffle
+drawing/cards duty isn't tracked as a named assignment. Two rows are computed:
+- **Club Announcements** (row 6) — an editable box, pre-filled by
+  `getAgendaAnnouncements_()` from the master calendar: any still-showing
+  `Message` rows plus non-meeting events (excluding Grey Bears) within
+  `AGENDA_ANNOUNCE_LOOKAHEAD_DAYS` (21) of the meeting. The president edits/
+  deletes lines before printing or exporting. On screen and in print this is a
+  `contenteditable` div (`#ann-box`, class `.ann-edit`) rather than a
+  `<textarea>` — a textarea has a fixed-height internal viewport that scrolls,
+  and browsers only print what's inside that viewport, silently clipping long
+  announcement lists; a `contenteditable` div grows with its content in normal
+  page flow instead, so nothing scrolls or gets cut off. Both outputs also
+  leave blank space beneath for handwritten additions — a dashed box in the
+  Word Doc export, one `.notes-block` (min-height ~7em) in the HTML page.
+- **Next Meeting** (row 13) — `getNextMeetingAgendaText_()` finds the next
+  non-cancelled `AGENDA_MEETING_TYPES` row after this one (Meeting/Assembly
+  only — narrower than the picker's Thursday-social/service allowance, since
+  this row previews the next *speaker* program), shows its speaker/topic +
+  `SUMMARY` blurb, then lists anything else happening between the two
+  meetings (excluding Grey Bears and Message rows).
+
+**No "TBD" placeholders** — every "who" cell (agenda rows and the duties
+table) shows the raw sheet/Officers value, or **blank** if unassigned; nothing
+in `buildAgendaModel_` synthesizes a "TBD" string for a missing person. (The
+"Next Meeting" row's "TBD" is unrelated informational text — it means no
+future meeting was found at all, not a missing duty.)
+
+**Meeting Duties table:** a second table, below the 15-row agenda and above
+Club Leadership, listing every `ROLE_FIELDS` duty (MC, Setup/Teardown, AV/Zoom,
+Greeter, 4-Way-Test, Thought, Detective, Bag Person) with its raw assigned name
+or blank — `model.duties`, built once in `buildAgendaModel_` and rendered
+identically by both the "Copy for Doc" clipboard output and the HTML page
+(`#duty-table`).
+
+**Copy for Doc:** the "📋 Copy for Doc" button (`copyForDoc()` in
+`getAgendaEditorHtml()`) writes the agenda to the clipboard as rich HTML
+(`buildCopyHtml()`, via the Clipboard API's `ClipboardItem` with both
+`text/html` and `text/plain` payloads) so pasting into Word, Pages, or Google
+Docs picks up the title block, both tables, and the leadership list with
+formatting intact — no file, no download. `current` (the in-memory agenda
+model from the last `render()`) plus the live text in `#ann-box` feed
+`buildCopyHtml()`. This is the third approach tried here, after two file-based
+exports both proved unreliable: an HTML page served with a `.doc` extension
+(Word and Google Docs opened it, Pages refused), then a hand-rolled `.rtf`
+file (backslash-prefixed control words + manual page/column-width geometry —
+too fragile to get right without a live Word/Pages test loop, and it showed:
+garbled formatting, narrow columns). Before either, an even earlier version
+called `DocumentApp`/`DriveApp` on the server (`generateAgendaDoc()`, since
+removed), which depended on the *deployed script's own* Drive access and
+broke when the viewer wasn't signed into the same Google account the
+spreadsheet lives under. Clipboard HTML sidesteps every one of those failure
+modes — no server round trip, no file format to construct byte-for-byte, no
+page geometry to guess; the browser's own paste handling does the work, and
+every major word processor already knows how to accept it. If the Clipboard
+API isn't available (`navigator.clipboard`/`ClipboardItem` missing —
+non-HTTPS context, unsupported browser), `copyForDoc()` catches the failure
+and tells the user to select and copy the on-screen agenda manually instead.
+
+**Print/screen sizing:** both outputs favor legibility over compactness. The
+HTML page scales dynamically: `#sheet` sets `font-size:calc(1em * var(--afs))`,
+and since nearly every descendant size in the page is in `em`, changing the
+single `--afs` CSS variable scales the whole agenda proportionally (club
+title, meta, both tables, leadership list) — this applies identically
+on-screen and when printed, so there's no separate print-only font bump to
+keep in sync. `--afs` defaults to `1.8` and is also exposed as a
+**Small/Medium/Large/Huge** `<select id="fontsize">` in the header
+(`setFontScale()`, values `1.2`/`1.5`/`1.8`/`2.2`, persisted to `localStorage`
+as `agendaFontScale` and restored on load) — this scale has been tuned twice:
+bumped up from an initial too-small pass, then dialed back down after that
+bump proved too big both on-screen and in print.
+`@page{margin:0.75in}` in `@media print`; `#main{max-width:none}` removes the
+on-screen 760px cap so the table still uses the full print width. Tables are
+expected to spill across multiple printed pages when content is long;
+`page-break-inside:avoid` on table rows keeps a single duty/agenda row from
+splitting mid-row. **Gotcha:** `table.ag`/`table.duty` use
+`table-layout:fixed` with column widths on `nth-child` selectors (covering
+both `<th>` and `<td>`, since `table-layout:fixed` only reads widths from the
+first row) — plain HTML tables default to `table-layout:auto`, where fixed-px
+column widths are just suggestions the browser overrides when scaled-up cell
+content needs more room, which let the table grow past the edges of `#sheet`
+once `--afs` got large. `table-layout:fixed` makes the declared widths (in %,
+not px, so they still track `#sheet`'s own width) authoritative — cell text
+wraps instead of forcing the table wider.
+
+`buildAgendaModel_(rowIndex, announcementsOverride)` is the single source of
+truth for both outputs — the HTML render calls it via `getAgendaData()` /
+`getAgendaModel(rowIndex)`, and the client mirrors that same `current` model
+into the RTF export — so the two never drift.
+
+---
+
 ## RotaryCalendarSync.gs — function summary
 
 | Function | Called from | Purpose |
@@ -302,7 +430,7 @@ column count.
 | `openDutyEditor()` | Menu | Opens Duty Editor in a new tab |
 | `setupMembers()` | Menu | Creates/resets Members tab |
 | `installEditTrigger()` | Menu | Installs onEdit trigger for row recoloring |
-| `doGet(e)` | Web request | Routes to Duty Editor or Calendar Assistant |
+| `doGet(e)` | Web request | Routes to Duty Editor, Calendar Assistant, Event Editor, Agenda Generator, etc. |
 | `doPost(e)` | Web request | Handles speaker request form submissions |
 | `getPageData()` | Duty Editor client | Returns upcoming meetings + member list |
 | `saveDuties(rowIndex, duties)` | Duty Editor client | Writes duty assignments |
@@ -310,6 +438,10 @@ column count.
 | `saveEvent(password, payload)` | Event Editor client | Create/update one non-meeting event |
 | `deleteEvent(password, rowIndex, editor)` | Event Editor client | Delete a non-meeting event (creator only) |
 | `addEventNote(password, rowIndex, noteText, author)` | Event Editor client | Append a timestamped event note |
+| `getOfficers_()` | Agenda Generator | Reads the Officers tab (Role \| Name) |
+| `buildAgendaModel_(rowIndex, announcementsOverride)` | Agenda Generator | Shared title block + 15 agenda rows + leadership list |
+| `getAgendaData()` | Agenda Generator client | Upcoming meeting picker list + model for the next one |
+| `getAgendaModel(rowIndex)` | Agenda Generator client | Rebuilds the model when the picker selection changes |
 | `processMessage(chatHistory)` | AI Assistant client | Runs AI tool-use loop |
 | `applyAssistantChanges(changes)` | AI Assistant client | Writes queued changes |
 | `createEventsBackup()` | AI Assistant client | Snapshots Events tab |

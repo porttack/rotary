@@ -1566,6 +1566,259 @@ function generateNewsletter() {
 
 
 // ═══════════════════════════════════════════════════════════════
+//  AGENDA GENERATOR
+//  Web app (?app=agenda, no password — read-only). Renders a printable
+//  15-row meeting agenda in the browser and can export it as a Google Doc.
+// ═══════════════════════════════════════════════════════════════
+
+const OFFICERS_SHEET = "Officers";
+// Officer roles rendered in "Committee Announcements" (row 7), display order.
+const COMMITTEE_CHAIR_ROLES = ["Service Chair", "Youth Chair", "Membership Chair", "International Chair", "Foundation Chair"];
+// How far past the selected meeting to look when suggesting Club Announcements (row 6).
+const AGENDA_ANNOUNCE_LOOKAHEAD_DAYS = 21;
+
+// Which event types get a generated agenda. Meetings/Assemblies always
+// qualify; Social/Service only qualify when they land on a Thursday (the
+// club's regular meeting day) — ad hoc weekend socials etc. don't need the
+// full 15-row ritual agenda. Used by the picker and to guard direct calls.
+const AGENDA_MEETING_TYPES  = ["Meeting", "Assembly"];
+const AGENDA_THURSDAY_TYPES = ["Social", "Service"];
+
+function isAgendaEligible_(type, dateVal) {
+  if (AGENDA_MEETING_TYPES.indexOf(type) !== -1) return true;
+  if (AGENDA_THURSDAY_TYPES.indexOf(type) !== -1 && dateVal instanceof Date) {
+    return dateVal.getDay() === 4; // Thursday
+  }
+  return false;
+}
+
+/** Read the Officers tab (Role | Name). Some roles repeat (two Directors, two
+ * Service Chairs) so each role maps to an array of names. */
+function getOfficers_() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(OFFICERS_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return { list: [], byRole: {} };
+
+  const data   = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  const list   = [];
+  const byRole = {};
+  data.forEach(row => {
+    const role = String(row[0] || "").trim();
+    const name = String(row[1] || "").trim();
+    if (!role || !name) return;
+    list.push({ role, name });
+    (byRole[role] = byRole[role] || []).push(name);
+  });
+  return { list, byRole };
+}
+
+/** Names for a role, joined "A / B" for roles with more than one holder. */
+function officerNames_(officers, role) {
+  return (officers.byRole[role] || []).join(" / ");
+}
+
+/** Club Announcements (row 6) suggestions: dateless Message rows still showing,
+ * plus non-meeting events (excluding Grey Bears) between the meeting date and a
+ * few weeks out. Editable by the president before generating/printing. */
+function getAgendaAnnouncements_(row, allData, tz) {
+  const val = (r, col) => String(r[col - 1] || "").trim();
+  const meetingDate = new Date(row[COL.DATE - 1]); meetingDate.setHours(0, 0, 0, 0);
+  const cutoff = new Date(meetingDate.getTime() + AGENDA_ANNOUNCE_LOOKAHEAD_DAYS * 24 * 3600 * 1000);
+  const skipTypes = ["meeting", "assembly", "board meeting", "grey bears"];
+
+  const lines = [];
+  allData.forEach(r => {
+    if (r[COL.CANCELLED - 1]) return;
+    const type = val(r, COL.EVENT_TYPE).toLowerCase();
+    if (type === "message") {
+      const showUntil = r[COL.DATE - 1];
+      if (showUntil instanceof Date && showUntil >= meetingDate) {
+        const headline = val(r, COL.MAIN_TOPIC) || "Announcement";
+        lines.push({ sort: -1, text: headline });
+      }
+      return;
+    }
+    if (skipTypes.includes(type)) return;
+    const d = r[COL.DATE - 1];
+    if (!(d instanceof Date)) return;
+    const dd = new Date(d); dd.setHours(0, 0, 0, 0);
+    if (dd < meetingDate || dd > cutoff) return;
+    const name = val(r, COL.MAIN_TOPIC) || val(r, COL.MAIN_SPEAKER) || val(r, COL.EVENT_TYPE);
+    lines.push({ sort: dd.getTime(), text: Utilities.formatDate(dd, tz, "MMM d") + " – " + name });
+  });
+
+  lines.sort((a, b) => a.sort - b.sort);
+  return lines.map(l => l.text).join("\n");
+}
+
+/** Next Meeting (row 13): the next Meeting/Assembly after this row's date, with
+ * its speaker/topic + newsletter blurb, then anything happening between the
+ * two meetings (excluding Grey Bears and other Message rows). */
+function getNextMeetingAgendaText_(row, allData, tz) {
+  const val = (r, col) => String(r[col - 1] || "").trim();
+  const meetingDate = new Date(row[COL.DATE - 1]); meetingDate.setHours(0, 0, 0, 0);
+
+  let next = null;
+  allData.forEach(r => {
+    if (r[COL.CANCELLED - 1]) return;
+    if (!AGENDA_MEETING_TYPES.includes(val(r, COL.EVENT_TYPE))) return;
+    const d = r[COL.DATE - 1];
+    if (!(d instanceof Date)) return;
+    const dd = new Date(d); dd.setHours(0, 0, 0, 0);
+    if (dd <= meetingDate) return;
+    if (!next || dd < new Date(next[COL.DATE - 1])) next = r;
+  });
+  if (!next) return "TBD";
+
+  const nextDate = new Date(next[COL.DATE - 1]); nextDate.setHours(0, 0, 0, 0);
+  const speaker  = val(next, COL.MAIN_SPEAKER);
+  const topic    = val(next, COL.MAIN_TOPIC);
+  const summary  = val(next, COL.SUMMARY);
+
+  let text = Utilities.formatDate(nextDate, tz, "MMM d") + " – ";
+  if (speaker && topic) text += speaker + ": " + topic;
+  else if (speaker)     text += speaker;
+  else if (topic)       text += topic;
+  else                  text += "Speaker TBD";
+  if (summary) text += "\n" + summary;
+
+  const between = [];
+  allData.forEach(r => {
+    if (r === next || r[COL.CANCELLED - 1]) return;
+    const type = val(r, COL.EVENT_TYPE).toLowerCase();
+    if (type === "grey bears" || type === "message") return;
+    const d = r[COL.DATE - 1];
+    if (!(d instanceof Date)) return;
+    const dd = new Date(d); dd.setHours(0, 0, 0, 0);
+    if (dd <= meetingDate || dd >= nextDate) return;
+    const name = val(r, COL.MAIN_TOPIC) || val(r, COL.MAIN_SPEAKER) || val(r, COL.EVENT_TYPE);
+    between.push({ sort: dd.getTime(), text: Utilities.formatDate(dd, tz, "MMM d") + " – " + val(r, COL.EVENT_TYPE) + ": " + name });
+  });
+  between.sort((a, b) => a.sort - b.sort);
+  if (between.length) text += "\n" + between.map(b => b.text).join("\n");
+
+  return text;
+}
+
+/** Assemble everything needed to render/export one meeting's agenda: the title
+ * block, the 15 filled agenda rows, and the leadership list. Shared by the HTML
+ * render and the Doc export so they never drift. */
+function buildAgendaModel_(rowIndex, announcementsOverride) {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+  const lastRow = sheet.getLastRow();
+  if (!rowIndex || rowIndex < 2 || rowIndex > lastRow) throw new Error("Meeting not found.");
+
+  const tz      = Session.getScriptTimeZone();
+  const allData = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+  const row     = sheet.getRange(rowIndex, 1, 1, NUM_COLS).getValues()[0];
+  const v       = col => String(row[col - 1] || "").trim();
+  if (!isAgendaEligible_(v(COL.EVENT_TYPE), row[COL.DATE - 1])) {
+    throw new Error("Agendas are only generated for meetings, assemblies, or socials/services on a Thursday.");
+  }
+  const officers = getOfficers_();
+
+  const president = officerNames_(officers, "President");
+  const treasurer = officerNames_(officers, "Treasurer");
+  const mcOrPres  = v(COL.MC) || president;
+  const dateVal   = row[COL.DATE - 1];
+  const timeVal   = row[COL.TIME - 1];
+  const timeStr   = timeVal instanceof Date ? Utilities.formatDate(timeVal, tz, "h:mm a") : String(timeVal || "");
+  const speaker   = v(COL.MAIN_SPEAKER);
+  const topic     = v(COL.MAIN_TOPIC);
+
+  const announcements = announcementsOverride != null
+    ? announcementsOverride
+    : getAgendaAnnouncements_(row, allData, tz);
+
+  const committeeLines = COMMITTEE_CHAIR_ROLES
+    .map(role => role.replace(" Chair", "") + ": " + officerNames_(officers, role))
+    .join("\n");
+
+  const rows = [
+    { n: 1,  what: "Call to Order",                     how: "Ring the Bell",                                    who: mcOrPres },
+    { n: 2,  what: "4-Way Test",                         how: "Everyone stand",                                   who: v(COL.FOUR_WAY_TEST) },
+    { n: 3,  what: "Thought for the Day",                how: "Quick quotation",                                  who: v(COL.THOUGHT) },
+    { n: 4,  what: "Visiting Rotarian and Guest Intros",  how: "Greeter",                                          who: v(COL.GREETER) },
+    { n: 5,  what: "Raffle",                             how: "Share current total",                              who: treasurer },
+    { n: 6,  what: "Club Announcements",                 how: announcements,                                      who: mcOrPres },
+    { n: 7,  what: "Committee Announcements",            how: committeeLines,                                     who: "Committee Chairs" },
+    { n: 8,  what: "Detective",                          how: "Bag Person: " + v(COL.BAG_PERSON),                 who: v(COL.DETECTIVE) },
+    { n: 9,  what: "Check for late arrivals",            how: "Ask Greeter",                                      who: v(COL.GREETER) },
+    { n: 10, what: "Speaker",
+      how: (speaker && topic) ? (speaker + ": " + topic) : (speaker || topic || "None"),
+      who: v(COL.INTRODUCER) || v(COL.SPEAKER_ORGANIZER) },
+    { n: 11, what: "Happy Bucks",                        how: "Any good news to share; bragging is encouraged",  who: mcOrPres },
+    { n: 12, what: "Raffle",                             how: "Drawing: Speaker / Cards: " + treasurer,           who: "" },
+    { n: 13, what: "Next Meeting",                       how: getNextMeetingAgendaText_(row, allData, tz),        who: president },
+    { n: 14, what: "Guest Thank You",                    how: "Encourage to return",                              who: mcOrPres },
+    { n: 15, what: "Ring bell to close",                 how: "“Service above self” – ding!",                     who: mcOrPres },
+  ];
+
+  const duties = ROLE_FIELDS.map(f => ({ label: f.label, who: v(f.col) }));
+
+  return {
+    rowIndex,
+    dateStr:    dateVal instanceof Date ? Utilities.formatDate(dateVal, tz, "EEEE, MMMM d, yyyy") : "",
+    dayLabel:   dateVal instanceof Date ? Utilities.formatDate(dateVal, tz, "MMM d") : "",
+    location:   v(COL.LOCATION),
+    time:       timeStr,
+    rows,
+    announcements,
+    duties,
+    leadership: officers.list.map(o => o.role + ": " + o.name),
+  };
+}
+
+/** Upcoming meetings for the agenda picker, plus a pre-built model for the next one. */
+function getAgendaData() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { meetings: [], model: null };
+
+  const tz    = Session.getScriptTimeZone();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const data  = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+
+  const meetings = [];
+  data.forEach((row, i) => {
+    if (row[COL.CANCELLED - 1]) return;
+    const d = row[COL.DATE - 1];
+    if (!(d instanceof Date)) return;
+    if (!isAgendaEligible_(String(row[COL.EVENT_TYPE - 1] || "").trim(), d)) return;
+    const dd = new Date(d); dd.setHours(0, 0, 0, 0);
+    if (dd < today) return;
+    const speaker = String(row[COL.MAIN_SPEAKER - 1] || "").trim();
+    meetings.push({
+      rowIndex: i + 2,
+      label: Utilities.formatDate(dd, tz, "EEE, MMM d") + (speaker ? " — " + speaker : ""),
+      sort: dd.getTime(),
+    });
+  });
+  meetings.sort((a, b) => a.sort - b.sort);
+
+  const model = meetings.length ? buildAgendaModel_(meetings[0].rowIndex) : null;
+  return { meetings, model };
+}
+
+/** Rebuild the agenda model for a specific meeting (fresh calendar-suggested
+ * announcements — called when the picker selection changes). */
+function getAgendaModel(rowIndex) {
+  return buildAgendaModel_(rowIndex);
+}
+
+// The "Download" button on the agenda page builds a .doc file entirely in the
+// browser (see getAgendaEditorHtml) instead of calling DocumentApp/DriveApp
+// here. A server-side DocumentApp.create() depends on the deployed script's
+// own Drive access, which broke when the viewer wasn't signed into the same
+// Google account the spreadsheet lives under; generating the file client-side
+// sidesteps that entirely and needs no extra authorization.
+
+
+// ═══════════════════════════════════════════════════════════════
 //  DUTY EDITOR — WEB APP
 //  Deploy via: Extensions > Apps Script > Deploy > New deployment
 //  Type: Web app | Execute as: Me | Who has access: Anyone (or org)
@@ -1604,6 +1857,9 @@ function doGet(e) {
   }
   if (app === 'events') {
     return out(inject(getEventEditorHtml()), "SLV Rotary — Event Editor");
+  }
+  if (app === 'agenda') {
+    return out(inject(getAgendaEditorHtml()), "SLV Rotary — Meeting Agenda");
   }
   if (app === 'publicSpeakers') {
     // JSONP endpoint for the public /speakers/ GitHub Pages page.
@@ -4265,6 +4521,234 @@ window.addEventListener('load',function(){
     if(ok){currentUser=name;document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;loadData();}
     else{localStorage.removeItem('pipelinePw');}});}
   document.getElementById('auth-pw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+});
+</script>
+</body>
+</html>`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  MEETING AGENDA — WEB APP  (?app=agenda)
+// ═══════════════════════════════════════════════════════════════
+function getAgendaEditorHtml() {
+return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLV Rotary — Meeting Agenda</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#eef1f6;color:#1e293b}
+header{background:linear-gradient(135deg,#17458F,#1a56db);color:#fff;padding:0.7em 1em;display:flex;align-items:center;gap:0.6em;flex-wrap:wrap;box-shadow:0 2px 6px rgba(0,0,0,0.15)}
+header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em;white-space:nowrap}
+select{padding:7px 10px;border:1px solid #cfd6e4;border-radius:7px;font-size:0.9em;background:#fff}
+.hbtn{font-size:0.85em;padding:7px 14px;background:rgba(255,255,255,0.16);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:6px;cursor:pointer}
+.hbtn:hover{background:rgba(255,255,255,0.3)}
+.hbtn:disabled{opacity:0.6;cursor:default}
+:root{--afs:1.8}
+#main{max-width:1100px;margin:1.2em auto;padding:0 1em 3em}
+#sheet{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,0.08);padding:1.6em 1.8em;font-size:calc(1em * var(--afs))}
+.club{text-align:center;color:#1a3a6b;font-weight:800;font-size:1.3em}
+.sub{text-align:center;font-weight:700;color:#333;font-size:1.05em;margin:0.1em 0 0.7em}
+.meta{font-size:0.92em;color:#333;margin:0.15em 0}
+table.ag{width:100%;table-layout:fixed;border-collapse:collapse;margin-top:1em}
+table.ag th{background:#1a3a6b;color:#fff;font-size:0.78em;text-align:left;padding:6px 8px;word-wrap:break-word}
+table.ag td{border:1px solid #d7dce6;padding:7px 8px;font-size:0.87em;vertical-align:top;white-space:pre-wrap;word-wrap:break-word}
+table.ag th:nth-child(1),table.ag td.n{width:6%;text-align:center;color:#64748b}
+table.ag th:nth-child(2),table.ag td.what{font-weight:700;width:24%}
+table.ag th:nth-child(4),table.ag td.who{width:18%}
+.ann-edit{width:100%;min-height:90px;border:1px solid #cfd6e4;border-radius:6px;padding:6px;font-family:inherit;font-size:0.95em;white-space:pre-wrap;outline:none}
+.ann-edit:focus{border-color:#1a56db}
+.notes-block{border:1px dashed #cbd5e1;border-radius:6px;min-height:7em;margin-top:6px}
+table.duty{width:100%;table-layout:fixed;border-collapse:collapse;margin-top:0.6em}
+table.duty th{background:#1a3a6b;color:#fff;font-size:0.78em;text-align:left;padding:6px 8px;word-wrap:break-word}
+table.duty td{border:1px solid #d7dce6;padding:7px 8px;font-size:0.87em;vertical-align:top;word-wrap:break-word}
+table.duty th:nth-child(1),table.duty td.duty-label{font-weight:700;width:45%}
+h2.lead{color:#1a3a6b;font-size:1em;margin:1.4em 0 0.4em}
+.lead-line{font-size:0.88em;color:#333;line-height:1.5}
+#status{font-size:0.85em;color:#64748b;padding:2em;text-align:center}
+#doclink{margin-top:0.8em;font-size:0.88em}
+#doclink a{color:#1a56db;font-weight:600}
+@media print{
+  @page{margin:0.75in}
+  header{display:none !important}
+  body{background:#fff}
+  #main{margin:0;padding:0;max-width:none}
+  #sheet{box-shadow:none;border-radius:0;padding:0}
+  .ann-edit{border:none;padding:0}
+  .notes-block{border:1px solid #d7dce6}
+  table.ag tr,table.duty tr{page-break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>📋 Meeting Agenda</h1>
+  <select id="meeting" onchange="pick(this.value)"></select>
+  <select id="fontsize" title="Text size" onchange="setFontScale(this.value)">
+    <option value="1.2">Small</option>
+    <option value="1.5">Medium</option>
+    <option value="1.8" selected>Large</option>
+    <option value="2.2">Huge</option>
+  </select>
+  <button class="hbtn" onclick="window.print()">🖨️ Print</button>
+  <button class="hbtn" id="doc-btn" onclick="copyForDoc()">📋 Copy for Doc</button>
+</header>
+<div id="main">
+  <p id="status">Loading…</p>
+  <div id="sheet" style="display:none">
+    <div class="club">Rotary Club of San Lorenzo Valley</div>
+    <div class="sub">Meeting Agenda</div>
+    <div class="meta"><b>Date:</b> <span id="m-date"></span></div>
+    <div class="meta"><b>Location &amp; Time:</b> <span id="m-loc"></span></div>
+    <table class="ag" id="ag-table">
+      <thead><tr><th>#</th><th>What</th><th>How</th><th>Who</th></tr></thead>
+      <tbody id="ag-body"></tbody>
+    </table>
+    <h2 class="lead">Meeting Duties</h2>
+    <table class="duty" id="duty-table">
+      <thead><tr><th>Duty</th><th>Assigned To</th></tr></thead>
+      <tbody id="duty-body"></tbody>
+    </table>
+    <h2 class="lead">Club Leadership</h2>
+    <div id="leadership"></div>
+    <div id="doclink"></div>
+  </div>
+</div>
+<script>
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function gs(fn){var args=Array.prototype.slice.call(arguments,1);return new Promise(function(ok,fail){var c=google.script.run.withSuccessHandler(ok).withFailureHandler(fail);c[fn].apply(c,args);});}
+
+function setFontScale(v){
+  document.documentElement.style.setProperty('--afs', v);
+  try{localStorage.setItem('agendaFontScale', v);}catch(e){}
+}
+(function(){
+  var saved=null;
+  try{saved=localStorage.getItem('agendaFontScale');}catch(e){}
+  if(saved){
+    document.documentElement.style.setProperty('--afs', saved);
+    var sel=document.getElementById('fontsize');
+    if(sel) sel.value=saved;
+  }
+})();
+
+var current=null;
+
+function render(model){
+  current=model;
+  document.getElementById('status').style.display='none';
+  document.getElementById('sheet').style.display='block';
+  document.getElementById('m-date').textContent=model.dateStr;
+  document.getElementById('m-loc').textContent=model.location+(model.time?' – '+model.time:'');
+  var tbody=document.getElementById('ag-body');
+  tbody.innerHTML='';
+  model.rows.forEach(function(r){
+    var tr=document.createElement('tr');
+    if(r.n===6){
+      tr.innerHTML='<td class="n">'+r.n+'</td><td class="what">'+esc(r.what)+'</td>'+
+        '<td><div id="ann-box" class="ann-edit" contenteditable="true">'+esc(r.how)+'</div><div class="notes-block"></div></td>'+
+        '<td class="who">'+esc(r.who)+'</td>';
+    } else {
+      tr.innerHTML='<td class="n">'+r.n+'</td><td class="what">'+esc(r.what)+'</td><td>'+esc(r.how)+'</td><td class="who">'+esc(r.who)+'</td>';
+    }
+    tbody.appendChild(tr);
+  });
+  var dbody=document.getElementById('duty-body');
+  dbody.innerHTML='';
+  model.duties.forEach(function(d){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td class="duty-label">'+esc(d.label)+'</td><td>'+esc(d.who)+'</td>';
+    dbody.appendChild(tr);
+  });
+  document.getElementById('leadership').innerHTML=model.leadership.map(function(l){return '<div class="lead-line">'+esc(l)+'</div>';}).join('');
+  document.getElementById('doclink').innerHTML='';
+}
+
+function populatePicker(meetings, selectedRow){
+  var sel=document.getElementById('meeting');
+  sel.innerHTML=meetings.map(function(m){return '<option value="'+m.rowIndex+'"'+(m.rowIndex===selectedRow?' selected':'')+'>'+esc(m.label)+'</option>';}).join('');
+}
+
+function pick(rowIndex){
+  document.getElementById('doclink').innerHTML='';
+  gs('getAgendaModel', Number(rowIndex)).then(render);
+}
+
+function nl2br(s){return esc(s).split('\\n').join('<br>');}
+
+// Copies the agenda to the clipboard as rich HTML (plus a plain-text
+// fallback) so pasting into Word, Pages, or Google Docs picks up the table
+// structure and formatting directly from the reader's own paste handling.
+// Two earlier approaches were tried and dropped: an HTML page served with a
+// .doc extension (Word/Google Docs opened it, Pages refused), then a
+// hand-rolled .rtf file (fragile page geometry — inconsistent/garbled once
+// opened, no way to validate rendering without a live Word/Pages test loop).
+// Clipboard HTML sidesteps both: there's no page/margin math to get wrong,
+// and every major word processor already knows how to paste it.
+function buildCopyHtml(ann){
+  var rowsHtml=current.rows.map(function(r){
+    var howText=(r.n===6)?ann:r.how;
+    return '<tr><td style="text-align:center;border:1px solid #999;padding:4px 6px">'+r.n+'</td>'+
+      '<td style="border:1px solid #999;padding:4px 6px"><b>'+esc(r.what)+'</b></td>'+
+      '<td style="border:1px solid #999;padding:4px 6px">'+nl2br(howText)+'</td>'+
+      '<td style="border:1px solid #999;padding:4px 6px">'+esc(r.who)+'</td></tr>';
+  }).join('');
+  var dutyRows=current.duties.map(function(d){
+    return '<tr><td style="border:1px solid #999;padding:4px 6px"><b>'+esc(d.label)+'</b></td>'+
+      '<td style="border:1px solid #999;padding:4px 6px">'+esc(d.who)+'</td></tr>';
+  }).join('');
+  var leadershipHtml=current.leadership.map(function(l){return '<div>'+esc(l)+'</div>';}).join('');
+  var thStyle='background:#1a3a6b;color:#fff;border:1px solid #999;padding:4px 6px;text-align:left';
+  return '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">'+
+    '<h1 style="text-align:center;color:#1a3a6b;font-size:20pt;margin:0 0 2pt">Rotary Club of San Lorenzo Valley</h1>'+
+    '<div style="text-align:center;font-weight:bold;font-size:13pt;margin-bottom:8pt">Meeting Agenda</div>'+
+    '<div><b>Date:</b> '+esc(current.dateStr)+'</div>'+
+    '<div style="margin-bottom:8pt"><b>Location &amp; Time:</b> '+esc(current.location+(current.time?' – '+current.time:''))+'</div>'+
+    '<table style="border-collapse:collapse;width:100%">'+
+      '<tr><th style="'+thStyle+'">#</th><th style="'+thStyle+'">What</th><th style="'+thStyle+'">How</th><th style="'+thStyle+'">Who</th></tr>'+
+      rowsHtml+
+    '</table>'+
+    '<h2 style="color:#1a3a6b;font-size:14pt;margin:14pt 0 4pt">Meeting Duties</h2>'+
+    '<table style="border-collapse:collapse;width:100%">'+
+      '<tr><th style="'+thStyle+'">Duty</th><th style="'+thStyle+'">Assigned To</th></tr>'+
+      dutyRows+
+    '</table>'+
+    '<h2 style="color:#1a3a6b;font-size:14pt;margin:14pt 0 4pt">Club Leadership</h2>'+
+    leadershipHtml+
+  '</div>';
+}
+
+async function copyForDoc(){
+  if(!current)return;
+  var box=document.getElementById('ann-box');
+  var ann=box.innerText||box.textContent||'';
+  var html=buildCopyHtml(ann);
+  var doclink=document.getElementById('doclink');
+  try{
+    if(!navigator.clipboard||!window.ClipboardItem) throw new Error('Clipboard not supported in this browser');
+    var item=new ClipboardItem({
+      'text/html': new Blob([html], {type:'text/html'}),
+      'text/plain': new Blob([ann], {type:'text/plain'})
+    });
+    await navigator.clipboard.write([item]);
+    doclink.innerHTML='<span style="color:#166534">Copied ✓ — paste into Word, Pages, or Google Docs (Cmd/Ctrl+V).</span>';
+  }catch(err){
+    doclink.innerHTML='<span style="color:#b91c1c">Could not copy automatically — select the agenda above and copy it manually (Cmd/Ctrl+C).</span>';
+  }
+}
+
+gs('getAgendaData').then(function(data){
+  if(!data.meetings.length){
+    document.getElementById('status').textContent='No upcoming meetings found.';
+    return;
+  }
+  populatePicker(data.meetings, data.model.rowIndex);
+  render(data.model);
+}).catch(function(err){
+  document.getElementById('status').textContent='Error: '+(err&&err.message?err.message:err);
 });
 </script>
 </body>
