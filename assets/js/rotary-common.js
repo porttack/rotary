@@ -186,12 +186,25 @@ function linkWrap(text, url) {
   return `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>`;
 }
 
+// Google Drive's "uc?export=view" link doesn't reliably render inside an
+// <img> tag; convert to the thumbnail endpoint, which does. Mirrors
+// driveThumb() in the Apps Script web apps (Event Editor, Kanban, etc.) —
+// keep them in sync. Non-Drive URLs pass through unchanged.
+function driveThumb(u, size) {
+  if (!u) return '';
+  let id = '';
+  const i = u.indexOf('id=');
+  if (i >= 0) { id = u.substring(i + 3).split('&')[0]; }
+  else { const j = u.indexOf('/d/'); if (j >= 0) id = u.substring(j + 3).split('/')[0]; }
+  return id ? `https://drive.google.com/thumbnail?id=${id}&sz=w${size || 800}` : u;
+}
+
 // Prefer a direct URL in the photo cell; fall back to the companion URL column.
 function photoSrc(row, primaryCol, fallbackCol) {
   const v = fv(row, primaryCol);
-  if (v && v.startsWith('http')) return v;
+  if (v && v.startsWith('http')) return driveThumb(v);
   const f = fv(row, fallbackCol);
-  return (f && f.startsWith('http')) ? f : '';
+  return (f && f.startsWith('http')) ? driveThumb(f) : '';
 }
 
 const fmt          = (d, opts) => d.toLocaleDateString('en-US', opts);
