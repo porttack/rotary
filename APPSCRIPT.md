@@ -343,7 +343,7 @@ that's a weaker boundary than it sounds).
 | `getUpcomingEventsForPicker()` | read | Shared meeting picker — same function the Speaker Pipeline's "Assign to Event" modal uses |
 | `bookSpeaker(password, eventsRow, speaker, editor)` | write, **checks password** | Writes speaker/program columns onto a Meeting row, logs an Event Note, appends a `scheduled` Speaker Pipeline card |
 | `moveSpeaker(password, fromRow, toRow, editor)` | write, **checks password** | Moves `SPEAKER_MOVE_COLS` from one Meeting row to another, logs an Event Note on both, repoints any linked pipeline card |
-| `getSpeakerEditDetail(rowIndex)` | read | Reads a Meeting row's speaker fields + Bio/contact/priority from a linked pipeline card (`findLinkedPipelineRow_`) |
+| `getSpeakerEditDetail(rowIndex)` | read | Reads a Meeting row's speaker fields + Bio/contact info from a linked pipeline card (`findLinkedPipelineRow_`, which validates the card's `SPEAKER_NAME` still matches — `EVENTS_ROW` is a row index and goes stale after a sort) |
 | `saveSpeakerEdit(password, eventsRow, speaker, editor)` | write, **checks password** | Edits a booked speaker's fields on the Events row, logs an Event Note, syncs a linked pipeline card |
 | `clearSpeaker(password, eventsRow, editor)` | write, **checks password** | Blanks `SPEAKER_MOVE_COLS` to unbook a speaker, logs an Event Note, unlinks + reverts a linked pipeline card to `in-progress` |
 | `uploadPipelinePhoto(dataUrl, fileName, speakerName)` | write | Shared with the Event Editor and pipeline apps — saves a photo to Drive |

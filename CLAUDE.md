@@ -453,22 +453,35 @@ repointed to the new one (with its own note appended).
 
 **Edit a Speaker** (`?app=edit`, `getEditSpeakerHtml()`) fixes up the details
 of a speaker already booked onto a Meeting — the same field set as Book a
-Speaker, prefilled from that meeting via `getSpeakerEditDetail(rowIndex)`.
-Because Bio/Email/Phone/City/Priority live only on a Speaker Pipeline card
-(not the Events sheet), `getSpeakerEditDetail` looks up a linked card via
-`findLinkedPipelineRow_(eventsRow)` (a shared helper — scans the pipeline's
-`EVENTS_ROW` column for a match; also used by `moveSpeaker`) and pulls those
-fields from there; the picker only ever offers Meetings that already have a
-speaker (`!available` from `getUpcomingEventsForPicker`). On save,
-`saveSpeakerEdit(password, eventsRow, speaker, editor)` writes the Events row
-(same `summary || bio` fallback as Book) **and**, if a linked card exists,
-pushes the same edits to it so the pipeline board doesn't go stale. A
-**Clear Speaker** button (`clearSpeaker(password, eventsRow, editor)`) blanks
-`SPEAKER_MOVE_COLS` on that row for when a booking falls through — the
-meeting itself stays on the calendar, just speakerless — and if a pipeline
-card was linked, it's unlinked (`EVENTS_ROW` cleared) and reverted to
-`in-progress` rather than left pointing at a now-speakerless meeting. Both
-writes log an `EVENT_NOTES` entry.
+Speaker (no Priority — that field only matters on the Speaker Pipeline board
+itself, not this quick fix-up form), prefilled from that meeting via
+`getSpeakerEditDetail(rowIndex)`. Because Bio/Email/Phone/City live only on a
+Speaker Pipeline card (not the Events sheet), `getSpeakerEditDetail` looks up
+a linked card via `findLinkedPipelineRow_(eventsRow, expectedSpeakerName)`
+and pulls those fields from there; the picker only ever offers Meetings that
+already have a speaker (`!available` from `getUpcomingEventsForPicker`). On
+save, `saveSpeakerEdit(password, eventsRow, speaker, editor)` writes the
+Events row (same `summary || bio` fallback as Book) **and**, if a linked card
+exists, pushes the same edits to it so the pipeline board doesn't go stale
+(Priority itself is never touched by this sync, so whatever priority a linked
+card already had is left alone). A **Clear Speaker** button
+(`clearSpeaker(password, eventsRow, editor)`) blanks `SPEAKER_MOVE_COLS` on
+that row for when a booking falls through — the meeting itself stays on the
+calendar, just speakerless — and if a pipeline card was linked, it's unlinked
+(`EVENTS_ROW` cleared) and reverted to `in-progress` rather than left
+pointing at a now-speakerless meeting. Both writes log an `EVENT_NOTES` entry.
+
+**`findLinkedPipelineRow_(eventsRow, expectedSpeakerName)`** (shared by
+`getSpeakerEditDetail`, `saveSpeakerEdit`, `clearSpeaker`, `moveSpeaker`)
+scans the pipeline's `EVENTS_ROW` column for a match, but — since `EVENTS_ROW`
+is a raw row *index*, not a stable ID — it goes stale whenever the Events
+sheet is re-sorted or rows shift elsewhere (`sortByDate()`, called by e.g. the
+AI Assistant's `applyAssistantChanges()`), which can silently repoint an old
+link at whatever meeting now happens to sit at that row number. Passing the
+meeting's current `MAIN_SPEAKER` as `expectedSpeakerName` guards against
+this: a candidate row is only trusted if its own `SPEAKER_NAME` still matches,
+otherwise the call treats it as "no linked card" instead of pulling in (or
+overwriting) an unrelated speaker's Bio/Email/Phone/City.
 
 All three tools reuse `getUpcomingEventsForPicker()` for their pickers (so
 they only ever operate on the plain `meeting`-type rows that function
@@ -627,7 +640,7 @@ into the RTF export — so the two never drift.
 | `addEventNote(password, rowIndex, noteText, author)` | Event Editor client | Append a timestamped event note |
 | `bookSpeaker(password, eventsRow, speaker, editor)` | Book a Speaker client | Assign a new speaker to a meeting + log pipeline card |
 | `moveSpeaker(password, fromRow, toRow, editor)` | Move a Speaker client | Move a booked speaker between meetings |
-| `getSpeakerEditDetail(rowIndex)` | Edit a Speaker client | Reads a meeting's speaker fields + linked pipeline card's Bio/contact/priority |
+| `getSpeakerEditDetail(rowIndex)` | Edit a Speaker client | Reads a meeting's speaker fields + linked pipeline card's Bio/contact info |
 | `saveSpeakerEdit(password, eventsRow, speaker, editor)` | Edit a Speaker client | Edits a booked speaker's fields, syncs a linked pipeline card |
 | `clearSpeaker(password, eventsRow, editor)` | Edit a Speaker client | Unbooks a speaker from a meeting; reverts a linked pipeline card |
 | `getOfficers_()` | Agenda Generator | Reads the Officers tab (Role \| Name) |

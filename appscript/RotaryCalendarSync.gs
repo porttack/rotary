@@ -3954,7 +3954,7 @@ function assignSpeakerToEvent(pipelineRow, eventsRow, updatedBy) {
  *
  * speaker: { mainSpeaker (required), mainTopic, openingSpeaker, organizer,
  *   introducer, speakerUrl, googleMeet, bio, summary, photoTop, photoBottom,
- *   speakerEmail, speakerPhone, speakerCity, priority }
+ *   speakerEmail, speakerPhone, speakerCity }
  * bio and summary are distinct on the Speaker Pipeline card (bio = who the
  * speaker is, summary = the newsletter-ready program blurb) but the Events
  * sheet has only one narrative column, so the Events row gets summary,
@@ -4007,7 +4007,6 @@ function bookSpeaker(password, eventsRow, speaker, editor) {
   const row = buildPipelineRow_('manual', {
     speakerName: speakerName, speakerEmail: p.speakerEmail, speakerPhone: p.speakerPhone,
     speakerCity: p.speakerCity, topic: p.mainTopic, bio: p.bio, summary: p.summary, speakerRole: 'Main',
-    priority: p.priority,
   }, p.photoTop || '', pipelineTs);
   row[CP.STATUS - 1]         = 'scheduled';
   row[CP.EVENTS_ROW - 1]     = eventsRow;
@@ -4082,7 +4081,7 @@ function moveSpeaker(password, fromRow, toRow, editor) {
 
   // Repoint any pipeline card linked to the vacated meeting (at most one
   // active card should point at a given Events row).
-  const pRow = findLinkedPipelineRow_(fromRow);
+  const pRow = findLinkedPipelineRow_(fromRow, speakerName);
   if (pRow) {
     const pSheet = getPipelineSheet_();
     const toDateIso = toDateRaw instanceof Date ? Utilities.formatDate(toDateRaw, tz, 'yyyy-MM-dd') : String(toDateRaw || '');
@@ -4104,23 +4103,37 @@ function moveSpeaker(password, fromRow, toRow, editor) {
 /**
  * Find the Speaker Pipeline row (if any) whose EVENTS_ROW points at the given
  * Events row. Returns a 1-based sheet row, or null. Shared by
- * getSpeakerEditDetail / saveSpeakerEdit / clearSpeaker.
+ * getSpeakerEditDetail / saveSpeakerEdit / clearSpeaker / moveSpeaker.
+ *
+ * EVENTS_ROW is a raw row *index*, not a stable ID — it goes stale whenever
+ * the Events sheet is re-sorted or rows are inserted/deleted elsewhere (the
+ * AI Assistant's applyAssistantChanges() calls sortByDate(), for one), which
+ * silently repoints old links at whatever meeting now happens to occupy that
+ * row number. When expectedSpeakerName is given, a link is only trusted if
+ * the card's own SPEAKER_NAME still matches — otherwise it's treated as no
+ * link, rather than pulling in (or overwriting) an unrelated speaker's data.
  */
-function findLinkedPipelineRow_(eventsRow) {
+function findLinkedPipelineRow_(eventsRow, expectedSpeakerName) {
   const pSheet = getPipelineSheet_();
   const lastPipeRow = pSheet.getLastRow();
   if (lastPipeRow < 2) return null;
   const linkCol = pSheet.getRange(2, CP.EVENTS_ROW, lastPipeRow - 1, 1).getValues();
   for (let i = 0; i < linkCol.length; i++) {
-    if (Number(linkCol[i][0]) === eventsRow) return i + 2;
+    if (Number(linkCol[i][0]) !== eventsRow) continue;
+    const r = i + 2;
+    if (expectedSpeakerName) {
+      const cardName = String(pSheet.getRange(r, CP.SPEAKER_NAME).getValue() || '').trim().toLowerCase();
+      if (cardName !== String(expectedSpeakerName).trim().toLowerCase()) continue; // stale link — not this meeting's card
+    }
+    return r;
   }
   return null;
 }
 
 /**
  * Read one Meeting row's speaker/program fields for editing, plus Bio,
- * Email, Phone, City, and Priority from a linked Speaker Pipeline card (if
- * one points at this row) — those columns don't exist on the Events sheet.
+ * Email, Phone, and City from a linked Speaker Pipeline card (if one points
+ * at this row) — those columns don't exist on the Events sheet.
  */
 function getSpeakerEditDetail(rowIndex) {
   const evSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
@@ -4140,10 +4153,10 @@ function getSpeakerEditDetail(rowIndex) {
     summary:        String(row[COL.SUMMARY - 1]          || ''),
     photoTop:       String(row[COL.PHOTO_TOP - 1]        || ''),
     photoBottom:    String(row[COL.PHOTO_BOTTOM - 1]     || ''),
-    bio: '', speakerEmail: '', speakerPhone: '', speakerCity: '', priority: '',
+    bio: '', speakerEmail: '', speakerPhone: '', speakerCity: '',
     pipelineRow: null,
   };
-  const pRow = findLinkedPipelineRow_(rowIndex);
+  const pRow = findLinkedPipelineRow_(rowIndex, detail.mainSpeaker);
   if (pRow) {
     const pSheet = getPipelineSheet_();
     const p = pSheet.getRange(pRow, 1, 1, NUM_PIPE_COLS).getValues()[0];
@@ -4151,7 +4164,6 @@ function getSpeakerEditDetail(rowIndex) {
     detail.speakerEmail = String(p[CP.SPEAKER_EMAIL - 1] || '');
     detail.speakerPhone = String(p[CP.SPEAKER_PHONE - 1] || '');
     detail.speakerCity  = String(p[CP.SPEAKER_CITY - 1]  || '');
-    detail.priority     = String(p[CP.PRIORITY - 1]      || '');
     detail.pipelineRow  = pRow;
   }
   return detail;
@@ -4178,6 +4190,9 @@ function saveSpeakerEdit(password, eventsRow, speaker, editor) {
   if (!speakerName) throw new Error('Main Speaker is required.');
   const who = String(editor || '').trim() || '?';
   const ts  = timestamp();
+  // Read before overwriting — used to find the correct linked pipeline card
+  // (matched by who the speaker actually was, not just row-index proximity).
+  const priorSpeakerName = String(evSheet.getRange(eventsRow, COL.MAIN_SPEAKER).getValue() || '').trim();
 
   const set = (col, val) => evSheet.getRange(eventsRow, col).setValue(val);
   set(COL.MAIN_SPEAKER,      speakerName);
@@ -4197,7 +4212,7 @@ function saveSpeakerEdit(password, eventsRow, speaker, editor) {
   const entry = '[' + ts + ' ' + who + ']: Edited speaker — ' + speakerName + (p.mainTopic ? ' — ' + p.mainTopic : '');
   noteCell.setValue(existingNote ? entry + '\n' + existingNote : entry);
 
-  const pRow = findLinkedPipelineRow_(eventsRow);
+  const pRow = findLinkedPipelineRow_(eventsRow, priorSpeakerName);
   if (pRow) {
     const pSheet = getPipelineSheet_();
     pSheet.getRange(pRow, CP.SPEAKER_NAME).setValue(speakerName);
@@ -4209,7 +4224,6 @@ function saveSpeakerEdit(password, eventsRow, speaker, editor) {
     pSheet.getRange(pRow, CP.SPEAKER_EMAIL).setValue(p.speakerEmail || '');
     pSheet.getRange(pRow, CP.SPEAKER_PHONE).setValue(p.speakerPhone || '');
     pSheet.getRange(pRow, CP.SPEAKER_CITY).setValue(p.speakerCity || '');
-    pSheet.getRange(pRow, CP.PRIORITY).setValue(p.priority || '');
     if (p.photoTop)    pSheet.getRange(pRow, CP.PHOTO_URL).setValue(p.photoTop);
     if (p.photoBottom) pSheet.getRange(pRow, CP.PHOTO_BOTTOM).setValue(p.photoBottom);
     pSheet.getRange(pRow, CP.UPDATED_BY).setValue(who);
@@ -4255,7 +4269,7 @@ function clearSpeaker(password, eventsRow, editor) {
   const entry = '[' + ts + ' ' + who + ']: Cleared speaker (was ' + speakerName + ')';
   noteCell.setValue(existingNote ? entry + '\n' + existingNote : entry);
 
-  const pRow = findLinkedPipelineRow_(eventsRow);
+  const pRow = findLinkedPipelineRow_(eventsRow, speakerName);
   if (pRow) {
     const pSheet = getPipelineSheet_();
     pSheet.getRange(pRow, CP.STATUS).setValue('in-progress');
@@ -4973,10 +4987,7 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
       <div class="fld"><label>Email</label><input type="email" id="f-email" placeholder="speaker@example.com"></div>
       <div class="fld"><label>Phone</label><input type="text" id="f-phone" placeholder="(555) 555-5555"></div>
     </div>
-    <div class="fld-row">
-      <div class="fld"><label>City</label><input type="text" id="f-city" placeholder="Speaker's city"></div>
-      <div class="fld"><label>Priority</label><select id="f-priority"><option value="">—</option><option>Low</option><option>Medium</option><option>High</option></select></div>
-    </div>
+    <div class="fld"><label>City</label><input type="text" id="f-city" placeholder="Speaker's city"></div>
 
     <button class="btn btn-save" id="btn-save" onclick="submitBooking()">Book Speaker</button>
   </div>
@@ -5039,7 +5050,6 @@ function submitBooking(){
     googleMeet:getV('f-meet'), bio:getV('f-bio'), summary:getV('f-summary'),
     photoTop:getV('f-photo-top'), photoBottom:getV('f-photo-bottom'),
     speakerEmail:getV('f-email'), speakerPhone:getV('f-phone'), speakerCity:getV('f-city'),
-    priority:getV('f-priority'),
   };
   var pw=localStorage.getItem('pipelinePw')||'';
   busy(true);
@@ -5049,7 +5059,7 @@ function submitBooking(){
     setV('f-name',''); setV('f-topic',''); setV('f-opening',''); setV('f-organizer',currentUser);
     setV('f-introducer',''); setV('f-url',''); setV('f-meet',''); setV('f-bio',''); setV('f-summary','');
     setV('f-photo-top',''); setV('f-photo-bottom',''); setV('f-email',''); setV('f-phone','');
-    setV('f-city',''); setV('f-priority','');
+    setV('f-city','');
     showPrev('f-photo-top'); showPrev('f-photo-bottom');
   }).catch(function(err){busy(false);toast('Error: '+(err.message||err),true);});
 }
@@ -5343,10 +5353,7 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
         <div class="fld"><label>Email</label><input type="email" id="f-email" placeholder="speaker@example.com"></div>
         <div class="fld"><label>Phone</label><input type="text" id="f-phone" placeholder="(555) 555-5555"></div>
       </div>
-      <div class="fld-row">
-        <div class="fld"><label>City</label><input type="text" id="f-city" placeholder="Speaker's city"></div>
-        <div class="fld"><label>Priority</label><select id="f-priority"><option value="">—</option><option>Low</option><option>Medium</option><option>High</option></select></div>
-      </div>
+      <div class="fld"><label>City</label><input type="text" id="f-city" placeholder="Speaker's city"></div>
 
       <button class="btn btn-save" id="btn-save" onclick="submitEdit()">Save Changes</button>
       <button class="btn btn-clear" id="btn-clear" onclick="submitClear()">Clear Speaker</button>
@@ -5416,7 +5423,6 @@ function loadDetail(rowIndex){
     setV('f-meet',d.googleMeet); setV('f-bio',d.bio); setV('f-summary',d.summary);
     setV('f-photo-top',d.photoTop); setV('f-photo-bottom',d.photoBottom);
     setV('f-email',d.speakerEmail); setV('f-phone',d.speakerPhone); setV('f-city',d.speakerCity);
-    setV('f-priority',d.priority);
     showPrev('f-photo-top'); showPrev('f-photo-bottom');
     document.getElementById('pipeline-hint').textContent = d.pipelineRow
       ? '(linked — these sync to the pipeline card)'
@@ -5435,7 +5441,6 @@ function submitEdit(){
     googleMeet:getV('f-meet'), bio:getV('f-bio'), summary:getV('f-summary'),
     photoTop:getV('f-photo-top'), photoBottom:getV('f-photo-bottom'),
     speakerEmail:getV('f-email'), speakerPhone:getV('f-phone'), speakerCity:getV('f-city'),
-    priority:getV('f-priority'),
   };
   var pw=localStorage.getItem('pipelinePw')||'';
   busy(true);
