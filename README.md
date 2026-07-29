@@ -6,11 +6,25 @@ A prototype management website for the **San Lorenzo Valley Rotary Club**, hoste
 
 Everything here is **driven by a single Google Sheet** that club leadership and committee chairs could manage. The website reads from that sheet automatically — no one needs to touch the website itself after initial setup.
 
-The goal is to reduce copy-paste email work in three areas:
+> **Deeper references:** [CLAUDE.md](CLAUDE.md) documents every page/tool's
+> behavior, the full sheet column schema, and event types. [APPSCRIPT.md](APPSCRIPT.md)
+> documents the Apps Script side specifically — system architecture, every
+> web-app route, the full RPC surface, and how auth actually works. This
+> README stays at the "what is this / how do I set it up" level.
 
-- **Calendar sync** — keep the Google Calendar up to date from the sheet (and vice versa)
-- **Newsletter** — auto-generate a bulletin from the same sheet, so there's much less manual copy-paste
-- **Duty Editor** — a simple web form for assigning meeting roles (MC, Greeter, etc.) without touching the spreadsheet directly
+What started as calendar sync + a newsletter generator has grown into a
+small toolkit, all still driven by that one Sheet:
+
+- **Calendar sync** — keep Google Calendar up to date from the sheet (and vice versa)
+- **Newsletter** — auto-generate a bulletin (browser page or Google Doc) from the same sheet
+- **Duty Editor** — assign meeting/assembly/social roles (MC, Greeter, etc.) without touching the spreadsheet
+- **Event Editor** — members create/edit socials, service projects, fundraisers, and announcements
+- **Speaker Pipeline** — track prospective speakers from offer/request through scheduling (Kanban board + sortable table views)
+- **Meeting Agenda Generator** — printable 15-row agenda + duty table for the next meeting
+- **Duty Sign-Up Sheet** — printable paper roster for the next 4/8/12 weeks, for clipboard sign-ups
+- **Calendar Assistant** — an AI chat interface (Claude or Gemini) that proposes calendar changes for approval
+- **Event Detail pages** — shareable, no-login links for a single event
+- **Public speaker page** (`/speakers/`) — lets anyone browse and show support for upcoming speakers
 
 ---
 
@@ -18,27 +32,32 @@ The goal is to reduce copy-paste email work in three areas:
 
 ```mermaid
 graph TD
-    Sheet["📊 Google Sheet\n(single source of truth)"]
+    Sheet["📊 Google Sheet\n(Events, Speaker Pipeline, Members, Officers)"]
     Cal["📅 Google Calendar"]
-    CSV["Published CSV\n(public, no auth)"]
-    CalPage["calendar.html\n(FullCalendar view)"]
-    NewsPage["newsletter.html\n(browser bulletin)"]
+    CSV["Published Events CSV\n(public, no auth)"]
+    StaticPages["Static pages\nyear · calendar · newsletter · past · event · roster"]
     NewsDoc["Generate Newsletter Doc\n(Google Doc in Drive)"]
-    DutyApp["Duty Editor\n(Apps Script web app)"]
+    Apps["Apps Script web apps\nDuty Editor · Event Editor · Agenda\nSpeaker Pipeline · Calendar Assistant"]
+    AI["Anthropic / Gemini APIs"]
+    Forms["speak.md · request.md · speakers.md\n(public forms + speaker lineup)"]
 
-    Sheet -- "bidirectional sync\n(Apps Script)" --> Cal
-    Cal -- "bidirectional sync\n(Apps Script)" --> Sheet
+    Sheet -- "bidirectional sync (Apps Script)" --> Cal
+    Cal -- "bidirectional sync (Apps Script)" --> Sheet
     Sheet -- "File → Publish to web" --> CSV
-    CSV --> CalPage
-    CSV --> NewsPage
+    CSV --> StaticPages
     Sheet -- "Apps Script" --> NewsDoc
-    Sheet -- "Apps Script web app" --> DutyApp
-    DutyApp -- "saves back" --> Sheet
+    Sheet <-- "read/write, Execute as Me" --> Apps
+    Apps -- "AI-assisted changes\n(proposed, then approved)" --> AI
+    Forms -- "hidden-iframe POST / JSONP" --> Apps
 ```
 
 **`newsletter.html` and Generate Newsletter Doc produce the same content** — one renders in the browser, the other creates a shareable Google Doc in Drive. Use whichever fits your workflow for a given week.
 
-**`calendar.html` is included for reference/completeness.** It reads the same sheet data and shows events in a calendar grid. It is not meant to replace the Google Calendar — just a quick visual check that doesn't require a Google login.
+**The static pages never touch the Sheet directly** — they read the published Events-tab CSV client-side, so they work with no Google login and no Apps Script involved. Only the Apps Script web apps read/write the Sheet directly, and only they can see the **Speaker Pipeline**, **Members**, and **Officers** tabs, since only the **Events** tab is published as CSV.
+
+For the full picture — every `?app=` route, the complete RPC surface, and
+(importantly) how auth actually works across the two deployments — see
+**[APPSCRIPT.md](APPSCRIPT.md)**.
 
 ---
 
@@ -47,13 +66,23 @@ graph TD
 | Path | Purpose |
 |---|---|
 | `index.md` | Homepage |
-| `calendar.html` | FullCalendar 6 view, reads Sheet CSV (reference only) |
+| `calendar.html` | FullCalendar 6 view + tool cards, reads Sheet CSV |
+| `year.html` | Mini year-at-a-glance grid (July–June), reads Sheet CSV |
 | `newsletter.html` | Dynamic weekly bulletin, reads Sheet CSV |
-| `speak.md` | Link to "offer to speak" Google Form |
-| `request.md` | Link to "request a speaker" Google Form |
-| `appscript/RotaryCalendarSync.gs` | All Apps Script logic (paste into Sheet) |
-| `_config.yml` | Jekyll config |
+| `past.html` | Past-meetings archive |
+| `event.html` | Shareable, no-login single-event detail page (`/event/`) |
+| `roster.html` | Printable duty sign-up sheet, next 4/8/12 weeks (`/roster/`) |
+| `duty.md` | Redirect to the Duty Editor web app |
+| `pipeline.md` | Tools page listing every member-facing web app (`/pipeline/`) |
+| `speak.md` | In-page "offer to speak" form, POSTs to the Apps Script backend |
+| `request.md` | In-page "request a speaker" form, POSTs to the Apps Script backend |
+| `speakers.md` | Public speaker lineup (`/speakers/`) — JSONP read, ♡/note POST |
+| `assets/js/rotary-common.js` | Shared CSV-fetch/parse/render helpers used by most static pages |
+| `appscript/RotaryCalendarSync.gs` | All Apps Script logic — the one file behind every `?app=` web app |
+| `_config.yml` | Jekyll config, incl. `apps_script_url` |
 | `Gemfile` | GitHub Pages gem pin |
+| `CLAUDE.md` | Product/behavior reference: every tool, the sheet column schema, event types |
+| `APPSCRIPT.md` | Apps Script architecture: system diagram, routes, RPC surface, auth model |
 
 ---
 
@@ -63,25 +92,42 @@ graph TD
 
 1. Create a new Google Sheet named **Rotary Events** (or similar).
 2. Open **Extensions → Apps Script** and paste the entire contents of `appscript/RotaryCalendarSync.gs`.
-3. From the **🔄 Rotary Sync** menu that appears, run **Setup / Reset Sheet Headers**. This creates the 30-column header row, formatting, dropdowns, and hidden columns.
+3. From the **🔄 Rotary Sync** menu that appears, run **Setup / Reset Sheet Headers**. This creates the Events tab's header row, formatting, dropdowns, and hidden columns — see [CLAUDE.md](CLAUDE.md#google-sheet) for the full column-by-column schema.
 4. Update `CALENDAR_ID` at the top of the script to your Google Calendar's ID (find it in Calendar Settings → Integrate calendar).
 5. Publish the Sheet: **File → Share → Publish to web → Sheet: Events, Format: CSV → Publish**. Copy the URL.
-6. Paste that URL into `calendar.html` and `newsletter.html` where `CSV_URL` is defined.
+6. Paste that URL into `assets/js/rotary-common.js`, `calendar.html`, and `year.html` where `CSV_URL` is defined (these three files each hold their own copy — see [CLAUDE.md](CLAUDE.md#google-sheet)).
 
-### 2. Install the edit trigger (run once)
+### 2. Other tabs
 
-In the sheet menu: **🔄 Rotary Sync → Install Edit Trigger**. This lets row colors update automatically when you change event type or cancellation status.
+- **Install the edit trigger** (run once): **🔄 Rotary Sync → Install Edit Trigger**, so row colors update automatically when you change event type or cancellation status.
+- **Members tab**: run **🔄 Rotary Sync → Setup Members Tab**, then replace the sample names with your actual club members — these feed every member-name dropdown across all the web apps.
+- **Speaker Pipeline tab** (only if you'll use the Speaker Pipeline / speak.md / request.md): run **🔄 Rotary Sync → Setup Speaker Pipeline Tab**.
+- **Officers tab** (only for the Meeting Agenda Generator): create it by hand — a plain two-column `Role | Name` sheet, no menu item creates this one. See [CLAUDE.md](CLAUDE.md#agenda-generator).
 
-### 3. Members tab (for Duty Editor)
+### 3. Script Properties (optional, per feature)
 
-Run **🔄 Rotary Sync → Setup Members Tab**. Replace the sample names with your actual club members. These names appear as dropdown options in the Duty Editor.
+**Apps Script → Project Settings → Script Properties.** None of these are required to get calendar sync/newsletter/Duty Editor running; add only the ones for features you'll use:
 
-### 4. Duty Editor web app
+| Property | Enables |
+|---|---|
+| `KANBAN_PASSWORD` | Login for the Event Editor and all three Speaker Pipeline views |
+| `NOTIFY_EMAILS` | Email notifications on new speaker-form submissions |
+| `ANTHROPIC_API_KEY` | Calendar Assistant, when set to use Claude |
+| `GEMINI_API_KEY` | Calendar Assistant's default provider; the (off-by-default) Pipeline AI command line |
+
+### 4. Deploy the web app(s)
+
+This single script backs **every** `?app=` tool (Duty Editor, Event Editor,
+Agenda Generator, all three Speaker Pipeline views) through one deployment,
+plus a second, separately-access-controlled deployment for the Calendar
+Assistant. See [APPSCRIPT.md](APPSCRIPT.md#2-deployments) for exactly how
+the routing and access control work.
 
 1. In the Apps Script editor: **Deploy → New deployment → Type: Web app**.
-2. Set **Execute as: Me** and **Who has access: Anyone** (or limit to your org).
-3. Click Deploy and copy the URL. Share it with whoever assigns meeting duties.
-4. Once deployed, **🔄 Rotary Sync → Open Duty Editor** will open it directly from the sheet.
+2. Set **Execute as: Me** and **Who has access: Anyone** (or limit to your org). Deploy, and copy the URL — this covers the Duty Editor plus every `?app=` tool except the Calendar Assistant.
+3. Paste that URL into **`_config.yml` → `apps_script_url`**. Every page that links to a web app (`duty.md`, `pipeline.md`, the tool cards on `calendar.html`, `speak.md`/`request.md`/`speakers.md`) reads it from there.
+4. Once deployed, **🔄 Rotary Sync → Open Duty Editor** (and **→ Open Speaker Pipeline**) will open the app directly from the sheet.
+5. **Optional — Calendar Assistant:** a *second* Web app deployment from the same project, **Execute as: Me**, **Who has access: Only myself**. Reached at `…/exec?app=assistant`; there's no tool-card link to it since it's Eric-only by design.
 
 ---
 
@@ -93,10 +139,17 @@ Run **🔄 Rotary Sync → Setup Members Tab**. Replace the sample names with yo
 | ⬆️ Push Sheet → Calendar | Pushes Sheet rows to Google Calendar; skips rows whose hash hasn't changed |
 | 📰 Generate Newsletter Doc | Creates a formatted Google Doc newsletter in your Drive's "Rotary" folder (same content as newsletter.html) |
 | 🖼️ Sync Photos → URL Columns | Extracts URLs from photo cells (see [Photos](#photos)) |
-| 📝 Open Duty Editor | Opens the deployed web app for assigning meeting duties |
-| 👥 Setup Members Tab | Creates or resets the Members tab used by the Duty Editor |
-| 📋 Setup / Reset Sheet Headers | Re-applies headers, formatting, dropdowns, and column widths |
+| 📝 Open Duty Editor | Opens the deployed web app for assigning duties |
+| 🎤 Open Speaker Pipeline | Opens the Speaker Pipeline web app |
+| 👥 Setup Members Tab | Creates or resets the Members tab used by every web app's name dropdowns |
+| 📋 Setup / Reset Sheet Headers | Re-applies Events-tab headers, formatting, dropdowns, and column widths |
+| 🎤 Setup Speaker Pipeline Tab | Creates or resets the Speaker Pipeline tab |
+| 🔧 Migrate Confirmed → In Progress | One-time cleanup for a renamed pipeline status |
+| 🧹 Purge Old Rate Counters | Clears stale rate-limit Script Properties left by the public form endpoints |
+| ✉️ Authorize Email (run once) | Forces the Gmail-send consent prompt so notification emails can send |
 | ⚡ Install Edit Trigger | Installs the onEdit trigger for automatic row coloring (run once) |
+
+See [APPSCRIPT.md](APPSCRIPT.md#9-menu-triggered--trigger-driven-functions) for the underlying function name behind each item.
 
 ---
 
@@ -134,38 +187,11 @@ The sync reads the image cell using the Sheets API, writes the extracted URL to 
 
 ## Column schema (Google Sheet)
 
-| # | Column | Notes |
-|---|---|---|
-| A (1) | Event ID | Google Calendar event ID — hidden, do not edit |
-| B (2) | Event Type | Dropdown: Meeting, Board Meeting, Social, Service, Committee, Other |
-| C (3) | Cancelled | Checkbox — greys the row and strikes through the calendar entry |
-| D (4) | Day | Auto-computed formula — "Tue, Sep W3" style label |
-| E (5) | Date | YYYY-MM-DD |
-| F (6) | Time | H:MM AM/PM |
-| G (7) | Duration (min) | Defaults to 60 |
-| H (8) | Location | Full venue address for Google Maps links |
-| I (9) | Google Meet Link | Join URL shown in newsletter and calendar |
-| J (10) | Speaker(s) Organizer | Who is managing / booking this speaker |
-| K (11) | Opening Speaker | Invocation / opening speaker |
-| L (12) | Main Speaker | Program speaker |
-| M (13) | Main Topic | Program title |
-| N (14) | Speaker URL | Optional link for speaker bio or topic reference |
-| O (15) | Summary | Narrative paragraph — used in newsletter and as calendar event body |
-| P (16) | Speaker Top Photo | URL **or** embedded image — displayed above narrative |
-| Q (17) | Speaker Bottom Photo | URL **or** embedded image — displayed below narrative |
-| R (18) | MC | Meeting MC if not the president |
-| S (19) | Setup/Teardown | |
-| T (20) | AV/Zoom | |
-| U (21) | Greeter | |
-| V (22) | 4-Way-Test | |
-| W (23) | Thought | |
-| X (24) | Detective | |
-| Y (25) | Bag Person | |
-| Z (26) | Comments | Internal notes — not synced to Calendar |
-| AA (27) | Sync Status | Written by push/pull/duty operations — do not edit |
-| AB (28) | Hash | Change-detection hash — hidden, do not edit |
-| AC (29) | Photo Top URL | Auto-populated by Sync Photos — hidden, do not edit |
-| AD (30) | Photo Bottom URL | Auto-populated by Sync Photos — hidden, do not edit |
+The Events tab's full column-by-column schema (currently 35 columns, A
+through AI) lives in **[CLAUDE.md → Google Sheet](CLAUDE.md#google-sheet)** —
+kept there rather than duplicated here so it can't drift out of sync with
+`appscript/RotaryCalendarSync.gs`'s own `COL` map the way an earlier, shorter
+version of this table did.
 
 ---
 
@@ -185,8 +211,8 @@ when handing the project to a different Gmail/Workspace account.
 > re-authorization; copying is the cleaner, more predictable path for a prototype.
 
 1. **Copy the Sheet** into the new account (File → Make a copy). This brings the
-   `Events`, `Speaker Pipeline`, and `Members` tabs and the full `.gs` code.
-   Delete any old `Backup …` tabs you don't need.
+   `Events`, `Speaker Pipeline`, `Members`, and `Officers` tabs and the full
+   `.gs` code. Delete any old `Backup …` tabs you don't need.
 
 2. **Re-enter Script Properties** — Apps Script editor → **Project Settings →
    Script Properties**. These are *not* copied and the apps silently misbehave
@@ -271,7 +297,8 @@ The calendar and newsletter pages fetch live data from the published Google Shee
 | Hosting | GitHub Pages |
 | Dynamic data | Google Sheets published CSV (no auth required) |
 | Calendar widget | FullCalendar 6.x (jsDelivr CDN) |
-| Forms | Google Forms (linked, not embedded) |
-| Newsletter/duty logic | Vanilla JS + Apps Script web app |
+| Forms | In-page HTML forms POSTing to the Apps Script backend (hidden-iframe submit, no Google Forms) |
+| Web apps / logic | Vanilla JS + a single Apps Script project (`appscript/RotaryCalendarSync.gs`), deployed twice — see [APPSCRIPT.md](APPSCRIPT.md) |
+| AI (optional) | Anthropic Claude and/or Google Gemini — Calendar Assistant and the (off-by-default) Pipeline AI command line |
 
 No npm, no build pipeline, no bundlers — the site deploys cleanly via GitHub Pages on every push to `main`.

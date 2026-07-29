@@ -1,5 +1,15 @@
 # CLAUDE.md — SLV Rotary Prototype Site
 
+> **What this file is:** Claude Code reads this file automatically at the
+> start of every session in this repo and treats it as instructions that
+> override default behavior — not just background reading for human
+> contributors. Keeping it accurate matters more than usual: stale or wrong
+> information here doesn't just mislead a reader, it actively misleads
+> Claude into wrong assumptions in future sessions. Edit it deliberately, and
+> keep it in sync with the code it describes (see
+> [APPSCRIPT.md](APPSCRIPT.md) for the same principle applied to the Apps
+> Script side).
+
 ## Project overview
 
 GitHub Pages / Jekyll prototype for the San Lorenzo Valley Rotary Club.
@@ -17,7 +27,9 @@ Core tools built so far:
   Meetings, Assemblies, and Socials.
 - **Calendar Assistant** — AI chat interface (Apps Script + Anthropic API)
   for adding/updating/cancelling events via natural language.
-- **Speaker pipeline** — Google Forms linked from `speak.md` / `request.md`.
+- **Speaker pipeline** — in-page forms (`speak.md` / `request.md`, POSTing
+  directly to the Apps Script backend, not Google Forms) feeding a Kanban
+  board / sortable table for tracking speakers from offer through scheduling.
 
 ---
 
@@ -249,6 +261,10 @@ Duty Editor deployment is next redeployed.
 The single file `appscript/RotaryCalendarSync.gs` is deployed **twice**
 from the same Apps Script project. Both point to the same `doGet(e)` which
 routes by the `?app=` URL parameter.
+
+For the full architecture (system diagram, every `?app=` route, the complete
+`google.script.run` RPC surface, and — importantly — how auth actually works
+across the two deployments), see [APPSCRIPT.md](APPSCRIPT.md).
 
 | Deployment | Access | URL pattern | Serves |
 |---|---|---|---|
