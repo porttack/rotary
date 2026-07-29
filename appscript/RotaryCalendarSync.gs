@@ -1863,6 +1863,15 @@ function doGet(e) {
   if (app === 'agenda') {
     return out(inject(getAgendaEditorHtml()), "SLV Rotary — Meeting Agenda");
   }
+  if (app === 'book') {
+    return out(inject(getBookSpeakerHtml()), "SLV Rotary — Book a Speaker");
+  }
+  if (app === 'move') {
+    return out(inject(getMoveSpeakerHtml()), "SLV Rotary — Move a Speaker");
+  }
+  if (app === 'edit') {
+    return out(inject(getEditSpeakerHtml()), "SLV Rotary — Edit a Speaker");
+  }
   if (app === 'publicSpeakers') {
     // JSONP endpoint for the public /speakers/ GitHub Pages page.
     // Sanitise callback name to alphanumeric/underscore only.
@@ -3928,6 +3937,341 @@ function assignSpeakerToEvent(pipelineRow, eventsRow, updatedBy) {
   return { ok: true, speakerName, eventsRow };
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  BOOK / MOVE SPEAKER  (?app=book, ?app=move)
+//  Password-gated (KANBAN_PASSWORD) — same login as the Event Editor and
+//  Speaker Pipeline apps. These are the "everyday" shortcuts: entering a new
+//  speaker and putting them on a date in one step, or shuffling a booked
+//  speaker to a different date, without going through pipeline-card stages.
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Book a new speaker directly onto an upcoming Meeting row in one step:
+ * writes the speaker/program columns, logs an Event Note, and also appends a
+ * matching Speaker Pipeline card (status 'scheduled', linked via EVENTS_ROW)
+ * so the pipeline board keeps a complete history even for speakers booked
+ * here rather than worked through the pipeline stages.
+ *
+ * speaker: { mainSpeaker (required), mainTopic, openingSpeaker, organizer,
+ *   introducer, speakerUrl, googleMeet, bio, summary, photoTop, photoBottom,
+ *   speakerEmail, speakerPhone, speakerCity, priority }
+ * bio and summary are distinct on the Speaker Pipeline card (bio = who the
+ * speaker is, summary = the newsletter-ready program blurb) but the Events
+ * sheet has only one narrative column, so the Events row gets summary,
+ * falling back to bio if that's blank.
+ */
+function bookSpeaker(password, eventsRow, speaker, editor) {
+  if (!checkPipelinePassword(password)) throw new Error('Not authorized — please log in again.');
+  const evSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!evSheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+
+  eventsRow = Number(eventsRow);
+  if (!eventsRow || eventsRow < 2) throw new Error('Invalid meeting row.');
+  // Only regular Meetings host a speaker (mirrors getUpcomingEventsForPicker,
+  // which is the only source of rows this tool's picker offers).
+  const type = String(evSheet.getRange(eventsRow, COL.EVENT_TYPE).getValue() || '').toLowerCase();
+  if (type !== 'meeting') throw new Error('That row is not a Meeting.');
+
+  const p = speaker || {};
+  const speakerName = String(p.mainSpeaker || '').trim();
+  if (!speakerName) throw new Error('Main Speaker is required.');
+  const who = String(editor || '').trim() || '?';
+  const ts  = timestamp();
+  const tz  = Session.getScriptTimeZone();
+
+  const set = (col, val) => evSheet.getRange(eventsRow, col).setValue(val);
+  set(COL.MAIN_SPEAKER,      speakerName);
+  set(COL.MAIN_TOPIC,        p.mainTopic      || '');
+  set(COL.OPENING_SPEAKER,   p.openingSpeaker || '');
+  set(COL.SPEAKER_ORGANIZER, p.organizer      || who);
+  set(COL.INTRODUCER,        p.introducer     || '');
+  set(COL.SPEAKER_URL,       p.speakerUrl     || '');
+  set(COL.GOOGLE_MEET,       p.googleMeet     || '');
+  // The Events sheet has only one narrative column — prefer the newsletter
+  // Summary, falling back to Bio if that's blank (mirrors assignSpeakerToEvent).
+  set(COL.SUMMARY,           p.summary || p.bio || '');
+  if (p.photoTop)    set(COL.PHOTO_TOP,    p.photoTop);    // don't clobber an embedded image with a blank
+  if (p.photoBottom) set(COL.PHOTO_BOTTOM, p.photoBottom);
+  set(COL.STATUS, '🎤 Speaker booked by ' + who + ' ' + ts);
+
+  const noteCell = evSheet.getRange(eventsRow, COL.EVENT_NOTES);
+  const existingNote = String(noteCell.getValue() || '').trim();
+  const entry = '[' + ts + ' ' + who + ']: Booked ' + speakerName + (p.mainTopic ? ' — ' + p.mainTopic : '');
+  noteCell.setValue(existingNote ? entry + '\n' + existingNote : entry);
+
+  // Also log a matching Speaker Pipeline card so the board keeps a full history.
+  const evDateRaw = evSheet.getRange(eventsRow, COL.DATE).getValue();
+  const evDate = evDateRaw instanceof Date ? Utilities.formatDate(evDateRaw, tz, 'yyyy-MM-dd') : String(evDateRaw || '');
+  const pSheet = getPipelineSheet_();
+  const pipelineTs = Utilities.formatDate(new Date(), tz, 'M/d/yyyy h:mm a');
+  const row = buildPipelineRow_('manual', {
+    speakerName: speakerName, speakerEmail: p.speakerEmail, speakerPhone: p.speakerPhone,
+    speakerCity: p.speakerCity, topic: p.mainTopic, bio: p.bio, summary: p.summary, speakerRole: 'Main',
+    priority: p.priority,
+  }, p.photoTop || '', pipelineTs);
+  row[CP.STATUS - 1]         = 'scheduled';
+  row[CP.EVENTS_ROW - 1]     = eventsRow;
+  row[CP.TENTATIVE_DATE - 1] = evDate;
+  row[CP.SPEAKER_URL - 1]    = p.speakerUrl  || '';
+  row[CP.INTRODUCER - 1]     = p.introducer  || '';
+  row[CP.PHOTO_BOTTOM - 1]   = p.photoBottom || '';
+  row[CP.UPDATED_BY - 1]     = who;
+  row[CP.NOTES - 1]          = '[' + pipelineTs + ' ' + who + ']: Booked directly to ' + (evDate || 'meeting') + ' (Events row ' + eventsRow + ')';
+  pSheet.appendRow(row);
+
+  recolorRow(evSheet, eventsRow);
+  return getUpcomingEventsForPicker();
+}
+
+// Columns that travel with the speaker on a Move. Deliberately excludes
+// GOOGLE_MEET, the duty columns, and date/time/location — those belong to the
+// meeting slot, not the traveling speaker.
+const SPEAKER_MOVE_COLS = [
+  COL.SPEAKER_ORGANIZER, COL.OPENING_SPEAKER, COL.MAIN_SPEAKER, COL.MAIN_TOPIC,
+  COL.SPEAKER_URL, COL.SUMMARY, COL.PHOTO_TOP, COL.PHOTO_BOTTOM, COL.INTRODUCER,
+  COL.PHOTO_TOP_URL, COL.PHOTO_BOTTOM_URL,
+];
+
+/**
+ * Move a booked speaker from one Meeting row to another: copies
+ * SPEAKER_MOVE_COLS onto toRow, clears them on fromRow, logs an Event Note on
+ * both rows, and repoints any Speaker Pipeline card linked to the vacated row.
+ * Password-gated (KANBAN_PASSWORD).
+ */
+function moveSpeaker(password, fromRow, toRow, editor) {
+  if (!checkPipelinePassword(password)) throw new Error('Not authorized — please log in again.');
+  const evSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!evSheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+
+  fromRow = Number(fromRow); toRow = Number(toRow);
+  if (!fromRow || fromRow < 2 || !toRow || toRow < 2) throw new Error('Invalid meeting row.');
+  if (fromRow === toRow) throw new Error('Choose two different meetings.');
+  [fromRow, toRow].forEach(r => {
+    const type = String(evSheet.getRange(r, COL.EVENT_TYPE).getValue() || '').toLowerCase();
+    if (type !== 'meeting') throw new Error('Row ' + r + ' is not a Meeting.');
+  });
+
+  const speakerName = String(evSheet.getRange(fromRow, COL.MAIN_SPEAKER).getValue() || '').trim();
+  if (!speakerName) throw new Error('That meeting has no speaker to move.');
+
+  const who = String(editor || '').trim() || '?';
+  const ts  = timestamp();
+  const tz  = Session.getScriptTimeZone();
+  const fromDateRaw = evSheet.getRange(fromRow, COL.DATE).getValue();
+  const toDateRaw   = evSheet.getRange(toRow, COL.DATE).getValue();
+  const fromDate = fromDateRaw instanceof Date ? Utilities.formatDate(fromDateRaw, tz, 'MMM d, yyyy') : String(fromDateRaw || '');
+  const toDate   = toDateRaw   instanceof Date ? Utilities.formatDate(toDateRaw,   tz, 'MMM d, yyyy') : String(toDateRaw   || '');
+
+  SPEAKER_MOVE_COLS.forEach(col => {
+    const val = evSheet.getRange(fromRow, col).getValue();
+    evSheet.getRange(toRow, col).setValue(val);
+    evSheet.getRange(fromRow, col).setValue('');
+  });
+
+  evSheet.getRange(fromRow, COL.STATUS).setValue('➡️ Speaker moved by ' + who + ' ' + ts);
+  evSheet.getRange(toRow,   COL.STATUS).setValue('⬅️ Speaker moved by ' + who + ' ' + ts);
+
+  const addNote = (row, text) => {
+    const cell = evSheet.getRange(row, COL.EVENT_NOTES);
+    const existing = String(cell.getValue() || '').trim();
+    const entry = '[' + ts + ' ' + who + ']: ' + text;
+    cell.setValue(existing ? entry + '\n' + existing : entry);
+  };
+  addNote(fromRow, 'Moved ' + speakerName + ' → ' + (toDate || 'another meeting'));
+  addNote(toRow,   'Moved ' + speakerName + ' here ← ' + (fromDate || 'another meeting'));
+
+  // Repoint any pipeline card linked to the vacated meeting (at most one
+  // active card should point at a given Events row).
+  const pRow = findLinkedPipelineRow_(fromRow);
+  if (pRow) {
+    const pSheet = getPipelineSheet_();
+    const toDateIso = toDateRaw instanceof Date ? Utilities.formatDate(toDateRaw, tz, 'yyyy-MM-dd') : String(toDateRaw || '');
+    pSheet.getRange(pRow, CP.EVENTS_ROW).setValue(toRow);
+    if (toDateIso) pSheet.getRange(pRow, CP.TENTATIVE_DATE).setValue(toDateIso);
+    pSheet.getRange(pRow, CP.UPDATED_BY).setValue(who);
+    pSheet.getRange(pRow, CP.UPDATED_AT).setValue(ts);
+    const noteCell = pSheet.getRange(pRow, CP.NOTES);
+    const existing = String(noteCell.getValue() || '').trim();
+    const entry = '[' + ts + ' ' + who + ']: Moved to ' + (toDate || 'another meeting') + ' (Events row ' + toRow + ')';
+    noteCell.setValue(existing ? entry + '\n' + existing : entry);
+  }
+
+  recolorRow(evSheet, fromRow);
+  recolorRow(evSheet, toRow);
+  return getUpcomingEventsForPicker();
+}
+
+/**
+ * Find the Speaker Pipeline row (if any) whose EVENTS_ROW points at the given
+ * Events row. Returns a 1-based sheet row, or null. Shared by
+ * getSpeakerEditDetail / saveSpeakerEdit / clearSpeaker.
+ */
+function findLinkedPipelineRow_(eventsRow) {
+  const pSheet = getPipelineSheet_();
+  const lastPipeRow = pSheet.getLastRow();
+  if (lastPipeRow < 2) return null;
+  const linkCol = pSheet.getRange(2, CP.EVENTS_ROW, lastPipeRow - 1, 1).getValues();
+  for (let i = 0; i < linkCol.length; i++) {
+    if (Number(linkCol[i][0]) === eventsRow) return i + 2;
+  }
+  return null;
+}
+
+/**
+ * Read one Meeting row's speaker/program fields for editing, plus Bio,
+ * Email, Phone, City, and Priority from a linked Speaker Pipeline card (if
+ * one points at this row) — those columns don't exist on the Events sheet.
+ */
+function getSpeakerEditDetail(rowIndex) {
+  const evSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!evSheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+  rowIndex = Number(rowIndex);
+  if (!rowIndex || rowIndex < 2) throw new Error('Invalid meeting row.');
+  const row = evSheet.getRange(rowIndex, 1, 1, NUM_COLS).getValues()[0];
+  const detail = {
+    rowIndex:       rowIndex,
+    mainSpeaker:    String(row[COL.MAIN_SPEAKER - 1]     || ''),
+    mainTopic:      String(row[COL.MAIN_TOPIC - 1]       || ''),
+    openingSpeaker: String(row[COL.OPENING_SPEAKER - 1]  || ''),
+    organizer:      String(row[COL.SPEAKER_ORGANIZER - 1]|| ''),
+    introducer:     String(row[COL.INTRODUCER - 1]       || ''),
+    speakerUrl:     String(row[COL.SPEAKER_URL - 1]      || ''),
+    googleMeet:     String(row[COL.GOOGLE_MEET - 1]      || ''),
+    summary:        String(row[COL.SUMMARY - 1]          || ''),
+    photoTop:       String(row[COL.PHOTO_TOP - 1]        || ''),
+    photoBottom:    String(row[COL.PHOTO_BOTTOM - 1]     || ''),
+    bio: '', speakerEmail: '', speakerPhone: '', speakerCity: '', priority: '',
+    pipelineRow: null,
+  };
+  const pRow = findLinkedPipelineRow_(rowIndex);
+  if (pRow) {
+    const pSheet = getPipelineSheet_();
+    const p = pSheet.getRange(pRow, 1, 1, NUM_PIPE_COLS).getValues()[0];
+    detail.bio          = String(p[CP.BIO - 1]           || '');
+    detail.speakerEmail = String(p[CP.SPEAKER_EMAIL - 1] || '');
+    detail.speakerPhone = String(p[CP.SPEAKER_PHONE - 1] || '');
+    detail.speakerCity  = String(p[CP.SPEAKER_CITY - 1]  || '');
+    detail.priority     = String(p[CP.PRIORITY - 1]      || '');
+    detail.pipelineRow  = pRow;
+  }
+  return detail;
+}
+
+/**
+ * Edit the speaker/program fields on an already-booked Meeting row. Logs an
+ * Event Note, and — if a Speaker Pipeline card's EVENTS_ROW points at this
+ * meeting — pushes the same edits to that card so the two don't drift apart.
+ * Password-gated (KANBAN_PASSWORD).
+ */
+function saveSpeakerEdit(password, eventsRow, speaker, editor) {
+  if (!checkPipelinePassword(password)) throw new Error('Not authorized — please log in again.');
+  const evSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!evSheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+
+  eventsRow = Number(eventsRow);
+  if (!eventsRow || eventsRow < 2) throw new Error('Invalid meeting row.');
+  const type = String(evSheet.getRange(eventsRow, COL.EVENT_TYPE).getValue() || '').toLowerCase();
+  if (type !== 'meeting') throw new Error('That row is not a Meeting.');
+
+  const p = speaker || {};
+  const speakerName = String(p.mainSpeaker || '').trim();
+  if (!speakerName) throw new Error('Main Speaker is required.');
+  const who = String(editor || '').trim() || '?';
+  const ts  = timestamp();
+
+  const set = (col, val) => evSheet.getRange(eventsRow, col).setValue(val);
+  set(COL.MAIN_SPEAKER,      speakerName);
+  set(COL.MAIN_TOPIC,        p.mainTopic      || '');
+  set(COL.OPENING_SPEAKER,   p.openingSpeaker || '');
+  set(COL.SPEAKER_ORGANIZER, p.organizer      || who);
+  set(COL.INTRODUCER,        p.introducer     || '');
+  set(COL.SPEAKER_URL,       p.speakerUrl     || '');
+  set(COL.GOOGLE_MEET,       p.googleMeet     || '');
+  set(COL.SUMMARY,           p.summary || p.bio || '');
+  if (p.photoTop)    set(COL.PHOTO_TOP,    p.photoTop);    // don't clobber an embedded image with a blank
+  if (p.photoBottom) set(COL.PHOTO_BOTTOM, p.photoBottom);
+  set(COL.STATUS, '✏️ Speaker edited by ' + who + ' ' + ts);
+
+  const noteCell = evSheet.getRange(eventsRow, COL.EVENT_NOTES);
+  const existingNote = String(noteCell.getValue() || '').trim();
+  const entry = '[' + ts + ' ' + who + ']: Edited speaker — ' + speakerName + (p.mainTopic ? ' — ' + p.mainTopic : '');
+  noteCell.setValue(existingNote ? entry + '\n' + existingNote : entry);
+
+  const pRow = findLinkedPipelineRow_(eventsRow);
+  if (pRow) {
+    const pSheet = getPipelineSheet_();
+    pSheet.getRange(pRow, CP.SPEAKER_NAME).setValue(speakerName);
+    pSheet.getRange(pRow, CP.TOPIC).setValue(p.mainTopic || '');
+    pSheet.getRange(pRow, CP.BIO).setValue(p.bio || '');
+    pSheet.getRange(pRow, CP.SUMMARY).setValue(p.summary || '');
+    pSheet.getRange(pRow, CP.SPEAKER_URL).setValue(p.speakerUrl || '');
+    pSheet.getRange(pRow, CP.INTRODUCER).setValue(p.introducer || '');
+    pSheet.getRange(pRow, CP.SPEAKER_EMAIL).setValue(p.speakerEmail || '');
+    pSheet.getRange(pRow, CP.SPEAKER_PHONE).setValue(p.speakerPhone || '');
+    pSheet.getRange(pRow, CP.SPEAKER_CITY).setValue(p.speakerCity || '');
+    pSheet.getRange(pRow, CP.PRIORITY).setValue(p.priority || '');
+    if (p.photoTop)    pSheet.getRange(pRow, CP.PHOTO_URL).setValue(p.photoTop);
+    if (p.photoBottom) pSheet.getRange(pRow, CP.PHOTO_BOTTOM).setValue(p.photoBottom);
+    pSheet.getRange(pRow, CP.UPDATED_BY).setValue(who);
+    pSheet.getRange(pRow, CP.UPDATED_AT).setValue(ts);
+    const pNoteCell = pSheet.getRange(pRow, CP.NOTES);
+    const pExisting = String(pNoteCell.getValue() || '').trim();
+    const pEntry = '[' + ts + ' ' + who + ']: Edited via Edit Speaker tool (Events row ' + eventsRow + ')';
+    pNoteCell.setValue(pExisting ? pEntry + '\n' + pExisting : pEntry);
+  }
+
+  recolorRow(evSheet, eventsRow);
+  return getUpcomingEventsForPicker();
+}
+
+/**
+ * Remove a speaker from a Meeting row entirely — blanks SPEAKER_MOVE_COLS
+ * (same field set Move transfers) and logs an Event Note. If a Speaker
+ * Pipeline card is linked, it's unlinked and reverted to 'in-progress' (no
+ * longer scheduled) rather than left pointing at a now-speakerless meeting.
+ * Password-gated (KANBAN_PASSWORD).
+ */
+function clearSpeaker(password, eventsRow, editor) {
+  if (!checkPipelinePassword(password)) throw new Error('Not authorized — please log in again.');
+  const evSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!evSheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+
+  eventsRow = Number(eventsRow);
+  if (!eventsRow || eventsRow < 2) throw new Error('Invalid meeting row.');
+  const type = String(evSheet.getRange(eventsRow, COL.EVENT_TYPE).getValue() || '').toLowerCase();
+  if (type !== 'meeting') throw new Error('That row is not a Meeting.');
+
+  const speakerName = String(evSheet.getRange(eventsRow, COL.MAIN_SPEAKER).getValue() || '').trim();
+  if (!speakerName) throw new Error('That meeting has no speaker to clear.');
+
+  const who = String(editor || '').trim() || '?';
+  const ts  = timestamp();
+
+  SPEAKER_MOVE_COLS.forEach(col => evSheet.getRange(eventsRow, col).setValue(''));
+  evSheet.getRange(eventsRow, COL.STATUS).setValue('🧹 Speaker cleared by ' + who + ' ' + ts);
+
+  const noteCell = evSheet.getRange(eventsRow, COL.EVENT_NOTES);
+  const existingNote = String(noteCell.getValue() || '').trim();
+  const entry = '[' + ts + ' ' + who + ']: Cleared speaker (was ' + speakerName + ')';
+  noteCell.setValue(existingNote ? entry + '\n' + existingNote : entry);
+
+  const pRow = findLinkedPipelineRow_(eventsRow);
+  if (pRow) {
+    const pSheet = getPipelineSheet_();
+    pSheet.getRange(pRow, CP.STATUS).setValue('in-progress');
+    pSheet.getRange(pRow, CP.EVENTS_ROW).setValue('');
+    pSheet.getRange(pRow, CP.UPDATED_BY).setValue(who);
+    pSheet.getRange(pRow, CP.UPDATED_AT).setValue(ts);
+    const pNoteCell = pSheet.getRange(pRow, CP.NOTES);
+    const pExisting = String(pNoteCell.getValue() || '').trim();
+    const pEntry = '[' + ts + ' ' + who + ']: Unbooked from Events row ' + eventsRow + ' — back to In Progress';
+    pNoteCell.setValue(pExisting ? pEntry + '\n' + pExisting : pEntry);
+  }
+
+  recolorRow(evSheet, eventsRow);
+  return getUpcomingEventsForPicker();
+}
+
 function getMemberNames_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ms = ss.getSheetByName('Members');
@@ -4506,6 +4850,620 @@ function deleteCurrent(){
 // ── Data + Auth ───────────────────────────────────────────────
 function loadData(){
   gs('getEventEditorData').then(function(d){DATA=d;fillOptions();render();})
+    .catch(function(err){toast('Load error: '+(err.message||err),true);});
+}
+function doLogin(){
+  var name=document.getElementById('auth-name').value.trim(), pw=document.getElementById('auth-pw').value;
+  if(!name){document.getElementById('auth-err').textContent='Enter your name.';return;}
+  if(!pw){document.getElementById('auth-err').textContent='Enter the password.';return;}
+  gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){localStorage.setItem('pipelinePw',pw);localStorage.setItem('pipelineName',name);currentUser=name;
+      document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;loadData();}
+    else{document.getElementById('auth-err').textContent='Wrong password.';}
+  }).catch(function(err){document.getElementById('auth-err').textContent='Error: '+(err.message||err);});
+}
+function logout(){localStorage.removeItem('pipelinePw');localStorage.removeItem('pipelineName');location.reload();}
+
+window.addEventListener('load',function(){
+  var pw=localStorage.getItem('pipelinePw'), name=localStorage.getItem('pipelineName');
+  if(pw&&name){gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){currentUser=name;document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;loadData();}
+    else{localStorage.removeItem('pipelinePw');}});}
+  document.getElementById('auth-pw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+});
+</script>
+</body>
+</html>`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  BOOK A SPEAKER — WEB APP  (?app=book)
+//  One-step "new speaker + assign to a date" form. Password-gated, shares the
+//  KANBAN_PASSWORD login with the Event Editor / Speaker Pipeline apps.
+// ═══════════════════════════════════════════════════════════════
+function getBookSpeakerHtml() {
+return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLV Rotary — Book a Speaker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#eef1f6;color:#1e293b}
+header{background:linear-gradient(135deg,#17458F,#1a56db);color:#fff;padding:0.7em 1em;display:flex;align-items:center;gap:0.7em;box-shadow:0 2px 6px rgba(0,0,0,0.15)}
+header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
+.hbtn{font-size:0.8em;padding:5px 12px;background:rgba(255,255,255,0.16);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:6px;cursor:pointer;text-decoration:none;white-space:nowrap}
+.hbtn:hover{background:rgba(255,255,255,0.3)}
+#main{max-width:560px;margin:0 auto;padding:0.9em 0.9em 3em}
+#hint{font-size:0.82em;color:#64748b;margin:0 0.1em 1em;line-height:1.45}
+.card{background:#fff;border-radius:11px;padding:1.1em;box-shadow:0 1px 3px rgba(0,0,0,0.07)}
+.fld{margin-bottom:0.85em}
+.fld label{display:block;font-size:0.74em;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:#475569;margin-bottom:4px}
+.fld input,.fld select,.fld textarea{width:100%;padding:9px 11px;border:1px solid #cfd6e4;border-radius:8px;font-size:0.95em;font-family:inherit;background:#fff;color:#1e293b}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:#1a56db;box-shadow:0 0 0 3px rgba(26,86,219,0.12)}
+.fld textarea{resize:vertical;min-height:80px}
+.fld-row{display:flex;gap:0.7em}
+.fld-row .fld{flex:1}
+.section-hd{font-weight:700;color:#17458F;font-size:0.78em;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin:1.2em 0 0.6em}
+.taken-flag{color:#b45309;font-weight:600}
+.btn{border:none;border-radius:8px;padding:11px 18px;font-size:0.95em;font-weight:700;cursor:pointer;width:100%;margin-top:0.4em}
+.btn-save{background:#16a34a;color:#fff}
+.btn-save:hover{background:#15803d}
+.btn-save:disabled{background:#9ca3af;cursor:default}
+#toast{position:fixed;bottom:1.3em;left:50%;transform:translateX(-50%) translateY(160%);background:#1e293b;color:#fff;padding:11px 22px;border-radius:10px;font-size:0.9em;z-index:80;transition:transform .25s;box-shadow:0 4px 16px rgba(0,0,0,0.25)}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#toast.err{background:#b91c1c}
+#auth{position:fixed;inset:0;background:#17458F;display:flex;align-items:center;justify-content:center;z-index:200}
+.auth-box{background:#fff;border-radius:12px;padding:2em;width:300px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.3)}
+.auth-box h2{color:#17458F;margin-bottom:1em;font-size:1.1em}
+.auth-box input{width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;margin-bottom:0.6em;font-size:0.95em}
+.auth-box button{background:#17458F;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:0.95em;width:100%}
+.auth-err{color:#b91c1c;font-size:0.85em;margin-top:0.4em;min-height:1em}
+</style>
+</head>
+<body>
+
+<div id="auth">
+  <div class="auth-box">
+    <h2>🎤 SLV Rotary<br>Book a Speaker</h2>
+    <input type="text" id="auth-name" placeholder="Your name" autocomplete="name">
+    <input type="password" id="auth-pw" placeholder="Password">
+    <button onclick="doLogin()">Enter</button>
+    <div class="auth-err" id="auth-err"></div>
+  </div>
+</div>
+
+<header>
+  <h1>🎤 Book a Speaker</h1>
+  <span id="hdr-user" style="font-size:0.85em;opacity:0.85"></span>
+  <a class="hbtn" href="__EXEC_URL__" target="_top">Duty Editor →</a>
+  <button class="hbtn" onclick="logout()">Logout</button>
+</header>
+
+<div id="main">
+  <p id="hint">Enter a new speaker and put them on an upcoming meeting date, in one step. Photos are optional. Booking also drops a card on the Speaker Pipeline board so its history stays complete.</p>
+  <div class="card">
+    <div class="fld"><label>Meeting Date</label><select id="f-meeting" onchange="meetingChanged()"></select></div>
+    <div class="fld"><label>Main Speaker</label><input type="text" id="f-name" placeholder="Speaker's full name"></div>
+    <div class="fld"><label>Topic</label><input type="text" id="f-topic" placeholder="Program title"></div>
+    <div class="fld"><label>Opening Speaker <span style="text-transform:none;font-weight:400">(optional, usually blank)</span></label><input type="text" id="f-opening" placeholder="Invocation / opening thought"></div>
+    <div class="fld-row">
+      <div class="fld"><label>Organizer</label><input type="text" id="f-organizer" placeholder="Who booked this speaker"></div>
+      <div class="fld"><label>Introducer</label><input type="text" id="f-introducer" placeholder="Who introduces them"></div>
+    </div>
+    <div class="fld"><label>Speaker URL <span style="text-transform:none;font-weight:400">(optional)</span></label><input type="url" id="f-url" placeholder="https://…"></div>
+    <div class="fld"><label>Google Meet Link <span style="text-transform:none;font-weight:400">(optional)</span></label><input type="url" id="f-meet" placeholder="https://meet.google.com/…"></div>
+    <div class="fld"><label>Brief Bio <span style="text-transform:none;font-weight:400">(who are they and why would members enjoy this?)</span></label><textarea id="f-bio" placeholder="A sentence or two about the speaker"></textarea></div>
+    <div class="fld"><label>Summary <span style="text-transform:none;font-weight:400">(one to several sentences describing the topic, for the newsletter)</span></label><textarea id="f-summary" placeholder="What they'll speak about"></textarea></div>
+    <div class="fld"><label>Top Photo <span style="text-transform:none;font-weight:400">(optional)</span></label>
+      <input type="url" id="f-photo-top" placeholder="https://… or upload below" oninput="showPrev('f-photo-top')">
+      <input type="file" accept="image/*" style="margin-top:6px;font-size:0.85em" onchange="uploadPhoto(this,'f-photo-top')">
+      <div id="f-photo-top-prev" style="margin-top:6px"></div>
+    </div>
+    <div class="fld"><label>Bottom Photo <span style="text-transform:none;font-weight:400">(optional)</span></label>
+      <input type="url" id="f-photo-bottom" placeholder="https://… or upload below" oninput="showPrev('f-photo-bottom')">
+      <input type="file" accept="image/*" style="margin-top:6px;font-size:0.85em" onchange="uploadPhoto(this,'f-photo-bottom')">
+      <div id="f-photo-bottom-prev" style="margin-top:6px"></div>
+    </div>
+
+    <div class="section-hd">Speaker Pipeline card (optional)</div>
+    <div class="fld-row">
+      <div class="fld"><label>Email</label><input type="email" id="f-email" placeholder="speaker@example.com"></div>
+      <div class="fld"><label>Phone</label><input type="text" id="f-phone" placeholder="(555) 555-5555"></div>
+    </div>
+    <div class="fld-row">
+      <div class="fld"><label>City</label><input type="text" id="f-city" placeholder="Speaker's city"></div>
+      <div class="fld"><label>Priority</label><select id="f-priority"><option value="">—</option><option>Low</option><option>Medium</option><option>High</option></select></div>
+    </div>
+
+    <button class="btn btn-save" id="btn-save" onclick="submitBooking()">Book Speaker</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+var MEETINGS=[], currentUser='';
+
+function gs(fn,arg){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](arg);});}
+function gs4(fn,a,b,c,d){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c,d);});}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function getV(id){return document.getElementById(id).value;}
+function setV(id,v){document.getElementById(id).value=(v==null?'':v);}
+function toast(msg,err){var t=document.getElementById('toast');t.textContent=msg;t.className=err?'show err':'show';clearTimeout(window._tt);window._tt=setTimeout(function(){t.className='';},2600);}
+function busy(b){var s=document.getElementById('btn-save');s.disabled=b;s.textContent=b?'Booking…':'Book Speaker';}
+function driveThumb(u,size){if(!u)return'';var id='',i=u.indexOf('id=');if(i>=0){id=u.substring(i+3).split('&')[0];}else{var j=u.indexOf('/d/');if(j>=0)id=u.substring(j+3).split('/')[0];}return id?'https://drive.google.com/thumbnail?id='+id+'&sz=w'+(size||200):u;}
+function showPrev(id){var v=getV(id),prev=document.getElementById(id+'-prev');if(!prev)return;prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(driveThumb(v,250))+'" style="max-width:150px;max-height:150px;border-radius:8px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';}
+function uploadPhoto(input,targetId){
+  var file=input.files[0]; if(!file)return;
+  var prev=document.getElementById(targetId+'-prev');
+  if(file.size>8*1024*1024){prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Image too large (max 8 MB)</span>';input.value='';return;}
+  prev.innerHTML='<span style="font-size:0.8em;color:#64748b">Uploading…</span>';
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    var speakerName=getV('f-name')||'speaker';
+    google.script.run.withSuccessHandler(function(res){setV(targetId,res.url);showPrev(targetId);})
+      .withFailureHandler(function(e){prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Upload failed: '+(e.message||e)+'</span>';})
+      .uploadPipelinePhoto(ev.target.result,file.name,speakerName);
+  };
+  reader.readAsDataURL(file);
+}
+
+function meetingLabel(m){
+  return m.dateLabel+(m.time?' · '+m.time:'')+(m.available?'':' — has speaker: '+m.mainSpeaker);
+}
+function fillMeetings(){
+  var sel=document.getElementById('f-meeting'); sel.innerHTML='';
+  if(!MEETINGS.length){sel.innerHTML='<option value="">No upcoming meetings found</option>';return;}
+  MEETINGS.forEach(function(m){
+    var o=document.createElement('option'); o.value=m.rowIndex; o.textContent=meetingLabel(m);
+    sel.appendChild(o);
+  });
+}
+function meetingChanged(){} // reserved for future inline preview
+
+function submitBooking(){
+  var rowIndex=Number(getV('f-meeting'));
+  if(!rowIndex){toast('Choose a meeting date',true);return;}
+  var name=getV('f-name').trim();
+  if(!name){toast('Main Speaker is required',true);return;}
+  var m=null; for(var i=0;i<MEETINGS.length;i++){if(MEETINGS[i].rowIndex===rowIndex){m=MEETINGS[i];break;}}
+  if(m&&!m.available){
+    if(!confirm('This meeting already has a speaker (' + m.mainSpeaker + '). Booking will overwrite it. Continue?')) return;
+  }
+  var speaker={
+    mainSpeaker:name, mainTopic:getV('f-topic'), openingSpeaker:getV('f-opening'),
+    organizer:getV('f-organizer'), introducer:getV('f-introducer'), speakerUrl:getV('f-url'),
+    googleMeet:getV('f-meet'), bio:getV('f-bio'), summary:getV('f-summary'),
+    photoTop:getV('f-photo-top'), photoBottom:getV('f-photo-bottom'),
+    speakerEmail:getV('f-email'), speakerPhone:getV('f-phone'), speakerCity:getV('f-city'),
+    priority:getV('f-priority'),
+  };
+  var pw=localStorage.getItem('pipelinePw')||'';
+  busy(true);
+  gs4('bookSpeaker',pw,rowIndex,speaker,currentUser).then(function(meetings){
+    MEETINGS=meetings; fillMeetings(); busy(false);
+    toast('Booked ' + name + ' ✓');
+    setV('f-name',''); setV('f-topic',''); setV('f-opening',''); setV('f-organizer',currentUser);
+    setV('f-introducer',''); setV('f-url',''); setV('f-meet',''); setV('f-bio',''); setV('f-summary','');
+    setV('f-photo-top',''); setV('f-photo-bottom',''); setV('f-email',''); setV('f-phone','');
+    setV('f-city',''); setV('f-priority','');
+    showPrev('f-photo-top'); showPrev('f-photo-bottom');
+  }).catch(function(err){busy(false);toast('Error: '+(err.message||err),true);});
+}
+
+// ── Data + Auth ───────────────────────────────────────────────
+function loadData(){
+  gs('getUpcomingEventsForPicker',null).then(function(m){MEETINGS=m;fillMeetings();})
+    .catch(function(err){toast('Load error: '+(err.message||err),true);});
+}
+function doLogin(){
+  var name=document.getElementById('auth-name').value.trim(), pw=document.getElementById('auth-pw').value;
+  if(!name){document.getElementById('auth-err').textContent='Enter your name.';return;}
+  if(!pw){document.getElementById('auth-err').textContent='Enter the password.';return;}
+  gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){localStorage.setItem('pipelinePw',pw);localStorage.setItem('pipelineName',name);currentUser=name;
+      setV('f-organizer',name);
+      document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;loadData();}
+    else{document.getElementById('auth-err').textContent='Wrong password.';}
+  }).catch(function(err){document.getElementById('auth-err').textContent='Error: '+(err.message||err);});
+}
+function logout(){localStorage.removeItem('pipelinePw');localStorage.removeItem('pipelineName');location.reload();}
+
+window.addEventListener('load',function(){
+  var pw=localStorage.getItem('pipelinePw'), name=localStorage.getItem('pipelineName');
+  if(pw&&name){gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){currentUser=name;document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;setV('f-organizer',name);loadData();}
+    else{localStorage.removeItem('pipelinePw');}});}
+  document.getElementById('auth-pw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+});
+</script>
+</body>
+</html>`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  MOVE A SPEAKER — WEB APP  (?app=move)
+//  Shuffle an already-booked speaker from one meeting date to another.
+//  Password-gated, shares the KANBAN_PASSWORD login.
+// ═══════════════════════════════════════════════════════════════
+function getMoveSpeakerHtml() {
+return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLV Rotary — Move a Speaker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#eef1f6;color:#1e293b}
+header{background:linear-gradient(135deg,#17458F,#1a56db);color:#fff;padding:0.7em 1em;display:flex;align-items:center;gap:0.7em;box-shadow:0 2px 6px rgba(0,0,0,0.15)}
+header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
+.hbtn{font-size:0.8em;padding:5px 12px;background:rgba(255,255,255,0.16);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:6px;cursor:pointer;text-decoration:none;white-space:nowrap}
+.hbtn:hover{background:rgba(255,255,255,0.3)}
+#main{max-width:520px;margin:0 auto;padding:0.9em 0.9em 3em}
+#hint{font-size:0.82em;color:#64748b;margin:0 0.1em 1em;line-height:1.45}
+.card{background:#fff;border-radius:11px;padding:1.1em;box-shadow:0 1px 3px rgba(0,0,0,0.07)}
+.fld{margin-bottom:0.85em}
+.fld label{display:block;font-size:0.74em;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:#475569;margin-bottom:4px}
+.fld select{width:100%;padding:9px 11px;border:1px solid #cfd6e4;border-radius:8px;font-size:0.95em;font-family:inherit;background:#fff;color:#1e293b}
+.fld select:focus{outline:none;border-color:#1a56db;box-shadow:0 0 0 3px rgba(26,86,219,0.12)}
+#preview{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:0.7em 0.9em;font-size:0.9em;color:#334155;margin:0.6em 0 1em;line-height:1.5}
+#preview b{color:#17458F}
+.empty{color:#94a3b8;font-style:italic}
+.btn{border:none;border-radius:8px;padding:11px 18px;font-size:0.95em;font-weight:700;cursor:pointer;width:100%;margin-top:0.4em}
+.btn-save{background:#16a34a;color:#fff}
+.btn-save:hover{background:#15803d}
+.btn-save:disabled{background:#9ca3af;cursor:default}
+#toast{position:fixed;bottom:1.3em;left:50%;transform:translateX(-50%) translateY(160%);background:#1e293b;color:#fff;padding:11px 22px;border-radius:10px;font-size:0.9em;z-index:80;transition:transform .25s;box-shadow:0 4px 16px rgba(0,0,0,0.25)}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#toast.err{background:#b91c1c}
+#auth{position:fixed;inset:0;background:#17458F;display:flex;align-items:center;justify-content:center;z-index:200}
+.auth-box{background:#fff;border-radius:12px;padding:2em;width:300px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.3)}
+.auth-box h2{color:#17458F;margin-bottom:1em;font-size:1.1em}
+.auth-box input{width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;margin-bottom:0.6em;font-size:0.95em}
+.auth-box button{background:#17458F;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:0.95em;width:100%}
+.auth-err{color:#b91c1c;font-size:0.85em;margin-top:0.4em;min-height:1em}
+</style>
+</head>
+<body>
+
+<div id="auth">
+  <div class="auth-box">
+    <h2>↔️ SLV Rotary<br>Move a Speaker</h2>
+    <input type="text" id="auth-name" placeholder="Your name" autocomplete="name">
+    <input type="password" id="auth-pw" placeholder="Password">
+    <button onclick="doLogin()">Enter</button>
+    <div class="auth-err" id="auth-err"></div>
+  </div>
+</div>
+
+<header>
+  <h1>↔️ Move a Speaker</h1>
+  <span id="hdr-user" style="font-size:0.85em;opacity:0.85"></span>
+  <a class="hbtn" href="__EXEC_URL__" target="_top">Duty Editor →</a>
+  <button class="hbtn" onclick="logout()">Logout</button>
+</header>
+
+<div id="main">
+  <p id="hint">Move a booked speaker from one meeting date to another. Both meetings get a note logged automatically; a linked Speaker Pipeline card (if any) follows the speaker to the new date.</p>
+  <div class="card">
+    <div class="fld"><label>Move From</label><select id="f-from" onchange="renderPreview()"></select></div>
+    <div class="fld"><label>Move To</label><select id="f-to" onchange="renderPreview()"></select></div>
+    <div id="preview"></div>
+    <button class="btn btn-save" id="btn-save" onclick="submitMove()">Move Speaker</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+var MEETINGS=[], currentUser='';
+
+function gs(fn,arg){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](arg);});}
+function gs4(fn,a,b,c,d){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c,d);});}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function getV(id){return document.getElementById(id).value;}
+function toast(msg,err){var t=document.getElementById('toast');t.textContent=msg;t.className=err?'show err':'show';clearTimeout(window._tt);window._tt=setTimeout(function(){t.className='';},2600);}
+function busy(b){var s=document.getElementById('btn-save');s.disabled=b;s.textContent=b?'Moving…':'Move Speaker';}
+
+function meetingLabel(m){
+  return m.dateLabel+(m.time?' · '+m.time:'')+(m.available?'':' — '+m.mainSpeaker);
+}
+function fillMeetings(){
+  var from=document.getElementById('f-from'), to=document.getElementById('f-to');
+  from.innerHTML=''; to.innerHTML='';
+  var booked=MEETINGS.filter(function(m){return !m.available;});
+  if(!booked.length){from.innerHTML='<option value="">No booked meetings found</option>';}
+  booked.forEach(function(m){var o=document.createElement('option');o.value=m.rowIndex;o.textContent=meetingLabel(m);from.appendChild(o);});
+  if(!MEETINGS.length){to.innerHTML='<option value="">No upcoming meetings found</option>';}
+  MEETINGS.forEach(function(m){var o=document.createElement('option');o.value=m.rowIndex;o.textContent=meetingLabel(m);to.appendChild(o);});
+  renderPreview();
+}
+function findMeeting(rowIndex){for(var i=0;i<MEETINGS.length;i++){if(MEETINGS[i].rowIndex===rowIndex)return MEETINGS[i];}return null;}
+function renderPreview(){
+  var p=document.getElementById('preview');
+  var from=findMeeting(Number(getV('f-from'))), to=findMeeting(Number(getV('f-to')));
+  if(!from){p.innerHTML='<span class="empty">Pick a meeting to move from.</span>';return;}
+  var html='Moving <b>'+esc(from.mainSpeaker)+'</b>'+(from.mainTopic?' — '+esc(from.mainTopic):'')+' from <b>'+esc(from.dateLabel)+'</b>';
+  if(to){
+    html+=' to <b>'+esc(to.dateLabel)+'</b>';
+    if(!to.available) html+='<br><span style="color:#b45309;font-weight:600">This will overwrite the existing speaker: '+esc(to.mainSpeaker)+'</span>';
+  }
+  p.innerHTML=html;
+}
+
+function submitMove(){
+  var fromRow=Number(getV('f-from')), toRow=Number(getV('f-to'));
+  if(!fromRow){toast('Choose a meeting to move from',true);return;}
+  if(!toRow){toast('Choose a meeting to move to',true);return;}
+  if(fromRow===toRow){toast('Choose two different meetings',true);return;}
+  var to=findMeeting(toRow);
+  if(to&&!to.available){
+    if(!confirm('This will overwrite the speaker already on '+to.dateLabel+' ('+to.mainSpeaker+'). Continue?')) return;
+  }
+  var pw=localStorage.getItem('pipelinePw')||'';
+  busy(true);
+  gs4('moveSpeaker',pw,fromRow,toRow,currentUser).then(function(meetings){
+    MEETINGS=meetings; fillMeetings(); busy(false);
+    toast('Speaker moved ✓');
+  }).catch(function(err){busy(false);toast('Error: '+(err.message||err),true);});
+}
+
+// ── Data + Auth ───────────────────────────────────────────────
+function loadData(){
+  gs('getUpcomingEventsForPicker',null).then(function(m){MEETINGS=m;fillMeetings();})
+    .catch(function(err){toast('Load error: '+(err.message||err),true);});
+}
+function doLogin(){
+  var name=document.getElementById('auth-name').value.trim(), pw=document.getElementById('auth-pw').value;
+  if(!name){document.getElementById('auth-err').textContent='Enter your name.';return;}
+  if(!pw){document.getElementById('auth-err').textContent='Enter the password.';return;}
+  gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){localStorage.setItem('pipelinePw',pw);localStorage.setItem('pipelineName',name);currentUser=name;
+      document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;loadData();}
+    else{document.getElementById('auth-err').textContent='Wrong password.';}
+  }).catch(function(err){document.getElementById('auth-err').textContent='Error: '+(err.message||err);});
+}
+function logout(){localStorage.removeItem('pipelinePw');localStorage.removeItem('pipelineName');location.reload();}
+
+window.addEventListener('load',function(){
+  var pw=localStorage.getItem('pipelinePw'), name=localStorage.getItem('pipelineName');
+  if(pw&&name){gs('checkPipelinePassword',pw).then(function(ok){
+    if(ok){currentUser=name;document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;loadData();}
+    else{localStorage.removeItem('pipelinePw');}});}
+  document.getElementById('auth-pw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+});
+</script>
+</body>
+</html>`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  EDIT A SPEAKER — WEB APP  (?app=edit)
+//  Fix up the details of a speaker already booked onto a meeting — simpler
+//  than reopening the full Event Editor. Password-gated, shares the
+//  KANBAN_PASSWORD login. Includes a Clear Speaker button to unbook one.
+// ═══════════════════════════════════════════════════════════════
+function getEditSpeakerHtml() {
+return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLV Rotary — Edit a Speaker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#eef1f6;color:#1e293b}
+header{background:linear-gradient(135deg,#17458F,#1a56db);color:#fff;padding:0.7em 1em;display:flex;align-items:center;gap:0.7em;box-shadow:0 2px 6px rgba(0,0,0,0.15)}
+header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
+.hbtn{font-size:0.8em;padding:5px 12px;background:rgba(255,255,255,0.16);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:6px;cursor:pointer;text-decoration:none;white-space:nowrap}
+.hbtn:hover{background:rgba(255,255,255,0.3)}
+#main{max-width:560px;margin:0 auto;padding:0.9em 0.9em 3em}
+#hint{font-size:0.82em;color:#64748b;margin:0 0.1em 1em;line-height:1.45}
+.card{background:#fff;border-radius:11px;padding:1.1em;box-shadow:0 1px 3px rgba(0,0,0,0.07)}
+.fld{margin-bottom:0.85em}
+.fld label{display:block;font-size:0.74em;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:#475569;margin-bottom:4px}
+.fld input,.fld select,.fld textarea{width:100%;padding:9px 11px;border:1px solid #cfd6e4;border-radius:8px;font-size:0.95em;font-family:inherit;background:#fff;color:#1e293b}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:#1a56db;box-shadow:0 0 0 3px rgba(26,86,219,0.12)}
+.fld textarea{resize:vertical;min-height:80px}
+.fld-row{display:flex;gap:0.7em}
+.fld-row .fld{flex:1}
+.section-hd{font-weight:700;color:#17458F;font-size:0.78em;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin:1.2em 0 0.6em}
+.empty{color:#94a3b8;font-style:italic;padding:0.6em 0;font-size:0.9em}
+.btn{border:none;border-radius:8px;padding:11px 18px;font-size:0.95em;font-weight:700;cursor:pointer;width:100%;margin-top:0.4em}
+.btn-save{background:#16a34a;color:#fff}
+.btn-save:hover{background:#15803d}
+.btn-save:disabled{background:#9ca3af;cursor:default}
+.btn-clear{background:#fff;color:#dc2626;border:1px solid #fca5a5}
+.btn-clear:hover{background:#fef2f2}
+#toast{position:fixed;bottom:1.3em;left:50%;transform:translateX(-50%) translateY(160%);background:#1e293b;color:#fff;padding:11px 22px;border-radius:10px;font-size:0.9em;z-index:80;transition:transform .25s;box-shadow:0 4px 16px rgba(0,0,0,0.25)}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#toast.err{background:#b91c1c}
+#auth{position:fixed;inset:0;background:#17458F;display:flex;align-items:center;justify-content:center;z-index:200}
+.auth-box{background:#fff;border-radius:12px;padding:2em;width:300px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.3)}
+.auth-box h2{color:#17458F;margin-bottom:1em;font-size:1.1em}
+.auth-box input{width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;margin-bottom:0.6em;font-size:0.95em}
+.auth-box button{background:#17458F;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:0.95em;width:100%}
+.auth-err{color:#b91c1c;font-size:0.85em;margin-top:0.4em;min-height:1em}
+</style>
+</head>
+<body>
+
+<div id="auth">
+  <div class="auth-box">
+    <h2>✏️ SLV Rotary<br>Edit a Speaker</h2>
+    <input type="text" id="auth-name" placeholder="Your name" autocomplete="name">
+    <input type="password" id="auth-pw" placeholder="Password">
+    <button onclick="doLogin()">Enter</button>
+    <div class="auth-err" id="auth-err"></div>
+  </div>
+</div>
+
+<header>
+  <h1>✏️ Edit a Speaker</h1>
+  <span id="hdr-user" style="font-size:0.85em;opacity:0.85"></span>
+  <a class="hbtn" href="__EXEC_URL__" target="_top">Duty Editor →</a>
+  <button class="hbtn" onclick="logout()">Logout</button>
+</header>
+
+<div id="main">
+  <p id="hint">Pick a meeting to fix up its speaker's details — name, topic, bio, photos, and so on. If the speaker fell through, use Clear Speaker to remove them from the meeting.</p>
+  <div class="card">
+    <div class="fld"><label>Meeting</label><select id="f-meeting" onchange="meetingChanged()"></select></div>
+    <div id="form-fields" style="display:none">
+      <div class="fld"><label>Main Speaker</label><input type="text" id="f-name" placeholder="Speaker's full name"></div>
+      <div class="fld"><label>Topic</label><input type="text" id="f-topic" placeholder="Program title"></div>
+      <div class="fld"><label>Opening Speaker <span style="text-transform:none;font-weight:400">(optional, usually blank)</span></label><input type="text" id="f-opening" placeholder="Invocation / opening thought"></div>
+      <div class="fld-row">
+        <div class="fld"><label>Organizer</label><input type="text" id="f-organizer" placeholder="Who booked this speaker"></div>
+        <div class="fld"><label>Introducer</label><input type="text" id="f-introducer" placeholder="Who introduces them"></div>
+      </div>
+      <div class="fld"><label>Speaker URL <span style="text-transform:none;font-weight:400">(optional)</span></label><input type="url" id="f-url" placeholder="https://…"></div>
+      <div class="fld"><label>Google Meet Link <span style="text-transform:none;font-weight:400">(optional)</span></label><input type="url" id="f-meet" placeholder="https://meet.google.com/…"></div>
+      <div class="fld"><label>Brief Bio <span style="text-transform:none;font-weight:400">(who are they and why would members enjoy this?)</span></label><textarea id="f-bio" placeholder="A sentence or two about the speaker"></textarea></div>
+      <div class="fld"><label>Summary <span style="text-transform:none;font-weight:400">(one to several sentences describing the topic, for the newsletter)</span></label><textarea id="f-summary" placeholder="What they'll speak about"></textarea></div>
+      <div class="fld"><label>Top Photo <span style="text-transform:none;font-weight:400">(optional)</span></label>
+        <input type="url" id="f-photo-top" placeholder="https://… or upload below" oninput="showPrev('f-photo-top')">
+        <input type="file" accept="image/*" style="margin-top:6px;font-size:0.85em" onchange="uploadPhoto(this,'f-photo-top')">
+        <div id="f-photo-top-prev" style="margin-top:6px"></div>
+      </div>
+      <div class="fld"><label>Bottom Photo <span style="text-transform:none;font-weight:400">(optional)</span></label>
+        <input type="url" id="f-photo-bottom" placeholder="https://… or upload below" oninput="showPrev('f-photo-bottom')">
+        <input type="file" accept="image/*" style="margin-top:6px;font-size:0.85em" onchange="uploadPhoto(this,'f-photo-bottom')">
+        <div id="f-photo-bottom-prev" style="margin-top:6px"></div>
+      </div>
+
+      <div class="section-hd">Speaker Pipeline card <span style="text-transform:none;font-weight:400;color:#94a3b8" id="pipeline-hint"></span></div>
+      <div class="fld-row">
+        <div class="fld"><label>Email</label><input type="email" id="f-email" placeholder="speaker@example.com"></div>
+        <div class="fld"><label>Phone</label><input type="text" id="f-phone" placeholder="(555) 555-5555"></div>
+      </div>
+      <div class="fld-row">
+        <div class="fld"><label>City</label><input type="text" id="f-city" placeholder="Speaker's city"></div>
+        <div class="fld"><label>Priority</label><select id="f-priority"><option value="">—</option><option>Low</option><option>Medium</option><option>High</option></select></div>
+      </div>
+
+      <button class="btn btn-save" id="btn-save" onclick="submitEdit()">Save Changes</button>
+      <button class="btn btn-clear" id="btn-clear" onclick="submitClear()">Clear Speaker</button>
+    </div>
+    <div id="no-meeting" class="empty">No booked meetings found.</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+var MEETINGS=[], currentUser='';
+
+function gs(fn,arg){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](arg);});}
+function gs3(fn,a,b,c){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c);});}
+function gs4(fn,a,b,c,d){return new Promise(function(ok,fail){google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](a,b,c,d);});}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function getV(id){return document.getElementById(id).value;}
+function setV(id,v){document.getElementById(id).value=(v==null?'':v);}
+function toast(msg,err){var t=document.getElementById('toast');t.textContent=msg;t.className=err?'show err':'show';clearTimeout(window._tt);window._tt=setTimeout(function(){t.className='';},2600);}
+function busy(b){var s=document.getElementById('btn-save');s.disabled=b;s.textContent=b?'Saving…':'Save Changes';}
+function driveThumb(u,size){if(!u)return'';var id='',i=u.indexOf('id=');if(i>=0){id=u.substring(i+3).split('&')[0];}else{var j=u.indexOf('/d/');if(j>=0)id=u.substring(j+3).split('/')[0];}return id?'https://drive.google.com/thumbnail?id='+id+'&sz=w'+(size||200):u;}
+function showPrev(id){var v=getV(id),prev=document.getElementById(id+'-prev');if(!prev)return;prev.innerHTML=(v&&v.indexOf('http')===0)?'<img src="'+esc(driveThumb(v,250))+'" style="max-width:150px;max-height:150px;border-radius:8px;border:1px solid #ddd" onerror="this.style.display=&#39;none&#39;">':'';}
+function uploadPhoto(input,targetId){
+  var file=input.files[0]; if(!file)return;
+  var prev=document.getElementById(targetId+'-prev');
+  if(file.size>8*1024*1024){prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Image too large (max 8 MB)</span>';input.value='';return;}
+  prev.innerHTML='<span style="font-size:0.8em;color:#64748b">Uploading…</span>';
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    var speakerName=getV('f-name')||'speaker';
+    google.script.run.withSuccessHandler(function(res){setV(targetId,res.url);showPrev(targetId);})
+      .withFailureHandler(function(e){prev.innerHTML='<span style="font-size:0.8em;color:#b91c1c">Upload failed: '+(e.message||e)+'</span>';})
+      .uploadPipelinePhoto(ev.target.result,file.name,speakerName);
+  };
+  reader.readAsDataURL(file);
+}
+
+function meetingLabel(m){
+  return m.dateLabel+(m.time?' · '+m.time:'')+' — '+(m.mainSpeaker||'?');
+}
+function fillMeetings(){
+  var sel=document.getElementById('f-meeting');
+  var booked=MEETINGS.filter(function(m){return !m.available;});
+  sel.innerHTML='';
+  if(!booked.length){
+    document.getElementById('form-fields').style.display='none';
+    document.getElementById('no-meeting').style.display='';
+    sel.innerHTML='<option value="">No booked meetings found</option>';
+    return;
+  }
+  document.getElementById('no-meeting').style.display='none';
+  document.getElementById('form-fields').style.display='';
+  booked.forEach(function(m){
+    var o=document.createElement('option'); o.value=m.rowIndex; o.textContent=meetingLabel(m);
+    sel.appendChild(o);
+  });
+  loadDetail(Number(sel.value));
+}
+function meetingChanged(){ loadDetail(Number(getV('f-meeting'))); }
+
+function loadDetail(rowIndex){
+  if(!rowIndex)return;
+  gs('getSpeakerEditDetail',rowIndex).then(function(d){
+    setV('f-name',d.mainSpeaker); setV('f-topic',d.mainTopic); setV('f-opening',d.openingSpeaker);
+    setV('f-organizer',d.organizer); setV('f-introducer',d.introducer); setV('f-url',d.speakerUrl);
+    setV('f-meet',d.googleMeet); setV('f-bio',d.bio); setV('f-summary',d.summary);
+    setV('f-photo-top',d.photoTop); setV('f-photo-bottom',d.photoBottom);
+    setV('f-email',d.speakerEmail); setV('f-phone',d.speakerPhone); setV('f-city',d.speakerCity);
+    setV('f-priority',d.priority);
+    showPrev('f-photo-top'); showPrev('f-photo-bottom');
+    document.getElementById('pipeline-hint').textContent = d.pipelineRow
+      ? '(linked — these sync to the pipeline card)'
+      : '(no linked pipeline card — these are ignored)';
+  }).catch(function(err){toast('Load error: '+(err.message||err),true);});
+}
+
+function submitEdit(){
+  var rowIndex=Number(getV('f-meeting'));
+  if(!rowIndex){toast('Choose a meeting',true);return;}
+  var name=getV('f-name').trim();
+  if(!name){toast('Main Speaker is required',true);return;}
+  var speaker={
+    mainSpeaker:name, mainTopic:getV('f-topic'), openingSpeaker:getV('f-opening'),
+    organizer:getV('f-organizer'), introducer:getV('f-introducer'), speakerUrl:getV('f-url'),
+    googleMeet:getV('f-meet'), bio:getV('f-bio'), summary:getV('f-summary'),
+    photoTop:getV('f-photo-top'), photoBottom:getV('f-photo-bottom'),
+    speakerEmail:getV('f-email'), speakerPhone:getV('f-phone'), speakerCity:getV('f-city'),
+    priority:getV('f-priority'),
+  };
+  var pw=localStorage.getItem('pipelinePw')||'';
+  busy(true);
+  gs4('saveSpeakerEdit',pw,rowIndex,speaker,currentUser).then(function(meetings){
+    MEETINGS=meetings; busy(false);
+    toast('Saved ✓');
+    fillMeetings();
+    document.getElementById('f-meeting').value=rowIndex;
+    loadDetail(rowIndex);
+  }).catch(function(err){busy(false);toast('Error: '+(err.message||err),true);});
+}
+
+function submitClear(){
+  var rowIndex=Number(getV('f-meeting'));
+  if(!rowIndex){toast('Choose a meeting',true);return;}
+  var name=getV('f-name')||'this speaker';
+  if(!confirm('Remove ' + name + ' from this meeting? This clears the speaker fields; the meeting itself stays on the calendar.')) return;
+  var pw=localStorage.getItem('pipelinePw')||'';
+  gs3('clearSpeaker',pw,rowIndex,currentUser).then(function(meetings){
+    MEETINGS=meetings;
+    toast('Speaker cleared ✓');
+    fillMeetings();
+  }).catch(function(err){toast('Error: '+(err.message||err),true);});
+}
+
+// ── Data + Auth ───────────────────────────────────────────────
+function loadData(){
+  gs('getUpcomingEventsForPicker',null).then(function(m){MEETINGS=m;fillMeetings();})
     .catch(function(err){toast('Load error: '+(err.message||err),true);});
 }
 function doLogin(){

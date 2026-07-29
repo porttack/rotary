@@ -121,6 +121,9 @@ flowchart LR
     doGet -->|"?app=assistant"| Assist["getCalendarAssistantHtml()\nCalendar Assistant"]
     doGet -->|"?app=events"| EvEd["getEventEditorHtml()\nEvent Editor"]
     doGet -->|"?app=agenda"| Agenda["getAgendaEditorHtml()\nMeeting Agenda Generator"]
+    doGet -->|"?app=book"| Book["getBookSpeakerHtml()\nBook a Speaker"]
+    doGet -->|"?app=move"| Move["getMoveSpeakerHtml()\nMove a Speaker"]
+    doGet -->|"?app=edit"| Edit["getEditSpeakerHtml()\nEdit a Speaker"]
     doGet -->|"?app=kanban"| Kanban["getKanbanHtml()\nSpeaker Pipeline (Kanban)"]
     doGet -->|"?app=pipeline"| Table["getPipelineTableHtml()\nSpeaker Pipeline (Table)"]
     doGet -->|"?app=speaker-pipeline"| Status["getSpeakerStatusHtml()\nSpeaker Pipeline Status (deprecated)"]
@@ -133,6 +136,9 @@ flowchart LR
 | `assistant` | `getCalendarAssistantHtml()` | No app password — gated by deployment access ("Only myself") | AI chat that proposes calendar changes for Eric to approve. |
 | `events` | `getEventEditorHtml()` | Yes (`KANBAN_PASSWORD`) | Member-facing create/edit for non-meeting events (Social, Service, Fundraiser, Committee, Message, Other). |
 | `agenda` | `getAgendaEditorHtml()` | **No** | Printable 15-row meeting agenda + duty table. Read-only, so nothing to gate. |
+| `book` | `getBookSpeakerHtml()` | Yes (`KANBAN_PASSWORD`) | One-step "enter a new speaker + assign to a Meeting" form; also drops a matching Speaker Pipeline card. |
+| `move` | `getMoveSpeakerHtml()` | Yes (`KANBAN_PASSWORD`) | Reassign an already-booked speaker from one Meeting to another. |
+| `edit` | `getEditSpeakerHtml()` | Yes (`KANBAN_PASSWORD`) | Fix up a booked speaker's fields, or clear them from a Meeting entirely. |
 | `kanban` | `getKanbanHtml()` | Yes (`KANBAN_PASSWORD`) | Drag-and-drop speaker pipeline board. |
 | `pipeline` | `getPipelineTableHtml()` | Yes (`KANBAN_PASSWORD`) | Sortable/filterable speaker pipeline table — the current default pipeline view. |
 | `speaker-pipeline` | `getSpeakerStatusHtml()` | Yes (`KANBAN_PASSWORD`) | Older grouped-by-stage pipeline view. Deprecated in favor of `pipeline`. |
@@ -153,8 +159,9 @@ since it never writes anything and the duty columns are already in the CSV.
   token `__EXEC_URL__` in the HTML with the deployment's real
   `ScriptApp.getService().getUrl()` before serving it, so cross-tool nav
   links (`target="_top"`) actually work. It's applied to `events`, `agenda`,
-  `kanban`, `pipeline`, and `speaker-pipeline` — **not** to the bare Duty
-  Editor or `assistant`, which currently link to nothing else internally.
+  `book`, `move`, `edit`, `kanban`, `pipeline`, and `speaker-pipeline` — **not**
+  to the bare Duty Editor or `assistant`, which currently link to nothing else
+  internally.
   Links to the plain GitHub Pages site (e.g. the Duty Editor's roster link,
   or the pipeline apps' "+ Request Speaker" link) sidestep this entirely by
   using a full external URL with `target="_blank"`, which needs no injection.
@@ -185,10 +192,12 @@ in `localStorage` (`pipelinePw` / `pipelineName`) and auto-fills the login on
 return visits. This gates the *client-side UI* of the Event Editor, Kanban,
 Pipeline Table, and Speaker Pipeline Status pages.
 
-**c) Server-side re-validation — inconsistently applied.** Only three
+**c) Server-side re-validation — inconsistently applied.** Only seven
 mutating functions actually call `checkPipelinePassword()` again on the
 server before writing: `saveEvent`, `deleteEvent`, and `addEventNote` (all
-Event Editor writes). Every Speaker Pipeline mutation
+Event Editor writes), plus `bookSpeaker`, `moveSpeaker`, `saveSpeakerEdit`,
+and `clearSpeaker` (Book/Move/Edit Speaker writes). Every Speaker Pipeline
+mutation
 (`savePipelineCard`, `deletePipelineCard`, `togglePipelineVote`,
 `uploadPipelinePhoto`, `appendPipelineNote`, `addPipelineCard`,
 `assignSpeakerToEvent`) and the plain Duty Editor's `saveDuties` take **no
@@ -327,6 +336,17 @@ that's a weaker boundary than it sounds).
 |---|---|---|
 | `getAgendaData()` | read | Upcoming-meeting picker list + a pre-built model for the soonest one |
 | `getAgendaModel(rowIndex)` | read | Rebuilds the model when the picker selection changes |
+
+**Book / Move / Edit Speaker** (`?app=book`\|`move`\|`edit`, password-checked on writes)
+| Function | R/W | Purpose |
+|---|---|---|
+| `getUpcomingEventsForPicker()` | read | Shared meeting picker — same function the Speaker Pipeline's "Assign to Event" modal uses |
+| `bookSpeaker(password, eventsRow, speaker, editor)` | write, **checks password** | Writes speaker/program columns onto a Meeting row, logs an Event Note, appends a `scheduled` Speaker Pipeline card |
+| `moveSpeaker(password, fromRow, toRow, editor)` | write, **checks password** | Moves `SPEAKER_MOVE_COLS` from one Meeting row to another, logs an Event Note on both, repoints any linked pipeline card |
+| `getSpeakerEditDetail(rowIndex)` | read | Reads a Meeting row's speaker fields + Bio/contact/priority from a linked pipeline card (`findLinkedPipelineRow_`) |
+| `saveSpeakerEdit(password, eventsRow, speaker, editor)` | write, **checks password** | Edits a booked speaker's fields on the Events row, logs an Event Note, syncs a linked pipeline card |
+| `clearSpeaker(password, eventsRow, editor)` | write, **checks password** | Blanks `SPEAKER_MOVE_COLS` to unbook a speaker, logs an Event Note, unlinks + reverts a linked pipeline card to `in-progress` |
+| `uploadPipelinePhoto(dataUrl, fileName, speakerName)` | write | Shared with the Event Editor and pipeline apps — saves a photo to Drive |
 
 **Speaker Pipeline** (Kanban / Table / Status — `?app=kanban`\|`pipeline`\|`speaker-pipeline`; password gates the client UI, **not** these functions server-side)
 | Function | R/W | Purpose |

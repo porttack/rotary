@@ -55,6 +55,24 @@ Share this URL with your team.</p>
 <div class="section-label">Speaker Pipeline</div>
 <div class="tool-grid">
 
+<a class="tool-card" href="{{ site.apps_script_url }}?app=book" target="_blank">
+  <div class="tool-badge">🎤 Book</div>
+  <h2>Book a Speaker</h2>
+  <p>Enter a new speaker with photos and assign them to an upcoming meeting in one step.</p>
+</a>
+
+<a class="tool-card" href="{{ site.apps_script_url }}?app=move" target="_blank">
+  <div class="tool-badge">↔️ Move</div>
+  <h2>Move a Speaker</h2>
+  <p>Move a booked speaker from one meeting date to another. Logs the change to event notes.</p>
+</a>
+
+<a class="tool-card" href="{{ site.apps_script_url }}?app=edit" target="_blank">
+  <div class="tool-badge">🎙️ Edit</div>
+  <h2>Edit a Speaker</h2>
+  <p>Fix up a booked speaker's details — name, topic, bio, photos — or clear them from a meeting.</p>
+</a>
+
 <a class="tool-card" href="{{ site.apps_script_url }}?app=pipeline" target="_blank">
   <div class="tool-badge">📊 Table</div>
   <h2>Pipeline Table</h2>

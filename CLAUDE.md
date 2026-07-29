@@ -273,16 +273,19 @@ across the two deployments), see [APPSCRIPT.md](APPSCRIPT.md).
 
 The "Anyone" Duty Editor deployment also serves the password-gated apps that
 route off `?app=` on the same `...exec` URL: `kanban`, `pipeline`,
-`speaker-pipeline`, and `events` (the Event Editor). These all share the
+`speaker-pipeline`, `events` (the Event Editor), `book` (Book a Speaker),
+`move` (Move a Speaker), and `edit` (Edit a Speaker). These all share the
 `KANBAN_PASSWORD` Script Property gate, so redeploying a **New version** of
 the Duty Editor deployment publishes changes to all of them at once. `agenda`
 (the Meeting Agenda Generator) also routes off this deployment but is **not**
 password-gated — it's read-only, so no login is needed.
 
 The Duty Editor deployment URL is stored in `_config.yml` as `apps_script_url`
-and used by `duty.md` (no param). The Event Editor (`?app=events`) and Agenda
-Generator (`?app=agenda`) are reached from tool cards in `calendar.html` and
-the `/pipeline/` Tools page — neither has a nav entry of its own.
+and used by `duty.md` (no param). The Event Editor (`?app=events`), Agenda
+Generator (`?app=agenda`), Book a Speaker (`?app=book`), Move a Speaker
+(`?app=move`), and Edit a Speaker (`?app=edit`) are reached from tool cards in
+`calendar.html` and the `/pipeline/` Tools page — none has a nav entry of its
+own.
 
 After editing the .gs file, go to **Deploy → Manage deployments**, select
 the relevant deployment, bump to **New version**, and redeploy. The Duty
@@ -400,6 +403,78 @@ new `.gs`, run **🔄 Rotary Sync → Setup / Reset Sheet Headers** once —
 Hide-from-Newsletter and Important checkboxes. Until then, the Event Editor (and
 any code reading all `NUM_COLS`) will error on sheets that still have the old
 column count.
+
+---
+
+## Book / Move / Edit Speaker
+
+Three focused, password-gated (`KANBAN_PASSWORD`) tools for the everyday
+speaker-booking workflow, deliberately separate from the full Event Editor and
+from the multi-stage Speaker Pipeline (new → in-progress → limbo → scheduled →
+done). Anyone with the shared login can use them — there's no additional
+role check beyond that. Edit a Speaker in particular exists to keep the
+day-to-day fix-up-a-speaker task simple (a small, single-purpose form) rather
+than routing less tech-comfortable officers through the full Event Editor.
+
+**Book a Speaker** (`?app=book`, `getBookSpeakerHtml()` /
+`bookSpeaker(password, eventsRow, speaker, editor)`) lets a member enter a
+brand-new speaker — name, topic, opening speaker, organizer, introducer,
+speaker URL, Google Meet link, a separate Bio and Summary (matching the
+Speaker Pipeline's own distinction: Bio is about the speaker, Summary is the
+newsletter-ready program blurb — same labels as `request.md`'s form), and
+top/bottom photo uploads (via the existing `uploadPipelinePhoto`) — and assign
+them straight onto an upcoming Meeting in one submit. The Events sheet has
+only one narrative column, so the Events row gets Summary, falling back to
+Bio if blank (mirrors `assignSpeakerToEvent`'s `summary || bio`); the created
+pipeline card keeps both separately. The meeting picker
+(`getUpcomingEventsForPicker()`, shared with the Speaker Pipeline's own assign
+flow) lists **every** upcoming Meeting, flagging ones that already have a
+speaker; picking a taken one asks
+for confirmation before overwriting. On submit, `bookSpeaker` writes the
+speaker/program columns directly onto the Events row, stamps `STATUS`,
+prepends an `EVENT_NOTES` entry ("Booked <name> — <topic>"), **and** appends a
+matching Speaker Pipeline card (`status: 'scheduled'`, `EVENTS_ROW` linked)
+so the pipeline board keeps a complete history even for speakers booked here
+rather than walked through the pipeline's stages.
+
+**Move a Speaker** (`?app=move`, `getMoveSpeakerHtml()` /
+`moveSpeaker(password, fromRow, toRow, editor)`) reassigns an already-booked
+speaker from one Meeting to another — picking a From meeting (any with a
+speaker) and a To meeting (any Meeting; taken ones flagged + confirmed).
+`SPEAKER_MOVE_COLS` defines exactly what travels with the speaker:
+`SPEAKER_ORGANIZER`, `OPENING_SPEAKER`, `MAIN_SPEAKER`, `MAIN_TOPIC`,
+`SPEAKER_URL`, `SUMMARY`, `PHOTO_TOP`/`PHOTO_BOTTOM` (+ their hidden `_URL`
+companions), and `INTRODUCER` — copied onto the target row, then cleared on
+the source row. **Deliberately excluded:** `GOOGLE_MEET`, the duty columns,
+and date/time/location, since those belong to the meeting slot, not the
+traveling speaker. Both rows get an `EVENT_NOTES` entry logging the move, and
+if a Speaker Pipeline card's `EVENTS_ROW` pointed at the vacated row, it's
+repointed to the new one (with its own note appended).
+
+**Edit a Speaker** (`?app=edit`, `getEditSpeakerHtml()`) fixes up the details
+of a speaker already booked onto a Meeting — the same field set as Book a
+Speaker, prefilled from that meeting via `getSpeakerEditDetail(rowIndex)`.
+Because Bio/Email/Phone/City/Priority live only on a Speaker Pipeline card
+(not the Events sheet), `getSpeakerEditDetail` looks up a linked card via
+`findLinkedPipelineRow_(eventsRow)` (a shared helper — scans the pipeline's
+`EVENTS_ROW` column for a match; also used by `moveSpeaker`) and pulls those
+fields from there; the picker only ever offers Meetings that already have a
+speaker (`!available` from `getUpcomingEventsForPicker`). On save,
+`saveSpeakerEdit(password, eventsRow, speaker, editor)` writes the Events row
+(same `summary || bio` fallback as Book) **and**, if a linked card exists,
+pushes the same edits to it so the pipeline board doesn't go stale. A
+**Clear Speaker** button (`clearSpeaker(password, eventsRow, editor)`) blanks
+`SPEAKER_MOVE_COLS` on that row for when a booking falls through — the
+meeting itself stays on the calendar, just speakerless — and if a pipeline
+card was linked, it's unlinked (`EVENTS_ROW` cleared) and reverted to
+`in-progress` rather than left pointing at a now-speakerless meeting. Both
+writes log an `EVENT_NOTES` entry.
+
+All three tools reuse `getUpcomingEventsForPicker()` for their pickers (so
+they only ever operate on the plain `meeting`-type rows that function
+already scopes to — Assemblies and Board Meetings aren't included), and all
+return a fresh picker list so the client updates in place without a full page
+reload.
 
 ---
 
@@ -542,7 +617,7 @@ into the RTF export — so the two never drift.
 | `openDutyEditor()` | Menu | Opens Duty Editor in a new tab |
 | `setupMembers()` | Menu | Creates/resets Members tab |
 | `installEditTrigger()` | Menu | Installs onEdit trigger for row recoloring |
-| `doGet(e)` | Web request | Routes to Duty Editor, Calendar Assistant, Event Editor, Agenda Generator, etc. |
+| `doGet(e)` | Web request | Routes to Duty Editor, Calendar Assistant, Event Editor, Agenda Generator, Book/Move Speaker, etc. |
 | `doPost(e)` | Web request | Handles speaker request form submissions |
 | `getPageData()` | Duty Editor client | Returns upcoming meetings + member list |
 | `saveDuties(rowIndex, duties)` | Duty Editor client | Writes duty assignments |
@@ -550,6 +625,11 @@ into the RTF export — so the two never drift.
 | `saveEvent(password, payload)` | Event Editor client | Create/update one non-meeting event |
 | `deleteEvent(password, rowIndex, editor)` | Event Editor client | Delete a non-meeting event (creator only) |
 | `addEventNote(password, rowIndex, noteText, author)` | Event Editor client | Append a timestamped event note |
+| `bookSpeaker(password, eventsRow, speaker, editor)` | Book a Speaker client | Assign a new speaker to a meeting + log pipeline card |
+| `moveSpeaker(password, fromRow, toRow, editor)` | Move a Speaker client | Move a booked speaker between meetings |
+| `getSpeakerEditDetail(rowIndex)` | Edit a Speaker client | Reads a meeting's speaker fields + linked pipeline card's Bio/contact/priority |
+| `saveSpeakerEdit(password, eventsRow, speaker, editor)` | Edit a Speaker client | Edits a booked speaker's fields, syncs a linked pipeline card |
+| `clearSpeaker(password, eventsRow, editor)` | Edit a Speaker client | Unbooks a speaker from a meeting; reverts a linked pipeline card |
 | `getOfficers_()` | Agenda Generator | Reads the Officers tab (Role \| Name) |
 | `buildAgendaModel_(rowIndex, announcementsOverride)` | Agenda Generator | Shared title block + 15 agenda rows + leadership list |
 | `getAgendaData()` | Agenda Generator client | Upcoming meeting picker list + model for the next one |
