@@ -341,7 +341,7 @@ that's a weaker boundary than it sounds).
 | Function | R/W | Purpose |
 |---|---|---|
 | `getUpcomingEventsForPicker()` | read | Shared meeting picker — same function the Speaker Pipeline's "Assign to Event" modal uses |
-| `bookSpeaker(password, eventsRow, speaker, editor)` | write, **checks password** | Writes speaker/program columns onto a Meeting row, logs an Event Note, appends a `scheduled` Speaker Pipeline card |
+| `bookSpeaker(password, eventsRow, speaker, editor)` | write, **checks password** | Writes speaker/program columns onto a Meeting row, logs an Event Note, appends a `scheduled` Speaker Pipeline card, emails a confirmation (`sendBookingConfirmationEmail_`) to the submitter + `SLV_PRESIDENT_EMAIL` |
 | `moveSpeaker(password, fromRow, toRow, editor)` | write, **checks password** | Moves `SPEAKER_MOVE_COLS` from one Meeting row to another, logs an Event Note on both, repoints any linked pipeline card |
 | `getSpeakerEditDetail(rowIndex)` | read | Reads a Meeting row's speaker fields + Bio/contact info from a linked pipeline card (`findLinkedPipelineRow_`, which validates the card's `SPEAKER_NAME` still matches — `EVENTS_ROW` is a row index and goes stale after a sort) |
 | `saveSpeakerEdit(password, eventsRow, speaker, editor)` | write, **checks password** | Edits a booked speaker's fields on the Events row, logs an Event Note, syncs a linked pipeline card |
@@ -384,7 +384,7 @@ that's a weaker boundary than it sounds).
 | Google Calendar | `pullFromCalendar()`, `pushToCalendar()` (menu) | *(none — uses `CALENDAR_ID` constant + the executing account's own Calendar access)* |
 | Google Drive | Photo uploads (`savePhotoToDrive_`), `syncPhotos()`, event/speaker photos | *(none — Drive access comes from "Execute as: Me")* |
 | Google Docs | `generateNewsletter()` (menu) | *(none)* |
-| Gmail (`MailApp`) | `notifySubmission_()`, `confirmSubmitter_()`, `authorizeMailScope()` (menu) | `NOTIFY_EMAILS` — comma/whitespace-separated recipient list; a no-op if unset |
+| Gmail (`MailApp`) | `notifySubmission_()`, `confirmSubmitter_()`, `sendBookingConfirmationEmail_()`, `authorizeMailScope()` (menu) | `NOTIFY_EMAILS` — comma/whitespace-separated recipient list; a no-op if unset. `sendBookingConfirmationEmail_()` instead always cc's the hardcoded `SLV_PRESIDENT_EMAIL` constant, not a Script Property. |
 | Shared pipeline password | `checkPipelinePassword()` | `KANBAN_PASSWORD` |
 | Anthropic (Claude) | Calendar Assistant, when `provider==='claude'` | `ANTHROPIC_API_KEY` |
 | Google Gemini | Calendar Assistant default provider; Pipeline AI command line | `GEMINI_API_KEY` |

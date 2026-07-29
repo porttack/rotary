@@ -13,6 +13,10 @@ const SHEET_NAME    = "Events";
 // needs GEMINI_API_KEY in Script Properties).
 const PIPELINE_AI_ENABLED = false;
 
+// Always cc'd on Book a Speaker confirmation emails, alongside whoever
+// submitted the booking.
+const SLV_PRESIDENT_EMAIL = 'slvrotarypresident@gmail.com';
+
 // ── CALENDAR ASSISTANT — SYSTEM PROMPT ───────────────────────
 // Edit this to update what the AI knows about the club.
 const ASSISTANT_SYSTEM_PROMPT = `
@@ -3954,11 +3958,13 @@ function assignSpeakerToEvent(pipelineRow, eventsRow, updatedBy) {
  *
  * speaker: { mainSpeaker (required), mainTopic, openingSpeaker, organizer,
  *   introducer, speakerUrl, googleMeet, bio, summary, photoTop, photoBottom,
- *   speakerEmail, speakerPhone, speakerCity }
+ *   speakerEmail, speakerPhone, speakerCity, yourEmail }
  * bio and summary are distinct on the Speaker Pipeline card (bio = who the
  * speaker is, summary = the newsletter-ready program blurb) but the Events
  * sheet has only one narrative column, so the Events row gets summary,
- * falling back to bio if that's blank.
+ * falling back to bio if that's blank. yourEmail (the submitter's own email,
+ * not the speaker's) is optional and never stored — sendBookingConfirmationEmail_
+ * uses it once to send a booking confirmation, and silently no-ops if blank.
  */
 function bookSpeaker(password, eventsRow, speaker, editor) {
   if (!checkPipelinePassword(password)) throw new Error('Not authorized — please log in again.');
@@ -4019,7 +4025,74 @@ function bookSpeaker(password, eventsRow, speaker, editor) {
   pSheet.appendRow(row);
 
   recolorRow(evSheet, eventsRow);
+  sendBookingConfirmationEmail_(p, speakerName, eventsRow, evSheet, who);
   return getUpcomingEventsForPicker();
+}
+
+/**
+ * Email a confirmation of a newly booked speaker to whoever submitted the
+ * Book a Speaker form and to the club president, with a link to Edit a
+ * Speaker for later corrections (so the recipients can forward it on, e.g.
+ * to whoever else needs the details). Wrapped so a mail failure never blocks
+ * the booking itself — the sheet writes are already the source of truth.
+ */
+function sendBookingConfirmationEmail_(p, speakerName, eventsRow, evSheet, editor) {
+  try {
+    const toEmail = String(p.yourEmail || '').trim();
+    if (!toEmail) return;
+    const tz = Session.getScriptTimeZone();
+    const dateVal = evSheet.getRange(eventsRow, COL.DATE).getValue();
+    const timeVal = evSheet.getRange(eventsRow, COL.TIME).getValue();
+    const location = String(evSheet.getRange(eventsRow, COL.LOCATION).getValue() || '');
+    const dateStr = dateVal instanceof Date ? Utilities.formatDate(dateVal, tz, 'EEEE, MMMM d, yyyy') : String(dateVal || '');
+    const timeStr = timeVal instanceof Date ? Utilities.formatDate(timeVal, tz, 'h:mm a') : String(timeVal || '');
+
+    let execUrl = '';
+    try { execUrl = ScriptApp.getService().getUrl() || ''; } catch (_) {}
+    const editUrl = execUrl ? execUrl + '?app=edit' : '';
+
+    const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const rows = [];
+    const add = (label, val) => { if (val) rows.push([label, val]); };
+    add('Speaker', speakerName);
+    add('Topic', p.mainTopic);
+    add('Meeting', dateStr + (timeStr ? ' at ' + timeStr : ''));
+    add('Location', location);
+    add('Organizer', p.organizer);
+    add('Introducer', p.introducer);
+    add('Opening Speaker', p.openingSpeaker);
+    add('Speaker URL', p.speakerUrl);
+    add('Google Meet', p.googleMeet);
+    add('Bio', p.bio);
+    add('Summary', p.summary);
+
+    const tableRows = rows.map(r =>
+      '<tr><td style="padding:3px 10px 3px 0;vertical-align:top;color:#555;font-weight:bold;white-space:nowrap">' +
+      esc(r[0]) + '</td><td style="padding:3px 0;vertical-align:top">' + esc(r[1]) + '</td></tr>'
+    ).join('');
+    const photoHtml = p.photoTop ? '<p><img src="' + esc(p.photoTop) + '" style="max-width:250px;border-radius:6px"></p>' : '';
+    const subject = '🎤 Speaker booked: ' + speakerName;
+
+    const htmlBody =
+      '<div style="font-family:Arial,sans-serif;color:#222">' +
+      '<h2 style="color:#17458F;margin:0 0 0.4em">' + esc(subject) + '</h2>' +
+      photoHtml +
+      '<table style="border-collapse:collapse;font-size:14px">' + tableRows + '</table>' +
+      (editUrl
+        ? '<p style="margin-top:1em"><a href="' + esc(editUrl) + '" style="display:inline-block;background:#17458F;' +
+          'color:#fff;text-decoration:none;padding:8px 16px;border-radius:4px;font-size:14px">Edit this speaker →</a></p>'
+        : '') +
+      '<p style="margin-top:1em;font-size:12px;color:#888">Booked by ' + esc(editor) +
+      ' via the SLV Rotary Book a Speaker tool. Forward this email to anyone else who needs the details.</p>' +
+      '</div>';
+    const textBody = rows.map(r => r[0] + ': ' + r[1]).join('\n') +
+      (editUrl ? '\n\nEdit this speaker: ' + editUrl : '');
+
+    const recipients = [toEmail, SLV_PRESIDENT_EMAIL].filter(Boolean).join(',');
+    MailApp.sendEmail(recipients, subject, textBody, { htmlBody: htmlBody });
+  } catch (err) {
+    Logger.log('sendBookingConfirmationEmail_ failed: ' + err.toString());
+  }
 }
 
 // Columns that travel with the speaker on a Move. Deliberately excludes
@@ -4957,7 +5030,7 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 </header>
 
 <div id="main">
-  <p id="hint">Enter a new speaker and put them on an upcoming meeting date, in one step. Photos are optional. Booking also drops a card on the Speaker Pipeline board so its history stays complete.</p>
+  <p id="hint">Enter a new speaker and put them on an upcoming meeting date, in one step. Photos are optional. Booking also drops a card on the Speaker Pipeline board so its history stays complete. If you add your email below, a confirmation goes to you and the club president — forward it to the webmaster (or anyone else who needs the details) if you'd like.</p>
   <div class="card">
     <div class="fld"><label>Meeting Date</label><select id="f-meeting" onchange="meetingChanged()"></select></div>
     <div class="fld"><label>Main Speaker</label><input type="text" id="f-name" placeholder="Speaker's full name"></div>
@@ -4967,6 +5040,7 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
       <div class="fld"><label>Organizer</label><input type="text" id="f-organizer" placeholder="Who booked this speaker"></div>
       <div class="fld"><label>Introducer</label><input type="text" id="f-introducer" placeholder="Who introduces them"></div>
     </div>
+    <div class="fld"><label>Your Email <span style="text-transform:none;font-weight:400">(optional — you'll get an emailed copy of this booking if provided)</span></label><input type="email" id="f-your-email" placeholder="you@example.com"></div>
     <div class="fld"><label>Speaker URL <span style="text-transform:none;font-weight:400">(optional)</span></label><input type="url" id="f-url" placeholder="https://…"></div>
     <div class="fld"><label>Google Meet Link <span style="text-transform:none;font-weight:400">(optional)</span></label><input type="url" id="f-meet" placeholder="https://meet.google.com/…"></div>
     <div class="fld"><label>Brief Bio <span style="text-transform:none;font-weight:400">(who are they and why would members enjoy this?)</span></label><textarea id="f-bio" placeholder="A sentence or two about the speaker"></textarea></div>
@@ -5028,18 +5102,36 @@ function meetingLabel(m){
 function fillMeetings(){
   var sel=document.getElementById('f-meeting'); sel.innerHTML='';
   if(!MEETINGS.length){sel.innerHTML='<option value="">No upcoming meetings found</option>';return;}
-  MEETINGS.forEach(function(m){
+  var sorted=MEETINGS.slice().sort(function(a,b){return a.date<b.date?-1:(a.date>b.date?1:0);});
+  var firstOpenRow=null;
+  sorted.forEach(function(m){
     var o=document.createElement('option'); o.value=m.rowIndex; o.textContent=meetingLabel(m);
+    if(!m.available){o.style.color='#b91c1c';o.style.fontWeight='600';}
+    if(firstOpenRow===null&&m.available)firstOpenRow=m.rowIndex;
     sel.appendChild(o);
   });
+  // Default to the next open date rather than whatever sorts first, so a
+  // hasty submit can't accidentally overwrite an already-booked meeting.
+  sel.value=String(firstOpenRow!=null?firstOpenRow:sorted[0].rowIndex);
 }
 function meetingChanged(){} // reserved for future inline preview
+
+// Loose email check without a regex — backslash escapes inside a regex
+// literal here would get eaten when this whole page is parsed as a backtick
+// template in the outer .gs source (see to12/to24 above for the same reason).
+function looksLikeEmail(s){
+  s=(s||'').trim();
+  var at=s.indexOf('@');
+  return at>0 && s.indexOf('.',at)>at+1;
+}
 
 function submitBooking(){
   var rowIndex=Number(getV('f-meeting'));
   if(!rowIndex){toast('Choose a meeting date',true);return;}
   var name=getV('f-name').trim();
   if(!name){toast('Main Speaker is required',true);return;}
+  var yourEmail=getV('f-your-email').trim();
+  if(yourEmail&&!looksLikeEmail(yourEmail)){toast('Please enter a valid email, or leave it blank',true);return;}
   var m=null; for(var i=0;i<MEETINGS.length;i++){if(MEETINGS[i].rowIndex===rowIndex){m=MEETINGS[i];break;}}
   if(m&&!m.available){
     if(!confirm('This meeting already has a speaker (' + m.mainSpeaker + '). Booking will overwrite it. Continue?')) return;
@@ -5050,12 +5142,14 @@ function submitBooking(){
     googleMeet:getV('f-meet'), bio:getV('f-bio'), summary:getV('f-summary'),
     photoTop:getV('f-photo-top'), photoBottom:getV('f-photo-bottom'),
     speakerEmail:getV('f-email'), speakerPhone:getV('f-phone'), speakerCity:getV('f-city'),
+    yourEmail:yourEmail,
   };
   var pw=localStorage.getItem('pipelinePw')||'';
   busy(true);
   gs4('bookSpeaker',pw,rowIndex,speaker,currentUser).then(function(meetings){
     MEETINGS=meetings; fillMeetings(); busy(false);
-    toast('Booked ' + name + ' ✓');
+    if(yourEmail){try{localStorage.setItem('bookSpeakerEmail',yourEmail);}catch(e){}}
+    toast('Booked ' + name + ' ✓' + (yourEmail?' — confirmation emailed to you and the president':''));
     setV('f-name',''); setV('f-topic',''); setV('f-opening',''); setV('f-organizer',currentUser);
     setV('f-introducer',''); setV('f-url',''); setV('f-meet',''); setV('f-bio',''); setV('f-summary','');
     setV('f-photo-top',''); setV('f-photo-bottom',''); setV('f-email',''); setV('f-phone','');
@@ -5076,6 +5170,7 @@ function doLogin(){
   gs('checkPipelinePassword',pw).then(function(ok){
     if(ok){localStorage.setItem('pipelinePw',pw);localStorage.setItem('pipelineName',name);currentUser=name;
       setV('f-organizer',name);
+      setV('f-your-email',localStorage.getItem('bookSpeakerEmail')||'');
       document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;loadData();}
     else{document.getElementById('auth-err').textContent='Wrong password.';}
   }).catch(function(err){document.getElementById('auth-err').textContent='Error: '+(err.message||err);});
@@ -5085,7 +5180,8 @@ function logout(){localStorage.removeItem('pipelinePw');localStorage.removeItem(
 window.addEventListener('load',function(){
   var pw=localStorage.getItem('pipelinePw'), name=localStorage.getItem('pipelineName');
   if(pw&&name){gs('checkPipelinePassword',pw).then(function(ok){
-    if(ok){currentUser=name;document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;setV('f-organizer',name);loadData();}
+    if(ok){currentUser=name;document.getElementById('auth').style.display='none';document.getElementById('hdr-user').textContent=name;setV('f-organizer',name);
+      setV('f-your-email',localStorage.getItem('bookSpeakerEmail')||'');loadData();}
     else{localStorage.removeItem('pipelinePw');}});}
   document.getElementById('auth-pw').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
 });
@@ -5186,11 +5282,21 @@ function meetingLabel(m){
 function fillMeetings(){
   var from=document.getElementById('f-from'), to=document.getElementById('f-to');
   from.innerHTML=''; to.innerHTML='';
-  var booked=MEETINGS.filter(function(m){return !m.available;});
+  var sorted=MEETINGS.slice().sort(function(a,b){return a.date<b.date?-1:(a.date>b.date?1:0);});
+  var booked=sorted.filter(function(m){return !m.available;});
   if(!booked.length){from.innerHTML='<option value="">No booked meetings found</option>';}
   booked.forEach(function(m){var o=document.createElement('option');o.value=m.rowIndex;o.textContent=meetingLabel(m);from.appendChild(o);});
-  if(!MEETINGS.length){to.innerHTML='<option value="">No upcoming meetings found</option>';}
-  MEETINGS.forEach(function(m){var o=document.createElement('option');o.value=m.rowIndex;o.textContent=meetingLabel(m);to.appendChild(o);});
+  if(!sorted.length){to.innerHTML='<option value="">No upcoming meetings found</option>';}
+  var firstOpenRow=null;
+  sorted.forEach(function(m){
+    var o=document.createElement('option');o.value=m.rowIndex;o.textContent=meetingLabel(m);
+    if(!m.available){o.style.color='#b91c1c';o.style.fontWeight='600';}
+    if(firstOpenRow===null&&m.available)firstOpenRow=m.rowIndex;
+    to.appendChild(o);
+  });
+  // Default "Move To" to the next open date rather than whatever sorts
+  // first, so a hasty submit can't accidentally overwrite a booked meeting.
+  if(firstOpenRow!=null)to.value=String(firstOpenRow);
   renderPreview();
 }
 function findMeeting(rowIndex){for(var i=0;i<MEETINGS.length;i++){if(MEETINGS[i].rowIndex===rowIndex)return MEETINGS[i];}return null;}

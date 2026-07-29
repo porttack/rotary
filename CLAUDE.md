@@ -428,20 +428,40 @@ only one narrative column, so the Events row gets Summary, falling back to
 Bio if blank (mirrors `assignSpeakerToEvent`'s `summary || bio`); the created
 pipeline card keeps both separately. The meeting picker
 (`getUpcomingEventsForPicker()`, shared with the Speaker Pipeline's own assign
-flow) lists **every** upcoming Meeting, flagging ones that already have a
-speaker; picking a taken one asks
-for confirmation before overwriting. On submit, `bookSpeaker` writes the
-speaker/program columns directly onto the Events row, stamps `STATUS`,
-prepends an `EVENT_NOTES` entry ("Booked <name> — <topic>"), **and** appends a
-matching Speaker Pipeline card (`status: 'scheduled'`, `EVENTS_ROW` linked)
-so the pipeline board keeps a complete history even for speakers booked here
-rather than walked through the pipeline's stages.
+flow) lists **every** upcoming Meeting sorted by date, with taken ones shown
+in red/bold and defaults to the *next open* date (not just the soonest
+meeting) so a hasty submit can't accidentally overwrite an already-booked
+one; picking a taken one anyway still asks for confirmation before
+overwriting. An optional **Your Email** field
+(persisted to `localStorage` as `bookSpeakerEmail` and restored on return
+visits, same convenience as the Organizer prefill) captures the submitter's
+own address — not the speaker's — purely to send a confirmation; it's never
+written to either sheet, and leaving it blank just skips the confirmation
+email (the booking itself still goes through — `sendBookingConfirmationEmail_`
+no-ops when there's no address to send to). On submit, `bookSpeaker` writes
+the speaker/program
+columns directly onto the Events row, stamps `STATUS`, prepends an
+`EVENT_NOTES` entry ("Booked <name> — <topic>"), appends a matching Speaker
+Pipeline card (`status: 'scheduled'`, `EVENTS_ROW` linked) so the pipeline
+board keeps a complete history even for speakers booked here rather than
+walked through the pipeline's stages, and calls
+`sendBookingConfirmationEmail_` — a booking-summary email (speaker, topic,
+meeting date/time/location, organizer, introducer, bio/summary, top photo)
+sent to the submitter and to `SLV_PRESIDENT_EMAIL`
+(`slvrotarypresident@gmail.com`, a constant near the top of the file), with a
+button linking to Edit a Speaker (`?app=edit`) so either recipient can
+forward the email on (e.g. to a non-Rotarian who needs the details) and the
+speaker chair can still fix anything from the link. Wrapped in its own
+try/catch so a mail failure (e.g. `authorizeMailScope()` never run) never
+blocks the booking itself.
 
 **Move a Speaker** (`?app=move`, `getMoveSpeakerHtml()` /
 `moveSpeaker(password, fromRow, toRow, editor)`) reassigns an already-booked
 speaker from one Meeting to another — picking a From meeting (any with a
-speaker) and a To meeting (any Meeting; taken ones flagged + confirmed).
-`SPEAKER_MOVE_COLS` defines exactly what travels with the speaker:
+speaker) and a To meeting (any Meeting, sorted by date, taken ones shown in
+red/bold and defaulting to the next open date for the same "don't
+accidentally overwrite" reason as Book; picking a taken one anyway still
+asks for confirmation). `SPEAKER_MOVE_COLS` defines exactly what travels with the speaker:
 `SPEAKER_ORGANIZER`, `OPENING_SPEAKER`, `MAIN_SPEAKER`, `MAIN_TOPIC`,
 `SPEAKER_URL`, `SUMMARY`, `PHOTO_TOP`/`PHOTO_BOTTOM` (+ their hidden `_URL`
 companions), and `INTRODUCER` — copied onto the target row, then cleared on
@@ -638,7 +658,7 @@ into the RTF export — so the two never drift.
 | `saveEvent(password, payload)` | Event Editor client | Create/update one non-meeting event |
 | `deleteEvent(password, rowIndex, editor)` | Event Editor client | Delete a non-meeting event (creator only) |
 | `addEventNote(password, rowIndex, noteText, author)` | Event Editor client | Append a timestamped event note |
-| `bookSpeaker(password, eventsRow, speaker, editor)` | Book a Speaker client | Assign a new speaker to a meeting + log pipeline card |
+| `bookSpeaker(password, eventsRow, speaker, editor)` | Book a Speaker client | Assign a new speaker to a meeting, log pipeline card, email a confirmation |
 | `moveSpeaker(password, fromRow, toRow, editor)` | Move a Speaker client | Move a booked speaker between meetings |
 | `getSpeakerEditDetail(rowIndex)` | Edit a Speaker client | Reads a meeting's speaker fields + linked pipeline card's Bio/contact info |
 | `saveSpeakerEdit(password, eventsRow, speaker, editor)` | Edit a Speaker client | Edits a booked speaker's fields, syncs a linked pipeline card |
