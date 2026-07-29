@@ -13,7 +13,8 @@ Core tools built so far:
   event types, morning/evening border stripes, hover/tap tooltips, today highlight.
 - **Calendar** — FullCalendar.js view reading the same Google Sheet CSV.
 - **Newsletter generator** — Apps Script that builds a Google Doc bulletin.
-- **Duty Editor** — web app (Apps Script) for assigning meeting roles.
+- **Duty Editor** — web app (Apps Script) for assigning duty roles at
+  Meetings, Assemblies, and Socials.
 - **Calendar Assistant** — AI chat interface (Apps Script + Anthropic API)
   for adding/updating/cancelling events via natural language.
 - **Speaker pipeline** — Google Forms linked from `speak.md` / `request.md`.
@@ -47,6 +48,7 @@ zero CI pipeline.
 | `newsletter.html` | Auto-rendered bulletin (reads Sheet CSV) |
 | `past.html` | Past events view |
 | `event.html` | Shareable, no-login single-event detail page (reads Sheet CSV) |
+| `roster.html` | Printable duty sign-up sheet, next 4/8/12 weeks (reads Sheet CSV) |
 | `duty.md` | Link/redirect to Duty Editor web app |
 | `speak.md` | Link to Google Form: offer to speak |
 | `request.md` | Link to Google Form: request a speaker |
@@ -189,6 +191,56 @@ the Coming Up / Club Events meta line and the Looking Ahead skim list).
 `renderMeetingEntry()` in `rotary-common.js` also gained a "Details →" link,
 which flows through to both `newsletter.html`'s Recent Meetings section and
 `past.html` for free since they share that renderer.
+
+---
+
+## Duty Roster (Printable Sign-Up Sheet)
+
+`roster.html` (`/roster/`) is a plain static page — same pattern as
+`event.html` — for printing a paper duty sign-up sheet to pass around on a
+clipboard before the meeting before this one. It reads the same published CSV
+via `assets/js/rotary-common.js`, client-side, no auth, and needs no Apps
+Script deployment: unlike the Duty Editor or Event Editor, it never writes
+anything, and the duty columns (MC, Setup/Teardown, AV/Zoom, Greeter,
+4-Way-Test, Thought, Detective, Bag Person) are already exposed in the CSV —
+`event.html`'s own duty-roster table reads them the same way — so there was
+no need to add an Apps Script route for a read-only view.
+
+**Scope:** `ROSTER_EVENT_TYPES` (`Meeting`, `Assembly`, `Social` — kept in
+sync with `DUTY_ROSTER_TYPES` in the Apps Script; Board Meetings are
+deliberately excluded from both), not cancelled, within a chosen window from
+today. A `<select>` toggles **Next 4 / 8 / 12 weeks**, persisted to
+`localStorage` (`rosterWeeks`).
+
+**Layout:** one block per meeting, its date line prefixed with the event
+type (e.g. "Assembly — Thu, March 5") since the list now mixes types, plus
+time, location, and `Speaker: Topic` if set. Below that, a 3-column table —
+Duty | Currently Assigned | a blank cell to sign up or cross out and write a
+new name (no underline — the table's own borders mark where to write). A
+blank "Currently Assigned" cell just stays blank, **except** MC, which shows
+*President* in italics as a hint when nobody else is assigned (a literal
+placeholder — the Officers tab isn't published as CSV for this page to read
+the real name). Nothing here writes back to the sheet — changes made on
+paper still need to be typed into the Duty Editor afterward.
+
+**Print styling:** a **Print** button triggers the browser print dialog;
+`@media print` hides the controls/nav *and* the site's own header/footer/page
+title, and overrides Minima's `.wrapper` max-width so the sheet uses the
+full page width instead of the ~800px reading column — this is a paper form,
+not an article. `@page{margin:0.5in}` and `page-break-inside:avoid` on each
+meeting block keep a block from splitting mid-table across a page break.
+
+**Linked from:** tool cards on `calendar.html` and the `/pipeline/` Tools
+page (next to the Agenda Generator card, since both get printed before a
+meeting), and a plain text link near the top of the Duty Editor
+(`getDutyEditorHtml()` in the Apps Script) using the absolute
+`https://rotary.porttack.com/roster/` URL with `target="_blank"` — a
+same-deployment link like `?app=agenda` would need the `__EXEC_URL__`
+injection (see Apps Script deployments below) since Apps Script serves pages
+inside a sandboxed iframe where relative links don't resolve, but a full
+external URL needs no such injection and opens in a new tab regardless. That
+link is staged in source only — it won't appear on the live page until the
+Duty Editor deployment is next redeployed.
 
 ---
 

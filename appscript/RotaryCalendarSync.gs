@@ -105,10 +105,12 @@ const DUTY_COLS = {
   bagPerson:     COL.BAG_PERSON,
 };
 
-// Event types that get a duty roster in the Duty Editor. Board Meetings are
-// deliberately excluded — they have no roster (cf. the newsletter, which also
-// skips the duty roster for board meetings).
-const DUTY_ROSTER_TYPES = ["meeting"];
+// Event types that get a duty roster in the Duty Editor. Assemblies and
+// Socials carry the same duty columns and need people signed up too (see the
+// printable roster.html page, which already lists all three). Board Meetings
+// are deliberately excluded — they have no roster (cf. the newsletter, which
+// also skips the duty roster for board meetings).
+const DUTY_ROSTER_TYPES = ["meeting", "assembly", "social"];
 
 // Event type options
 const EVENT_TYPES = ["Meeting", "Assembly", "Board Meeting", "Social", "Service", "Grey Bears", "Fundraiser", "District Event", "Committee", "Holiday", "Message", "Other"];
@@ -2571,8 +2573,11 @@ function getDutyEditorHtml() {
 </head>
 <body>
 <h1>SLV Rotary &mdash; Duty Editor</h1>
-<p class="sub">Assign duties for upcoming meetings within the next 12 weeks.
+<p class="sub">Assign duties for upcoming meetings, assemblies, and socials within the next 12 weeks.
   Names come from the <strong>Members</strong> tab in the spreadsheet.</p>
+<p class="sub" style="margin-top:-0.8em">
+  <a href="https://rotary.porttack.com/roster/" target="_blank">🖨️ Print the Duty Sign-Up Sheet &rarr;</a>
+</p>
 <p id="loading">Loading upcoming meetings&hellip;</p>
 <div id="no-members" style="display:none">
   No members found. Run <strong>Setup Members Tab</strong> from the sheet menu and add names.

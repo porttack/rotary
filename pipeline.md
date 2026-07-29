@@ -44,6 +44,12 @@ Share this URL with your team.</p>
   <p>Printable agenda for the next meeting, pulled from duties and speaker info. Print it or export to a Google Doc.</p>
 </a>
 
+<a class="tool-card" href="/roster/">
+  <div class="tool-badge">🖨️ Roster</div>
+  <h2>Duty Sign-Up Sheet</h2>
+  <p>Printable duty roster for the next 4/8/12 weeks — pass it around on a clipboard for members to sign up or cross out. Static page, no login needed.</p>
+</a>
+
 </div>
 
 <div class="section-label">Speaker Pipeline</div>

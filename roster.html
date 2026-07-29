@@ -1,0 +1,169 @@
+---
+layout: page
+title: Duty Roster
+permalink: /roster/
+---
+
+<style>
+  #controls { display: flex; align-items: center; gap: 0.6em; flex-wrap: wrap; margin-bottom: 1em; }
+  #controls select { padding: 6px 9px; border: 1px solid #c5cae9; border-radius: 6px; font-size: 0.9em; background: #fff; }
+  #print-btn {
+    background: #17458F; color: #fff; border: none; border-radius: 6px;
+    padding: 7px 16px; font-size: 0.9em; cursor: pointer;
+  }
+  #print-btn:hover { background: #1a56db; }
+  #status { color: #666; padding: 1.5em 0; }
+
+  .roster-club { text-align: center; color: #1a3a6b; font-weight: 800; font-size: 1.4em; }
+  .roster-sub { text-align: center; font-weight: 700; color: #333; font-size: 1.1em; margin: 0.1em 0 0.2em; }
+  .roster-gen { text-align: center; color: #888; font-size: 0.82em; margin-bottom: 1.3em; }
+
+  .mtg { margin-top: 1.6em; page-break-inside: avoid; }
+  .mtg:first-child { margin-top: 0; }
+  .mtg-hd { border-bottom: 2px solid #1a3a6b; padding-bottom: 0.25em; margin-bottom: 0.5em; }
+  .mtg-date { font-weight: 800; color: #1a3a6b; font-size: 1.1em; }
+  .mtg-meta { color: #555; font-size: 0.92em; margin-top: 1px; }
+  .mtg-title { color: #334155; font-size: 0.95em; margin-top: 2px; font-style: italic; }
+
+  table.roster { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 0.4em; }
+  table.roster th {
+    background: #1a3a6b; color: #fff; font-size: 0.78em; text-align: left; padding: 6px 8px;
+  }
+  table.roster td { border: 1px solid #d7dce6; padding: 10px 10px; font-size: 0.9em; vertical-align: middle; }
+  table.roster th:nth-child(1), table.roster td.role    { width: 18%; font-weight: 700; }
+  table.roster th:nth-child(2), table.roster td.current { width: 24%; color: #334155; }
+  table.roster th:nth-child(3), table.roster td.write   { width: 58%; }
+
+  /* Printed sheet: use the full page width (the site's ~800px content wrapper
+     is meant for reading, not a paper form) and give the write-in cell real
+     height to write in — no underline needed since the table's own borders
+     already mark where to write. */
+  @media print {
+    @page { margin: 0.5in; }
+    .site-header, .site-footer, .post-header { display: none !important; }
+    .wrapper { max-width: none !important; padding: 0 !important; margin: 0 !important; }
+    #controls, #nav-back { display: none !important; }
+    table.roster td.write { height: 2.6em; }
+    table.roster tr { page-break-inside: avoid; }
+  }
+</style>
+
+<div id="controls">
+  <label for="weeks" style="font-size:0.9em;color:#555">Show:</label>
+  <select id="weeks" onchange="setWeeks(this.value)">
+    <option value="4">Next 4 weeks</option>
+    <option value="8">Next 8 weeks</option>
+    <option value="12">Next 12 weeks</option>
+  </select>
+  <button id="print-btn" onclick="window.print()">🖨️ Print</button>
+</div>
+
+<p id="status">Loading&hellip;</p>
+<div id="sheet" style="display:none">
+  <div class="roster-club">Rotary Club of San Lorenzo Valley</div>
+  <div class="roster-sub">Duty Sign-Up Sheet</div>
+  <div class="roster-gen" id="gen"></div>
+  <div id="meetings"></div>
+</div>
+
+<p id="nav-back" style="text-align:center;margin-top:1.4em;font-size:0.85em">
+  <a href="/calendar/">Calendar</a>&middot;<a href="/year/">Year View</a>&middot;<a href="/newsletter/">Newsletter</a>
+</p>
+
+<script src="{{ '/assets/js/rotary-common.js' | relative_url }}"></script>
+<script>
+const ROLE_FIELDS = [
+  { key: 'mc',            label: 'MC'             },
+  { key: 'setupTeardown', label: 'Setup/Teardown' },
+  { key: 'avZoom',        label: 'AV/Zoom'        },
+  { key: 'greeter',       label: 'Greeter'        },
+  { key: 'fourWayTest',   label: '4-Way-Test'     },
+  { key: 'thought',       label: 'Thought'        },
+  { key: 'detective',     label: 'Detective'      },
+  { key: 'bagPerson',     label: 'Bag Person'     },
+];
+
+// Event types that get a duty roster on this sheet. Meetings are the usual
+// case, but Assemblies and Socials carry the same duty columns and need
+// people signed up too.
+const ROSTER_EVENT_TYPES = ['Meeting', 'Assembly', 'Social'];
+
+let allRows = [];
+
+function render(weeks) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const cutoff = new Date(today.getTime() + weeks * 7 * 24 * 3600 * 1000);
+
+  const meetings = allRows
+    .filter(row => ROSTER_EVENT_TYPES.includes(fv(row, COL.eventType)) && !isCancelled(row))
+    .map(row => ({ row, d: parseRowDate(row) }))
+    .filter(({ d }) => d && d >= today && d <= cutoff)
+    .sort((a, b) => a.d - b.d);
+
+  document.getElementById('gen').textContent =
+    'Generated ' + fmtLong(new Date()) + ' — next ' + weeks + ' weeks';
+
+  const wrap = document.getElementById('meetings');
+  wrap.innerHTML = '';
+  if (!meetings.length) {
+    wrap.innerHTML = '<p style="color:#888;padding:1em 0">No upcoming meetings in this window.</p>';
+    return;
+  }
+
+  meetings.forEach(({ row, d }) => {
+    const speaker = fv(row, COL.mainSpeaker);
+    const topic   = fv(row, COL.mainTopic);
+    let title = '';
+    if (speaker && topic) title = `${speaker}: ${topic}`;
+    else if (speaker)     title = speaker;
+    else if (topic)       title = topic;
+
+    const rows = ROLE_FIELDS.map(rf => {
+      const who = fv(row, COL[rf.key]);
+      // MC defaults to the club president when nobody else is assigned —
+      // shown as a hint, not fetched from the (unpublished) Officers tab.
+      const current = who ? esc(who) : (rf.key === 'mc' ? '<em>President</em>' : '');
+      return `<tr><td class="role">${esc(rf.label)}</td>` +
+        `<td class="current">${current}</td>` +
+        `<td class="write"></td></tr>`;
+    }).join('');
+
+    const div = document.createElement('div');
+    div.className = 'mtg';
+    div.innerHTML =
+      `<div class="mtg-hd">
+        <div class="mtg-date">${esc(fv(row, COL.eventType))} &mdash; ${esc(fmtDayDate(d))}</div>
+        <div class="mtg-meta">${esc(fv(row, COL.time))}${fv(row, COL.location) ? ' &middot; ' + esc(fv(row, COL.location)) : ''}</div>
+        ${title ? `<div class="mtg-title">${esc(title)}</div>` : ''}
+      </div>
+      <table class="roster">
+        <thead><tr><th>Duty</th><th>Currently Assigned</th><th>Sign Up / Cross Out to Change</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    wrap.appendChild(div);
+  });
+}
+
+function setWeeks(weeks) {
+  localStorage.setItem('rosterWeeks', weeks);
+  render(Number(weeks));
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  const saved = localStorage.getItem('rosterWeeks') || '4';
+  document.getElementById('weeks').value = saved;
+
+  fetch(CSV_URL + '&t=' + Date.now())
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then(text => {
+      const table = parseCSV(text);
+      allRows = table.slice(1);
+      document.getElementById('status').style.display = 'none';
+      document.getElementById('sheet').style.display = 'block';
+      render(Number(saved));
+    })
+    .catch(err => {
+      document.getElementById('status').textContent = 'Could not load the roster: ' + err.message;
+    });
+});
+</script>
