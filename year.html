@@ -60,6 +60,12 @@ permalink: /year/
      month — the days already gone by, so the eye lands on what's ahead. */
   .month-block.month-past { opacity: 0.42; }
   .month-cal td.day-past { opacity: 0.48; }
+  /* On phones, drop past months entirely rather than just fading them — the
+     vertical scroll is precious there. "screen and" keeps this from applying
+     when printing from a phone, so a printed copy still shows the full year. */
+  @media screen and (max-width: 560px) {
+    .month-block.month-past { display: none; }
+  }
   .month-cal .day-speaker    { font-style: italic; color: #000; }
   .month-cal .day-no-speaker { font-style: normal; color: #767676; }
   .month-cal .day-mtg-available { font-weight: bold; color: #17458F; }
