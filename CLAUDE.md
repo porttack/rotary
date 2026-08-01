@@ -55,8 +55,8 @@ zero CI pipeline.
 | File | Purpose |
 |---|---|
 | `index.md` | Homepage |
-| `calendar.html` | FullCalendar view (reads Sheet CSV) |
-| `year.html` | Mini year-at-a-glance grid (reads Sheet CSV) |
+| `calendar.html` | FullCalendar view (reads Sheet CSV); reached via a Tools page card, not the main nav |
+| `year.html` | Mini year-at-a-glance grid (reads Sheet CSV); the site's **Year** nav item (replaced Calendar as the main-nav entry) |
 | `newsletter.html` | Auto-rendered bulletin (reads Sheet CSV) |
 | `past.html` | Past events view |
 | `event.html` | Shareable, no-login single-event detail page (reads Sheet CSV) |
@@ -242,8 +242,8 @@ full page width instead of the ~800px reading column — this is a paper form,
 not an article. `@page{margin:0.5in}` and `page-break-inside:avoid` on each
 meeting block keep a block from splitting mid-table across a page break.
 
-**Linked from:** tool cards on `calendar.html` and the `/pipeline/` Tools
-page (next to the Agenda Generator card, since both get printed before a
+**Linked from:** a tool card on the `/pipeline/` Tools page (next to the
+Agenda Generator card, since both get printed before a
 meeting), and a plain text link near the top of the Duty Editor
 (`getDutyEditorHtml()` in the Apps Script) using the absolute
 `https://rotary.porttack.com/roster/` URL with `target="_blank"` — a
@@ -283,9 +283,8 @@ password-gated — it's read-only, so no login is needed.
 The Duty Editor deployment URL is stored in `_config.yml` as `apps_script_url`
 and used by `duty.md` (no param). The Event Editor (`?app=events`), Agenda
 Generator (`?app=agenda`), Book a Speaker (`?app=book`), Move a Speaker
-(`?app=move`), and Edit a Speaker (`?app=edit`) are reached from tool cards in
-`calendar.html` and the `/pipeline/` Tools page — none has a nav entry of its
-own.
+(`?app=move`), and Edit a Speaker (`?app=edit`) are reached from tool cards on
+the `/pipeline/` Tools page — none has a nav entry of its own.
 
 After editing the .gs file, go to **Deploy → Manage deployments**, select
 the relevant deployment, bump to **New version**, and redeploy. The Duty
@@ -328,7 +327,7 @@ near the other configuration constants. Edit it there to update club context.
 A member-facing web app (`?app=events`, `getEventEditorHtml()`) for adding and
 editing events without exposing the full sheet. Password-gated
 with `KANBAN_PASSWORD` (same login as the Speaker Pipeline apps); reached from
-tool cards in `calendar.html` and the `/pipeline/` Tools page.
+a tool card on the `/pipeline/` Tools page.
 
 **Scope:** all events within the next `EDITOR_WEEKS_AHEAD` weeks (52 — capped at
 ~a year so the list can't balloon into multiple years of weekly meetings). Two
@@ -520,7 +519,7 @@ buttons to **Print** (browser print, `@media print` hides the header/picker) or
 **Copy for Doc** (copies the agenda to the clipboard as rich HTML, built
 entirely client-side — see below). No password: it never writes to the Events
 sheet, so there's nothing to gate.
-Reached from tool cards in `calendar.html` and the `/pipeline/` Tools page.
+Reached from a tool card on the `/pipeline/` Tools page.
 
 **Eligible meetings:** `isAgendaEligible_(type, dateVal)` gates both the picker
 (`getAgendaData()`) and `buildAgendaModel_()` itself (so a manually-passed

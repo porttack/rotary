@@ -50,6 +50,24 @@ Share this URL with your team.</p>
   <p>Printable duty roster for the next 4/8/12 weeks — pass it around on a clipboard for members to sign up or cross out. Static page, no login needed.</p>
 </a>
 
+<a class="tool-card" href="/calendar/">
+  <div class="tool-badge">📅 Calendar</div>
+  <h2>Full Calendar</h2>
+  <p>Month-by-month FullCalendar view (with a list option) of the same event data as the Year view. Static page, no login needed.</p>
+</a>
+
+<a class="tool-card" href="/newsletter/">
+  <div class="tool-badge">📰 Newsletter</div>
+  <h2>Newsletter View</h2>
+  <p>Auto-rendered weekly bulletin with speaker summaries and meeting details. Static page, no login needed.</p>
+</a>
+
+<a class="tool-card" href="/past/">
+  <div class="tool-badge">🗂️ Past</div>
+  <h2>Past Meetings</h2>
+  <p>Archive of past meetings and speakers. Static page, no login needed.</p>
+</a>
+
 </div>
 
 <div class="section-label">Speaker Pipeline</div>

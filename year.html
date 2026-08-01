@@ -58,6 +58,14 @@ permalink: /year/
   .month-cal td.today { outline: 2px solid #dc2626; outline-offset: -1px; font-weight: bold; }
   .month-cal .day-speaker    { font-style: italic; color: #000; }
   .month-cal .day-no-speaker { font-style: normal; color: #767676; }
+  .month-cal .day-mtg-available { font-weight: bold; color: #17458F; }
+  .month-cal .day-mtg-taken     { font-style: normal; color: #fff; }
+
+  #mode-banner {
+    font-family: Arial, sans-serif; font-size: 0.82em; color: #444;
+    background: #fef9f2; border: 1px solid #f0e4d0; border-radius: 6px;
+    padding: 0.5em 0.8em; margin-bottom: 0.8em;
+  }
 
   #year-tip {
     display: none; position: fixed; z-index: 9999;
@@ -76,16 +84,38 @@ permalink: /year/
   #year-tip .tip-field   { margin-top: 0.15em; }
   #year-tip .tip-summary { color: #555; margin-top: 0.3em; font-size: 0.95em; }
   #year-tip hr           { border: none; border-top: 1px solid #e0e0e0; margin: 0.4em 0; }
+
+  #print-footer {
+    display: none; text-align: center;
+    font-family: Arial, sans-serif; font-size: 0.75em; color: #888;
+  }
+
+  @media print {
+    .site-header, .site-footer, .post-header { display: none !important; }
+    #year-controls { display: none !important; }
+    #year-tip { display: none !important; }
+    .wrapper { max-width: none !important; }
+    #print-footer {
+      display: block; position: fixed; left: 0; right: 0; bottom: 0;
+      border-top: 1px solid #ddd; padding-top: 0.3em;
+    }
+  }
 </style>
 
-<div style="text-align:right;font-size:0.78em;font-family:Arial,sans-serif;color:#888;margin-bottom:0.4em">
+<div id="year-controls" style="text-align:right;font-size:0.78em;font-family:Arial,sans-serif;color:#888;margin-bottom:0.4em">
   <span id="year-load-time"></span>
+  <a id="mode-toggle" href="#" style="margin-left:0.9em;font-size:0.9em;padding:2px 9px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;cursor:pointer;color:#17458F;text-decoration:none;font-weight:bold;display:inline-block"></a>
   <button onclick="loadYear()" style="margin-left:0.7em;font-size:0.9em;padding:2px 9px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;cursor:pointer">↻ Reload</button>
 </div>
 <div id="year-loading" style="text-align:center;padding:2em;color:#666;">Loading&hellip;</div>
 <div id="year-wrap" style="display:none">
 
-  <div class="year-legend">
+  <div id="mode-banner" style="display:none">
+    🎤 Showing only Meeting nights. <span style="color:#17458F;font-weight:bold">Blue</span> = <strong>open</strong> for a speaker;
+    <span style="background:#4b5563;color:#fff;padding:0 0.3em;border-radius:2px">dark grey</span> = already booked (unavailable).
+  </div>
+
+  <div class="year-legend" id="legend-full">
     <span class="leg-item"><span class="leg-swatch" style="background:#93c5fd"></span>Board Meeting</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#c7d8f7"></span>Meeting</span>
     <span class="leg-item"><span class="leg-swatch" style="background:#a5f3fc"></span>Assembly</span>
@@ -106,6 +136,13 @@ permalink: /year/
     <span class="leg-item"><em>12*</em> = speaker booked</span>
   </div>
 
+  <div class="year-legend" id="legend-open" style="display:none">
+    <span class="leg-item"><span class="leg-swatch" style="background:#c7d8f7"></span>Open, needs a speaker</span>
+    <span class="leg-item"><span class="leg-swatch" style="background:#4b5563"></span>Booked (unavailable)</span>
+    <span class="leg-item"><span class="leg-swatch" style="outline:2px solid #dc2626; outline-offset:-1px; font-weight:bold"></span>Today</span>
+    <span class="leg-item"><em>12*</em> = speaker booked</span>
+  </div>
+
   <!-- June special row: visible only when current month is June -->
   <div class="year-columns" id="june-row" style="display:none">
     <div class="year-col" id="col-june"></div>
@@ -119,10 +156,51 @@ permalink: /year/
   </div>
 </div>
 
+<div id="print-footer">Printed <span id="print-timestamp"></span></div>
+
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
 
 const COL = { eventType: 1, cancelled: 2, date: 4, time: 5, duration: 6, location: 7, openingSpeaker: 10, mainSpeaker: 11, mainTopic: 12, summary: 14 };
+
+// ?open=1 switches the grid to an "open speaker slots" view: only Meeting
+// nights are shown — open ones in the normal Meeting blue, taken (speaker
+// booked) ones in grey so unavailable nights read as "greyed out" at a
+// glance. Every other event type fades to a plain, uncolored cell so meeting
+// nights are the only thing that stands out.
+const OPEN_MODE = new URLSearchParams(window.location.search).get('open') === '1';
+const BOOK_URL  = '{{ site.apps_script_url }}?app=book';
+const OPEN_COLOR_TAKEN = '#4b5563';
+
+// Rotary year runs July–June; "2026-27" style label reused for the tab/print
+// title below (overriding it is the only way to control what the browser's
+// own print header shows, since that's drawn from document.title, not a page
+// element — the browser's date/time stamp alongside it isn't ours to change).
+const ROTARY_START_YEAR  = new Date().getMonth() <= 4 ? new Date().getFullYear() - 1 : new Date().getFullYear();
+const ROTARY_YEAR_LABEL  = `${ROTARY_START_YEAR}-${String((ROTARY_START_YEAR + 1) % 100).padStart(2, '0')}`;
+
+(function setupModeToggle() {
+  const toggle = document.getElementById('mode-toggle');
+  if (OPEN_MODE) {
+    toggle.textContent = '📅 Show full year';
+    toggle.href = window.location.pathname;
+    document.getElementById('mode-banner').style.display  = 'block';
+    document.getElementById('legend-full').style.display  = 'none';
+    document.getElementById('legend-open').style.display   = 'flex';
+    document.title = `SLV Rotary Open Speaker Slots ${ROTARY_YEAR_LABEL}`;
+  } else {
+    toggle.textContent = '🎤 Show open speaker nights';
+    toggle.href = window.location.pathname + '?open=1';
+    document.title = `SLV Rotary Year ${ROTARY_YEAR_LABEL}`;
+  }
+})();
+
+// Print footer: stamp the actual moment of printing (not page-load time),
+// since a tab can sit open a while before someone hits Cmd/Ctrl-P.
+window.addEventListener('beforeprint', function () {
+  document.getElementById('print-timestamp').textContent =
+    new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+});
 
 // Map raw event type string → canonical key
 function canonicalType(raw) {
@@ -442,7 +520,20 @@ function loadYear() {
               const dn       = !info || !info.hasMeeting ? dayNum
                 : info.hasSpeaker ? `<span class="day-speaker">${dayNum}*</span>`
                 : `<span class="day-no-speaker">${dayNum}</span>`;
-              if (!info) {
+              if (OPEN_MODE) {
+                // Only Meeting nights get colored, and always the same blue
+                // as a normal Meeting; everything else (other event types,
+                // non-meeting days) stays a plain uncolored cell, though it
+                // keeps its tooltip for context.
+                if (!info || !info.hasMeeting) {
+                  html += `<td${tCls ? ' class="today"' : ''}${info ? ` data-date="${key}"` : ''}>${dayNum}</td>`;
+                } else {
+                  const cls   = info.hasSpeaker ? 'day-mtg-taken' : 'day-mtg-available';
+                  const label = info.hasSpeaker ? `${dayNum}*` : dayNum;
+                  const bg    = info.hasSpeaker ? OPEN_COLOR_TAKEN : TYPE_COLOR.meeting;
+                  html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${bg}"><span class="${cls}">${label}</span></td>`;
+                }
+              } else if (!info) {
                 html += `<td${tCls ? ' class="today"' : ''}>${dayNum}</td>`;
               } else if (info.allCancelled) {
                 html += `<td class="ev-cancelled${tCls}" data-date="${key}">${dayNum}</td>`;
@@ -529,6 +620,9 @@ document.addEventListener('DOMContentLoaded', function () {
       if (ev.summary) {
         const s = ev.summary.length > 220 ? ev.summary.slice(0, 220) + '…' : ev.summary;
         h += '<div class="tip-summary">' + esc(s) + '</div>';
+      }
+      if (!ev.isCancelled && canonicalType(ev.rawType) === 'meeting' && !speakerBooked(ev.speaker)) {
+        h += '<div class="tip-field"><a href="' + BOOK_URL + '" target="_blank" style="font-size:0.92em;color:#b91c1c;font-weight:bold">📣 Needs a speaker — Book one →</a></div>';
       }
       if (ev.date && ev.rawType) {
         h += '<div class="tip-field"><a href="' + yearEventLink(ev.date, ev.rawType, ev.timeStr) +
