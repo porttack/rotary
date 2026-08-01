@@ -56,6 +56,10 @@ permalink: /year/
   .month-cal td:empty { background: none; }
   .month-cal td.ev-cancelled { background: #e5e7eb; color: #aaa; }
   .month-cal td.today { outline: 2px solid #dc2626; outline-offset: -1px; font-weight: bold; }
+  /* Fade months that are entirely in the past, and — within the current
+     month — the days already gone by, so the eye lands on what's ahead. */
+  .month-block.month-past { opacity: 0.42; }
+  .month-cal td.day-past { opacity: 0.48; }
   .month-cal .day-speaker    { font-style: italic; color: #000; }
   .month-cal .day-no-speaker { font-style: normal; color: #767676; }
   .month-cal .day-mtg-available { font-weight: bold; color: #17458F; }
@@ -493,13 +497,25 @@ function loadYear() {
 
       const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
+      // Builds a td class="..." attribute from any mix of class names,
+      // skipping blanks — lets each branch below layer today/day-past/etc.
+      // onto its own base classes without hand-splicing strings.
+      function classAttr(...classes) {
+        const c = classes.filter(Boolean).join(' ');
+        return c ? ` class="${c}"` : '';
+      }
+
       function buildMonthHtml(ms) {
         const yr       = ms.getFullYear();
         const moIdx    = ms.getMonth();
         const daysInMo = new Date(yr, moIdx + 1, 0).getDate();
         const moLabel  = ms.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        // A month entirely before the current one fades as a whole block;
+        // within the current month, individual days before today fade instead.
+        const isPastMonth    = yr < now.getFullYear() || (yr === now.getFullYear() && moIdx < now.getMonth());
+        const isCurrentMonth = yr === now.getFullYear() && moIdx === now.getMonth();
 
-        let html = `<div class="month-block">
+        let html = `<div class="month-block${isPastMonth ? ' month-past' : ''}">
 <div class="month-title">${esc(moLabel)}</div>
 <table class="month-cal" role="presentation">
 <thead><tr>${DOW.map(d => `<th>${d}</th>`).join('')}</tr></thead>
@@ -514,7 +530,8 @@ function loadYear() {
             } else {
               const key      = `${yr}-${String(moIdx + 1).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
               const info     = dayInfo[key];
-              const tCls     = key === todayKey ? ' today' : '';
+              const tCls     = key === todayKey ? 'today' : '';
+              const pastCls  = isCurrentMonth && dayNum < now.getDate() ? 'day-past' : '';
               // Meeting days: italic + black once a speaker is booked, plain
               // dark grey while still TBD, so open slots jump out at a glance.
               const dn       = !info || !info.hasMeeting ? dayNum
@@ -526,17 +543,17 @@ function loadYear() {
                 // non-meeting days) stays a plain uncolored cell, though it
                 // keeps its tooltip for context.
                 if (!info || !info.hasMeeting) {
-                  html += `<td${tCls ? ' class="today"' : ''}${info ? ` data-date="${key}"` : ''}>${dayNum}</td>`;
+                  html += `<td${classAttr(tCls, pastCls)}${info ? ` data-date="${key}"` : ''}>${dayNum}</td>`;
                 } else {
                   const cls   = info.hasSpeaker ? 'day-mtg-taken' : 'day-mtg-available';
                   const label = info.hasSpeaker ? `${dayNum}*` : dayNum;
                   const bg    = info.hasSpeaker ? OPEN_COLOR_TAKEN : TYPE_COLOR.meeting;
-                  html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${bg}"><span class="${cls}">${label}</span></td>`;
+                  html += `<td data-date="${key}"${classAttr(tCls, pastCls)} style="background:${bg}"><span class="${cls}">${label}</span></td>`;
                 }
               } else if (!info) {
-                html += `<td${tCls ? ' class="today"' : ''}>${dayNum}</td>`;
+                html += `<td${classAttr(tCls, pastCls)}>${dayNum}</td>`;
               } else if (info.allCancelled) {
-                html += `<td class="ev-cancelled${tCls}" data-date="${key}">${dayNum}</td>`;
+                html += `<td${classAttr('ev-cancelled', tCls, pastCls)} data-date="${key}">${dayNum}</td>`;
               } else {
                 const bdr   = borderStyle(info.timeOfDay);
                 const band  = info.bandType ? (TYPE_COLOR[info.bandType] || '#f3f4f6') : null;
@@ -554,7 +571,7 @@ function loadYear() {
                   const c2 = TYPE_COLOR[fills[1]] || '#f3f4f6';
                   bg = `linear-gradient(135deg,${c1} 50%,${c2} 50%)`;
                 }
-                html += `<td data-date="${key}"${tCls ? ' class="today"' : ''} style="background:${bg};${bdr}">${dn}</td>`;
+                html += `<td data-date="${key}"${classAttr(tCls, pastCls)} style="background:${bg};${bdr}">${dn}</td>`;
               }
             }
           }
