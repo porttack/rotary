@@ -323,6 +323,12 @@ that's a weaker boundary than it sounds).
 | `saveDuties(rowIndex, duties)` | write | Writes the 8 duty-role columns for one row |
 
 **Event Editor** (`?app=events`, password-checked on writes)
+Accepts optional `&date=YYYY-MM-DD&type=<Event Type>` query params — `doGet`
+injects them (escaped, via `jsSingleQuoteEscape_`) as `DEEPLINK_DATE`/
+`DEEPLINK_TYPE` globals in `getEventEditorHtml()`'s client script;
+`loadData()` matches them against the loaded events once and calls
+`openEdit(rowIndex)` to jump straight to that row's edit panel instead of the
+bare list. `event.html`'s "Edit This Event" link builds this URL.
 | Function | R/W | Purpose |
 |---|---|---|
 | `getEventEditorData()` | read | Non-meeting events in the next `EDITOR_WEEKS_AHEAD` (52) weeks + Members |

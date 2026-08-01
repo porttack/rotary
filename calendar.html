@@ -110,8 +110,7 @@ function rowToEvent(row) {
   // Clicking an event opens its shareable, no-login detail page (see
   // event.html) rather than jumping straight to a Meet/speaker link — that
   // page shows the Meet link, duties, and a map as its own actions.
-  let detailUrl = `/event/?date=${encodeURIComponent(dateStr)}&type=${encodeURIComponent(eventType)}`;
-  if (timeStr) detailUrl += `&time=${encodeURIComponent(timeStr)}`;
+  const detailUrl = `/event/?date=${encodeURIComponent(dateStr)}&type=${encodeURIComponent(eventType)}`;
 
   return {
     id:        f(row, COL.eventId),

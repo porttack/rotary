@@ -1831,6 +1831,18 @@ function getAgendaModel(rowIndex) {
 // ═══════════════════════════════════════════════════════════════
 
 /** Entry point for the deployed web app. Routes based on ?app= parameter. */
+// Escapes a URL param for safe embedding inside a single-quoted JS string
+// literal in a <script> block (see __DEEPLINK_DATE__/__DEEPLINK_TYPE__ below).
+// Escaping "<" (as <) additionally guards against a literal "</script"
+// in the value prematurely closing the surrounding <script> tag.
+function jsSingleQuoteEscape_(s) {
+  return String(s || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/</g, '\\u003C')
+    .replace(/\r?\n/g, '\\n');
+}
+
 function doGet(e) {
   const app = (e && e.parameter && e.parameter.app) || '';
   const mode = HtmlService.XFrameOptionsMode.ALLOWALL;
@@ -1838,9 +1850,16 @@ function doGet(e) {
   // inside the Apps Script sandbox iframe (relative links would 404/blank).
   let execUrl = '';
   try { execUrl = ScriptApp.getService().getUrl() || ''; } catch (_) {}
+  // Deep-link target for the Event Editor (?app=events&date=...&type=...),
+  // so an external link (e.g. from event.html's "Edit This Event") can open
+  // straight to the matching event's edit panel instead of the bare list.
+  const deepLinkDate = jsSingleQuoteEscape_((e && e.parameter && e.parameter.date) || '');
+  const deepLinkType = jsSingleQuoteEscape_((e && e.parameter && e.parameter.type) || '');
   const inject = (html) => html
     .replace(/__EXEC_URL__/g, execUrl)
-    .replace(/__AI_ENABLED__/g, String(PIPELINE_AI_ENABLED));
+    .replace(/__AI_ENABLED__/g, String(PIPELINE_AI_ENABLED))
+    .replace(/__DEEPLINK_DATE__/g, () => deepLinkDate)
+    .replace(/__DEEPLINK_TYPE__/g, () => deepLinkType);
   // Apps Script serves pages inside its own wrapper iframe and controls the
   // outer <head>, so a <meta viewport> inside the page HTML is ignored — phones
   // then render at a ~980px desktop width (tiny text, no media queries firing).
@@ -4615,6 +4634,7 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 <header>
   <h1>📋 Club Events</h1>
   <span id="hdr-user" style="font-size:0.85em;opacity:0.85"></span>
+  <a class="hbtn" href="https://rotary.porttack.com/year/" target="_blank" rel="noopener">Calendar →</a>
   <a class="hbtn" href="__EXEC_URL__" target="_top">Duty Editor →</a>
   <button class="hbtn" onclick="logout()">Logout</button>
 </header>
@@ -4687,6 +4707,9 @@ header h1{font-size:1.05em;font-weight:700;flex:1;letter-spacing:0.01em}
 <script>
 var DATA={events:[],members:[],types:[],allTypes:[]}, currentUser='', editingRow=0, toastTimer=null;
 var typeFilter=localStorage.getItem('eventEditorTypeFilter')||'__EVENTS__';
+// Deep-link target from the URL (?app=events&date=YYYY-MM-DD&type=<Event Type>),
+// e.g. the "Edit This Event" link on event.html. Consumed once in loadData().
+var DEEPLINK_DATE='__DEEPLINK_DATE__', DEEPLINK_TYPE='__DEEPLINK_TYPE__';
 var SPEAKER_TYPES=['Meeting','Assembly','Board Meeting'];
 var ADV_EXCLUDE=['Grey Bears']; // hidden from the "All types" view (rarely edited here); still selectable by name
 var DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -4936,8 +4959,18 @@ function deleteCurrent(){
 
 // ── Data + Auth ───────────────────────────────────────────────
 function loadData(){
-  gs('getEventEditorData').then(function(d){DATA=d;fillOptions();render();})
-    .catch(function(err){toast('Load error: '+(err.message||err),true);});
+  gs('getEventEditorData').then(function(d){
+    DATA=d;fillOptions();render();
+    if(DEEPLINK_DATE&&DEEPLINK_TYPE){
+      var match=null;
+      for(var i=0;i<DATA.events.length;i++){
+        if(DATA.events[i].date===DEEPLINK_DATE&&DATA.events[i].eventType===DEEPLINK_TYPE){match=DATA.events[i];break;}
+      }
+      if(match)openEdit(match.rowIndex);
+      else toast('Could not find that event to open — it may be outside the editable window.',true);
+      DEEPLINK_DATE='';DEEPLINK_TYPE=''; // only auto-open once per page load
+    }
+  }).catch(function(err){toast('Load error: '+(err.message||err),true);});
 }
 function doLogin(){
   var name=document.getElementById('auth-name').value.trim(), pw=document.getElementById('auth-pw').value;

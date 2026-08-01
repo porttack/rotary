@@ -171,14 +171,16 @@ URL or asking them to hunt through the calendar. Reads the same published CSV
 as `year.html`/`calendar.html`/`newsletter.html` via
 `assets/js/rotary-common.js`, client-side, no auth.
 
-**Identity / URL scheme:** `/event/?date=YYYY-MM-DD&type=<Event Type>&time=<Time>`
+**Identity / URL scheme:** `/event/?date=YYYY-MM-DD&type=<Event Type>`
 (`eventDetailUrl(row)` in `rotary-common.js` builds this). Deliberately **not**
 keyed by the hidden `Event ID` column — that's the Google Calendar sync ID,
 absent on any row that hasn't been pushed yet, and permanently absent on
-Holiday/Message rows (never pushed). Date + Event Type is usually unique on
-its own; `time` is included whenever the caller has it and only used to
-break a tie. Because it's just row content, the link stays valid even after a
-sheet re-sort (unlike a row-index-based link would).
+Holiday/Message rows (never pushed). Date + Event Type is treated as always
+unique — two events of the same type on the same day don't happen in
+practice. Because it's just row content, the link stays valid even after a
+sheet re-sort (unlike a row-index-based link would). `event.html` still
+accepts an optional `&time=` param as a tie-break for any old links already
+shared with it, but no page generates one anymore.
 
 **Renders (only when present in the data):** type badge + cancelled badge,
 title (meetings: `Speaker: Topic`; other types: Main Topic; falls back to the
@@ -327,7 +329,21 @@ near the other configuration constants. Edit it there to update club context.
 A member-facing web app (`?app=events`, `getEventEditorHtml()`) for adding and
 editing events without exposing the full sheet. Password-gated
 with `KANBAN_PASSWORD` (same login as the Speaker Pipeline apps); reached from
-a tool card on the `/pipeline/` Tools page.
+a tool card on the `/pipeline/` Tools page. Its header also has a "Calendar →"
+link (next to "Duty Editor →") pointing at the absolute
+`https://rotary.porttack.com/year/` URL, `target="_blank"` — same reasoning as
+the Duty Editor's link to `/roster/`: a same-deployment link like `?app=agenda`
+needs the `__EXEC_URL__` injection since Apps Script serves pages inside a
+sandboxed iframe, but a full external URL needs no such injection and opens in
+a new tab regardless.
+
+**Deep-linking:** `?app=events&date=YYYY-MM-DD&type=<Event Type>` opens
+straight to that event's edit panel instead of the bare list — `doGet` injects
+the (escaped) params as `DEEPLINK_DATE`/`DEEPLINK_TYPE` globals, and
+`loadData()` matches them against the loaded events once and calls
+`openEdit(rowIndex)`. This is what `event.html`'s "Edit This Event" button
+links to, so even an unsophisticated user forwarded that link lands directly
+on the right event rather than having to find it in the list themselves.
 
 **Scope:** all events within the next `EDITOR_WEEKS_AHEAD` weeks (52 — capped at
 ~a year so the list can't balloon into multiple years of weekly meetings). Two

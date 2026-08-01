@@ -175,10 +175,7 @@ function mapUrls(location) {
 function eventDetailUrl(row) {
   const type = fv(row, COL.eventType);
   const date = normDateStr(fv(row, COL.date));
-  const time = fv(row, COL.time);
-  let u = '/event/?date=' + encodeURIComponent(date) + '&type=' + encodeURIComponent(type);
-  if (time) u += '&time=' + encodeURIComponent(time);
-  return u;
+  return '/event/?date=' + encodeURIComponent(date) + '&type=' + encodeURIComponent(type);
 }
 
 function linkWrap(text, url) {
