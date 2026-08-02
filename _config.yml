@@ -7,6 +7,7 @@ description: >-
 url: "https://rotary.porttack.com"
 baseurl: ""
 email: ""  # TODO: add club contact email if desired
+author: Eric Brown  # site builder/maintainer, credited in the footer
 
 # Build
 theme: minima
