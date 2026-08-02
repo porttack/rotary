@@ -780,42 +780,6 @@ document.addEventListener('DOMContentLoaded', function () {
   // pinned = cell locked open by tap/click; hover is suppressed while pinned
   let cur = null, pinned = null;
 
-  // ── TEMPORARY on-screen debug log (remove once mobile tap issue is
-  // diagnosed) — shows every touch/mouse/click event live on the page
-  // itself, since we can't attach devtools to a real phone. ──────────
-  const dbg = document.createElement('div');
-  dbg.id = 'year-debug';
-  dbg.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;' +
-    'background:rgba(0,0,0,0.88);color:#7fff7f;font:10px/1.35 monospace;' +
-    'padding:4px 6px;max-height:32vh;overflow-y:auto;white-space:pre-wrap;' +
-    'pointer-events:none;';
-  document.body.appendChild(dbg);
-  const dbgLines = [];
-  function dbgLog(msg) {
-    dbgLines.push(msg);
-    if (dbgLines.length > 10) dbgLines.shift();
-    dbg.textContent = dbgLines.join('\n');
-    dbg.scrollTop = dbg.scrollHeight; // always show the latest lines
-  }
-  function dbgTag(t) {
-    if (!t || !t.tagName) return String(t);
-    let s = t.tagName.toLowerCase();
-    if (t.id) s += '#' + t.id;
-    if (t.className && typeof t.className === 'string') s += '.' + t.className.trim().split(/\s+/).join('.');
-    return s;
-  }
-  function dbgState() {
-    return 'pinned=' + (pinned ? pinned.dataset.date : 'null') +
-      ' tipDisp=' + tip.style.display + ' tipPinnedClass=' + tip.classList.contains('pinned');
-  }
-  // Capture phase on document = fires before ANY other handler (even ones
-  // that call stopPropagation), so this always sees the true event order.
-  ['touchstart', 'touchend', 'mousedown', 'mouseup', 'mouseover', 'click'].forEach(function (type) {
-    document.addEventListener(type, function (e) {
-      dbgLog(type + ' -> ' + dbgTag(e.target) + '  [' + dbgState() + ']');
-    }, true);
-  });
-
   // Touch devices never get the hover preview (see IS_TOUCH below) — only
   // tap-to-pin applies there.
   const IS_TOUCH = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
@@ -879,12 +843,6 @@ document.addEventListener('DOMContentLoaded', function () {
       tip.classList.remove('pinned');
       pinned = null;
     }
-  });
-
-  // Runs after the real click handler above (added later = runs later in
-  // bubble phase) — shows the resulting state once that handler is done.
-  document.addEventListener('click', function () {
-    dbgLog('  (after click handled) ' + dbgState());
   });
 });
 </script>
