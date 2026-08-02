@@ -194,10 +194,21 @@ info/signup link, and a duty-roster table showing **only the roles that are
 actually filled in** (no TBD clutter — this is a public link, not the
 internal roster view). A "Copy Link" button copies `window.location.href`.
 
-**Linked from:** `year.html` tooltips ("View details →" per event; the
-tooltip's `#year-tip` is `pointer-events:none` while hover-following but gets
-a `.pinned` class with `pointer-events:auto` when tapped/clicked open, so the
-link is actually clickable on the pinned state), `calendar.html` (every
+**Linked from:** `year.html` tooltips — the time/type/speaker/topic "head" of
+each event is one link to this page (with a "View details →" cta at top
+right so it still reads as tappable), rather than a standalone line, for a
+bigger mobile tap target. On desktop, `#year-tip` hover-follows the cursor
+with `pointer-events:none` until tapped/clicked, when it gets a `.pinned`
+class (`pointer-events:auto`) and stays put. On touch devices the hover
+preview is skipped entirely (`IS_TOUCH` check on the `mouseover` handler) —
+iOS otherwise treats a mouseover that visibly changes the page as "just
+reveal hover" and withholds the real `click` until a separate second tap,
+so a touch's first tap goes straight to pinning. Pinned state also renders
+differently by viewport: on screens ≤560px it docks as a full-width bottom
+sheet (away from the small calendar grid, so a mis-tap can't pop open a
+neighboring day) with a close (✕) button, since a small popover anchored
+next to a tiny tapped cell made mis-taps reopen a different day's card.
+Also linked from `calendar.html` (every
 FullCalendar event's `url` now points here — clicking an event opens the
 detail page instead of jumping straight to a Meet/speaker link; the detail
 page itself surfaces that link), and `newsletter.html` (a "Details" link in
