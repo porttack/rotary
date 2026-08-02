@@ -118,11 +118,21 @@ permalink: /year/
     touch-action: manipulation;
   }
   #year-tip .tip-head:active { background: #eef2ff; }
+  /* Clearfix: the floated photo (below) must not escape the head's box and
+     overlap the location/summary text that follows it. */
+  #year-tip .tip-head::after { content: ''; display: table; clear: both; }
   #year-tip .tip-head-row {
     display: flex; align-items: baseline; justify-content: space-between; gap: 0.6em;
   }
   #year-tip .tip-head-cta {
     color: #1a56db; font-weight: bold; font-size: 0.82em; white-space: nowrap; flex-shrink: 0;
+  }
+  /* One small photo per card, when the event has one — floated so the
+     time/type/speaker/topic text wraps beside it instead of the card
+     growing much taller. */
+  #year-tip .tip-head-photo {
+    float: left; width: 42px; height: 42px; object-fit: cover;
+    border-radius: 6px; margin: 0 0.5em 0.3em 0;
   }
   /* The remaining tooltip link (Book a speaker) gets the same bigger,
      block-level tap target — see the click-handler comment below for why
@@ -238,7 +248,25 @@ permalink: /year/
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSiIWI11d3jQFL8I7g5vosHef2w-v5nad_hPvrSmlt13_oTar0YXcCXJpV7ZjxCJjguIAXZ7tUB8eXO/pub?gid=1793625237&single=true&output=csv';
 
-const COL = { eventType: 1, cancelled: 2, date: 4, time: 5, duration: 6, location: 7, openingSpeaker: 10, mainSpeaker: 11, mainTopic: 12, summary: 14 };
+const COL = { eventType: 1, cancelled: 2, date: 4, time: 5, duration: 6, location: 7, openingSpeaker: 10, mainSpeaker: 11, mainTopic: 12, summary: 14, photoTop: 15, photoTopUrl: 28 };
+
+// Same logic as driveThumb()/photoSrc() in rotary-common.js (not shared here —
+// this file keeps its own small, self-contained CSV helpers) — keep in sync.
+// Prefer a direct URL in the photo cell; fall back to the companion URL column.
+function tipPhotoSrc(row) {
+  function driveThumb(u) {
+    if (!u) return '';
+    let id = '';
+    const i = u.indexOf('id=');
+    if (i >= 0) { id = u.substring(i + 3).split('&')[0]; }
+    else { const j = u.indexOf('/d/'); if (j >= 0) id = u.substring(j + 3).split('/')[0]; }
+    return id ? `https://drive.google.com/thumbnail?id=${id}&sz=w120` : u;
+  }
+  const v = fv(row, COL.photoTop);
+  if (v && v.startsWith('http')) return driveThumb(v);
+  const f = fv(row, COL.photoTopUrl);
+  return (f && f.startsWith('http')) ? driveThumb(f) : '';
+}
 
 // ?open=1 switches the grid to an "open speaker slots" view: only Meeting
 // nights are shown — open ones in the normal Meeting blue, taken (speaker
@@ -470,6 +498,7 @@ function loadYear() {
           mainSpeaker:    fv(row, COL.mainSpeaker),
           mainTopic:      fv(row, COL.mainTopic),
           summary:        fv(row, COL.summary),
+          photoTop:       tipPhotoSrc(row),
         };
         if (nDays <= 1) {
           (evsByDate[iso] = evsByDate[iso] || []).push(base);
@@ -505,6 +534,7 @@ function loadYear() {
             topic:          e.mainTopic,
             location:       e.location,
             summary:        e.summary,
+            photoTop:       e.photoTop,
             multiday:       !!e.multiday,
             spanLabel:      e.multiday ? fmtRange(e.spanStart, e.spanEnd) : '',
             isCancelled,
@@ -713,6 +743,9 @@ document.addEventListener('DOMContentLoaded', function () {
       // small cta at the top right (next to the time) signals it's tappable.
       const hasLink = !!(ev.date && ev.rawType);
       let head = '';
+      if (ev.photoTop) {
+        head += '<img class="tip-head-photo" src="' + esc(ev.photoTop) + '" alt="" loading="lazy" onerror="this.remove()">';
+      }
       if (ev.timeStr || hasLink) {
         head += '<div class="tip-head-row">' +
           (ev.timeStr ? '<span class="tip-time">' + esc(ev.timeStr) + '</span>' : '<span></span>') +
@@ -727,7 +760,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
       h += hasLink
         ? '<a class="tip-head" href="' + yearEventLink(ev.date, ev.rawType) + '">' + head + '</a>'
-        : head;
+        : '<div class="tip-head">' + head + '</div>';
 
       if (ev.location)       h += '<div class="tip-field">📍 ' + esc(ev.location)       + '</div>';
       if (ev.summary) {
