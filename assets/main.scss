@@ -45,3 +45,12 @@
     color: $grey-color-dark;
   }
 }
+
+// Link to the club's official ClubRunner site — this prototype isn't a
+// replacement for it, so it's bolded and brand-colored in the footer's
+// contact list to stand out from the plain links around it, without the
+// extra vertical space a full banner/button would take.
+.footer-clubrunner {
+  font-weight: 700;
+  color: #17458F; // Rotary brand blue
+}
