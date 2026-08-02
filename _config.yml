@@ -14,14 +14,17 @@ minima:
   skin: classic          # light/blue — matches Rotary brand
   date_format: "%B %-d, %Y"
 
-# Navigation — order controls header menu
+# Navigation — order controls header menu. Request a Speaker / Offer to
+# Speak / Duty Editor lead since they're the links members use most; Home
+# moved to the far right.
 header_pages:
-  - year.html
-  - duty.md
-  - speak.md
   - request.md
+  - speak.md
+  - duty.md
   - speakers.md
+  - year.html
   - pipeline.md
+  - home.md
 
 # Plugins (all supported by GitHub Pages)
 plugins:

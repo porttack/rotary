@@ -1,6 +1,7 @@
 ---
 layout: page
 title: Year
+nav_title: Calendar
 permalink: /year/
 ---
 
@@ -177,8 +178,28 @@ permalink: /year/
     font-family: Arial, sans-serif; font-size: 0.75em; color: #888;
   }
 
+  /* Quick links to the tools members reach for most — surfaced here since
+     the main nav collapses into an unlabeled hamburger menu on mobile,
+     and this is the default landing page. Desktop already shows them in
+     the nav, so this stays hidden above the $on-palm (600px) breakpoint. */
+  #mobile-quicklinks { display: none; }
+  @media screen and (max-width: 600px) {
+    #mobile-quicklinks {
+      display: flex; justify-content: center; flex-wrap: wrap;
+      gap: 0.4em 0.7em; font-family: Arial, sans-serif; font-size: 0.85em;
+      padding: 0.5em 0 0.6em; margin-bottom: 0.6em;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    #mobile-quicklinks a {
+      color: #17458F; font-weight: bold; text-decoration: none;
+    }
+    #mobile-quicklinks a:hover { text-decoration: underline; }
+    #mobile-quicklinks span { color: #ccc; }
+  }
+
   @media print {
     .site-header, .site-footer, .post-header { display: none !important; }
+    #mobile-quicklinks { display: none !important; }
     #year-controls { display: none !important; }
     #year-tip { display: none !important; }
     .wrapper { max-width: none !important; }
@@ -188,6 +209,14 @@ permalink: /year/
     }
   }
 </style>
+
+<div id="mobile-quicklinks">
+  <a href="{{ "/request/" | relative_url }}">Request a Speaker</a>
+  <span aria-hidden="true">&middot;</span>
+  <a href="{{ "/speak/" | relative_url }}">Offer to Speak</a>
+  <span aria-hidden="true">&middot;</span>
+  <a href="{{ "/duty/" | relative_url }}">Duty Editor</a>
+</div>
 
 <div id="year-controls" style="text-align:right;font-size:0.78em;font-family:Arial,sans-serif;color:#888;margin-bottom:0.4em">
   <span id="year-load-time"></span>

@@ -65,9 +65,10 @@ For the full picture — every `?app=` route, the complete RPC surface, and
 
 | Path | Purpose |
 |---|---|
-| `index.md` | Homepage |
+| `index.html` | Root URL (`/`); redirects to `/year/`, the site's effective landing page |
+| `home.md` | Homepage content (welcome + quick links), reached via the **Home** nav item (`/home/`) |
 | `calendar.html` | FullCalendar 6 view + tool cards, reads Sheet CSV |
-| `year.html` | Mini year-at-a-glance grid (July–June), reads Sheet CSV |
+| `year.html` | Mini year-at-a-glance grid (July–June), reads Sheet CSV — the site's de facto landing page |
 | `newsletter.html` | Dynamic weekly bulletin, reads Sheet CSV |
 | `past.html` | Past-meetings archive |
 | `event.html` | Shareable, no-login single-event detail page (`/event/`) |

@@ -1,0 +1,47 @@
+---
+# Only the main Sass file needs front matter (the dashes are enough)
+---
+
+@import "minima";
+
+// Highlight the nav item for the page currently being viewed. Desktop only —
+// on mobile the nav collapses into a dropdown (see minima's $on-palm
+// breakpoint), and this is unnecessary since the menu is closed by default.
+@media screen and (min-width: 601px) {
+  .site-nav .page-link.current {
+    color: #17458F; // Rotary brand blue
+    font-weight: 700;
+    border-bottom: 2px solid #17458F;
+  }
+}
+
+// Minima's .page-link has no white-space rule, so a multi-word label (e.g.
+// "Request a Speaker") can break mid-label when the nav runs out of room —
+// the browser wraps at any space, not just between separate links. Keep
+// each item's own words together; if the row overflows, whole items wrap
+// to the next line instead.
+.site-nav .page-link {
+  white-space: nowrap;
+}
+
+// A visible "Menu" word next to the hamburger icon — the bare icon isn't an
+// obvious tap target for members unfamiliar with the convention. Hidden by
+// default (desktop never shows the icon either); revealed only at the same
+// $on-palm breakpoint where minima collapses the nav into the hamburger.
+.site-nav .menu-label {
+  display: none;
+}
+@include media-query($on-palm) {
+  .site-nav label[for="nav-trigger"] {
+    width: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .site-nav .menu-label {
+    display: inline-block;
+    font-size: 0.85em;
+    font-weight: bold;
+    color: $grey-color-dark;
+  }
+}

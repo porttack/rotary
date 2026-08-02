@@ -54,9 +54,10 @@ zero CI pipeline.
 
 | File | Purpose |
 |---|---|
-| `index.md` | Homepage |
+| `index.html` | Root URL (`/`) — no content of its own, just redirects (meta refresh + JS `location.replace`, with a fallback link) to `/year/`, which is the site's effective landing page |
+| `home.md` | The actual homepage content (welcome blurb + quick links); reached via the **Home** nav item at `/home/`, not at `/` |
 | `calendar.html` | FullCalendar view (reads Sheet CSV); reached via a Tools page card, not the main nav |
-| `year.html` | Mini year-at-a-glance grid (reads Sheet CSV); the site's **Year** nav item (replaced Calendar as the main-nav entry) |
+| `year.html` | Mini year-at-a-glance grid (reads Sheet CSV); the site's **Calendar** nav item (`nav_title: Calendar` in front matter — the page's actual `title`/browser-tab text and permalink both stay `Year`/`/year/`; only the nav label changed, to avoid colliding with `calendar.html`'s own "Calendar" naming) and the de facto landing page (root `/` redirects here). On mobile (≤600px, not print) shows a `#mobile-quicklinks` bar at the top linking Duty Editor / Offer to Speak / Request a Speaker — the main nav is hidden behind the hamburger there, so this surfaces the links members use most on the page they land on by default |
 | `newsletter.html` | Auto-rendered bulletin (reads Sheet CSV) |
 | `past.html` | Past events view |
 | `event.html` | Shareable, no-login single-event detail page (reads Sheet CSV) |
@@ -64,7 +65,10 @@ zero CI pipeline.
 | `duty.md` | Link/redirect to Duty Editor web app |
 | `speak.md` | Link to Google Form: offer to speak |
 | `request.md` | Link to Google Form: request a speaker |
-| `_config.yml` | Site config, nav order, Apps Script URL |
+| `_config.yml` | Site config, nav order (Request a Speaker / Offer to Speak / Duty Editor lead, since those are the links members use most; Home sits last), Apps Script URL |
+| `_layouts/page.html` | Overrides Minima's default `page` layout to drop the `<h1>` page-title heading (redundant with the site header/nav) that Minima renders above every page's content |
+| `_includes/header.html` | Overrides Minima's default header: renders each nav link's text from `my_page.nav_title \| default: my_page.title` (a page can display a different nav label than its own `title` — used by `year.html`), marks the nav link matching the current page with a `.current` class (`page.url == my_page.url`) so it can be highlighted, and adds a `.menu-label` "Menu" text span next to the hamburger icon (Minima's default is icon-only, not an obvious tap target for members unfamiliar with the convention) |
+| `assets/main.scss` | Overrides Minima's default stylesheet entry point (`@import "minima";` plus our own rules): the desktop-only `.page-link.current` highlight (Rotary brand blue), and the `.menu-label` mobile-only reveal (hidden by default, shown only at minima's own `$on-palm` breakpoint via `@include media-query($on-palm)`, matching where the nav actually collapses into the hamburger) |
 | `appscript/RotaryCalendarSync.gs` | All Apps Script logic (single file) |
 
 ---

@@ -1,6 +1,7 @@
 ---
-layout: home
+layout: page
 title: Home
+permalink: /home/
 ---
 
 Welcome to the **SLV Rotary Management Prototype** site.
