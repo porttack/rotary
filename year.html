@@ -793,8 +793,9 @@ document.addEventListener('DOMContentLoaded', function () {
   const dbgLines = [];
   function dbgLog(msg) {
     dbgLines.push(msg);
-    if (dbgLines.length > 16) dbgLines.shift();
+    if (dbgLines.length > 10) dbgLines.shift();
     dbg.textContent = dbgLines.join('\n');
+    dbg.scrollTop = dbg.scrollHeight; // always show the latest lines
   }
   function dbgTag(t) {
     if (!t || !t.tagName) return String(t);
@@ -815,9 +816,22 @@ document.addEventListener('DOMContentLoaded', function () {
     }, true);
   });
 
+  // Touch devices never get the hover preview (see IS_TOUCH below) — only
+  // tap-to-pin applies there.
+  const IS_TOUCH = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
+
   // ── Desktop hover ────────────────────────────────────────────
   document.addEventListener('mouseover', function (e) {
-    if (pinned) return;
+    // iOS fires a synthetic mouseover for every tap. If its handler visibly
+    // changes the page (ours pops open a tooltip), iOS treats that first
+    // tap as "just reveal hover" and withholds the real click event until a
+    // second, separate tap — which is why taps looked like they were doing
+    // nothing/bouncing: the tooltip shown here has pointer-events:none, so
+    // every subsequent tap on it (even "View details") fell through to
+    // whatever was underneath. Skipping mouseover entirely on touch devices
+    // avoids ever triggering that ambiguity, so the first tap's click fires
+    // normally and reaches the pin logic below.
+    if (IS_TOUCH || pinned) return;
     const td = e.target.closest && e.target.closest('td[data-date]');
     if (!td || td === cur) return;
     cur = td;
@@ -826,12 +840,12 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   document.addEventListener('mousemove', function (e) {
-    if (pinned || tip.style.display === 'none') return;
+    if (IS_TOUCH || pinned || tip.style.display === 'none') return;
     placeAtCursor(e);
   });
 
   document.addEventListener('mouseout', function (e) {
-    if (pinned) return;
+    if (IS_TOUCH || pinned) return;
     if (e.target === cur) { tip.style.display = 'none'; cur = null; }
   });
 
