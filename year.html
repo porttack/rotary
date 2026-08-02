@@ -98,10 +98,13 @@ permalink: /year/
      event detail page — a much bigger mobile tap target than a standalone
      "View details" line. Text keeps its normal (non-link) styling so it
      doesn't read as a wall of blue links; the small cta at top right is what
-     signals it's tappable. */
+     signals it's tappable. touch-action:manipulation stops a tiny bit of
+     finger drift mid-tap from being read as a scroll gesture instead of a
+     click — without it, mobile browsers can swallow the tap entirely. */
   #year-tip .tip-head {
     display: block; color: inherit; text-decoration: none;
     padding: 0.3em 0.35em; margin: -0.3em -0.35em 0.1em; border-radius: 4px;
+    touch-action: manipulation;
   }
   #year-tip .tip-head:active { background: #eef2ff; }
   #year-tip .tip-head-row {
@@ -115,6 +118,37 @@ permalink: /year/
      that matters on mobile. */
   #year-tip .tip-field a {
     display: block; padding: 0.4em 0.1em; margin: -0.4em -0.1em;
+    touch-action: manipulation;
+  }
+  /* Close button — only shown/needed in the phone bottom-sheet layout below,
+     since desktop/hover dismisses by moving the mouse or clicking elsewhere. */
+  #year-tip .tip-close {
+    display: none; position: absolute; top: 0.3em; right: 0.4em;
+    width: 28px; height: 28px; line-height: 26px; text-align: center;
+    background: #eef1f6; border: none; border-radius: 50%;
+    font-size: 1.15em; color: #555; cursor: pointer; padding: 0;
+    touch-action: manipulation;
+  }
+  /* On phones a floating popover anchored right next to the tapped day cell
+     means any small mis-tap lands on a *different*, tiny neighboring cell
+     instead of the card — which is exactly the "the card jumps around the
+     screen" problem. Docking the pinned tooltip as a full-width sheet at
+     the bottom of the screen, away from the calendar grid entirely, means a
+     miss just lands on inert sheet background (or the page behind it, which
+     safely dismisses) instead of popping open a different day. */
+  @media screen and (max-width: 560px) {
+    #year-tip.pinned {
+      position: fixed !important;
+      left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important;
+      width: auto; max-width: none; min-width: 0;
+      max-height: 60vh; overflow-y: auto;
+      border-radius: 14px 14px 0 0;
+      padding: 0.9em 1em calc(0.9em + env(safe-area-inset-bottom, 0px));
+      font-size: 1em;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.28);
+    }
+    #year-tip.pinned .tip-close { display: block; }
+    #year-tip.pinned .tip-body  { padding-right: 2em; }
   }
 
   #print-footer {
@@ -646,7 +680,13 @@ document.addEventListener('DOMContentLoaded', loadYear);
 document.addEventListener('DOMContentLoaded', function () {
   const tip = document.createElement('div');
   tip.id = 'year-tip';
+  // The close (✕) button lives outside the per-event innerHTML that
+  // showForCell() replaces, so it survives when the tooltip's content
+  // changes (e.g. tapping a different day while pinned). Only shown/needed
+  // in the phone bottom-sheet layout — see the max-width:560px CSS above.
+  tip.innerHTML = '<button type="button" class="tip-close" aria-label="Close">&times;</button><div class="tip-body"></div>';
   document.body.appendChild(tip);
+  const tipBody = tip.querySelector('.tip-body');
 
   function tipHtml(details) {
     return details.map(function (ev, i) {
@@ -721,7 +761,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function showForCell(td) {
     const info = window._yearTipData && window._yearTipData[td.dataset.date];
     if (!info || !info.details || !info.details.length) return false;
-    tip.innerHTML = tipHtml(info.details);
+    tipBody.innerHTML = tipHtml(info.details);
     tip.style.display = 'block';
     return true;
   }
@@ -751,6 +791,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // ── Tap / click — works on both mobile and desktop ───────────
   document.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('.tip-close')) {
+      tip.style.display = 'none';
+      tip.classList.remove('pinned');
+      pinned = null;
+      e.stopPropagation();
+      return;
+    }
     const td = e.target.closest && e.target.closest('td[data-date]');
     if (td) {
       if (td === pinned) {
