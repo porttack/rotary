@@ -208,6 +208,11 @@ differently by viewport: on screens ≤560px it docks as a full-width bottom
 sheet (away from the small calendar grid, so a mis-tap can't pop open a
 neighboring day) with a close (✕) button, since a small popover anchored
 next to a tiny tapped cell made mis-taps reopen a different day's card.
+When an event has a top photo, a small 42px thumbnail (`tipPhotoSrc()` —
+same PHOTO_TOP/photo-URL-column logic as `photoSrc()` in rotary-common.js,
+reimplemented locally since year.html keeps its own self-contained CSV
+parsing rather than sharing that file) floats beside the head text; omitted
+entirely when there's no photo, no placeholder shown.
 Also linked from `calendar.html` (every
 FullCalendar event's `url` now points here — clicking an event opens the
 detail page instead of jumping straight to a Meet/speaker link; the detail
