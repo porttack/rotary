@@ -68,6 +68,12 @@ Share this URL with your team.</p>
   <p>Archive of past meetings and speakers. Static page, no login needed.</p>
 </a>
 
+<a class="tool-card" href="/gallery/">
+  <div class="tool-badge">📷 Photos</div>
+  <h2>Photo Gallery</h2>
+  <p>Auto-advancing, full-screen slideshow of photos from the last five years of club events. Static page, no login needed.</p>
+</a>
+
 </div>
 
 <div class="section-label">Speaker Pipeline</div>
